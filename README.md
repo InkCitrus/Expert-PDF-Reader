@@ -75,3 +75,11 @@ swift scripts/make_app_icon.swift
 ## 📄 Reverse Engineering Documentation
 
 See [docs/REA_ANALYSIS.md](docs/REA_ANALYSIS.md) for the complete disassembly, shader matrices, and architecture analysis of `/Applications/PDF Expert.app`.
+
+---
+
+## ⚖️ License
+
+[MIT](LICENSE) © 2026 InkCitrus
+
+Expert PDF Reader is an independent project and is not affiliated with, endorsed by, or sponsored by Readdle. PDF Expert is a trademark of Readdle Inc.

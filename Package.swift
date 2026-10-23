@@ -14,11 +14,7 @@ let package = Package(
         .executableTarget(
             name: "ExpertPDFReader",
             path: "Sources/ExpertPDFReader",
-            exclude: [
-                "Shaders/RDPDFShaders.metal"
-            ],
             resources: [
-                .copy("Resources/RDPDFShaders.metallib"),
                 .copy("Resources/en.lproj"),
                 .copy("Resources/zh-Hans.lproj")
             ]

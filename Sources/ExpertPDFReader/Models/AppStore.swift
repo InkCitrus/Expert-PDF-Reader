@@ -1100,8 +1100,8 @@ public final class AppStore: ObservableObject {
         self.selectedTabID = homeTabID
 
         loadPersistedState()
-        ensureSampleDocumentInRecents()
         restoreOpenTabs()
+        ensureSampleDocumentInRecents()
         applyAppAppearance()
 
         // Observe locale changes to re-format DocumentItem.dateOpenedText (from ARCHITECTURE.md PEM-10270)
@@ -1137,6 +1137,7 @@ public final class AppStore: ObservableObject {
         for idx in documents.indices {
             documents[idx].dateOpenedText = newFormatter.string(from: documents[idx].dateOpened)
         }
+        refreshLocalizedSampleGuide()
     }
 
     // MARK: - Computed Document Collections
@@ -1371,17 +1372,71 @@ public final class AppStore: ObservableObject {
     // MARK: - Persistence & Sample Initialization
 
     private func ensureSampleDocumentInRecents() {
-        let sampleURL = SamplePDFGenerator.ensureSamplePDFExists()
+        refreshLocalizedSampleGuide(ensurePresentIfMissing: true)
+    }
+
+    private func refreshLocalizedSampleGuide(ensurePresentIfMissing: Bool = false) {
+        let sampleURL = SamplePDFGenerator.ensureSamplePDFExists(for: appLanguage)
         let sampleID = DocumentID(url: sampleURL)
-        if !documents.contains(where: { $0.documentID == sampleID }),
-           let pdfDoc = PDFDocument(url: sampleURL) {
+        guard let pdfDoc = PDFDocument(url: sampleURL) else { return }
+
+        // Check if any existing sample guide (in another language or legacy folder) was in recents/favorites
+        let existingGuideIDs = documents
+            .map(\.documentID)
+            .filter { SamplePDFGenerator.isSampleGuideURL($0.url) && $0 != sampleID }
+
+        let replacesRecentGuide = existingGuideIDs.contains(where: { recentDocumentIDs.contains($0) })
+        let replacesFavoriteGuide = existingGuideIDs.contains(where: { favoriteDocumentIDs.contains($0) })
+        // Only (re)record when the guide is missing or replaces another language's copy, so it doesn't
+        // jump to the top of Recents on every launch
+        let addsMissingGuide = ensurePresentIfMissing
+            && existingGuideIDs.isEmpty
+            && !documents.contains(where: { $0.documentID == sampleID })
+
+        for oldID in existingGuideIDs {
+            recentDocumentIDs.removeAll(where: { $0 == oldID })
+            favoriteDocumentIDs.remove(oldID)
+            documents.removeAll(where: { $0.documentID == oldID })
+        }
+
+        if addsMissingGuide || replacesRecentGuide || replacesFavoriteGuide {
             recordDocumentOpen(url: sampleURL, pdfDocument: pdfDoc)
-            setFavorite(id: sampleID, isFavorite: true)
+            if addsMissingGuide || replacesFavoriteGuide {
+                setFavorite(id: sampleID, isFavorite: true)
+            }
+        }
+
+        // Also update any currently open Reading Guide tab in-place so switching language immediately updates the open guide
+        for idx in tabs.indices {
+            guard case .document(let oldState) = tabs[idx],
+                  SamplePDFGenerator.isSampleGuideURL(oldState.documentID.url),
+                  oldState.documentID != sampleID else {
+                continue
+            }
+            let wasSelected = (selectedTabID == oldState.id)
+            let newState = DocumentTabState(url: sampleURL, pdfDocument: pdfDoc)
+            newState.currentPageIndex = min(oldState.currentPageIndex, max(0, pdfDoc.pageCount - 1))
+            newState.zoomScale = oldState.zoomScale
+            newState.isAutoScaling = oldState.isAutoScaling
+            newState.layoutMode = oldState.layoutMode
+            newState.isClearMarginsEnabled = oldState.isClearMarginsEnabled
+            newState.isLeftSidebarVisible = oldState.isLeftSidebarVisible
+            newState.leftPanel = oldState.leftPanel
+            newState.activeSidebarTab = oldState.activeSidebarTab
+            if newState.isClearMarginsEnabled {
+                newState.applyClearMarginsIfNeeded()
+            }
+            observeReadingPosition(of: newState)
+            let newTab = AppTab.document(newState)
+            tabs[idx] = newTab
+            if wasSelected {
+                selectedTabID = newTab.id
+            }
         }
     }
 
     public func openGettingStartedGuide() {
-        let sampleURL = SamplePDFGenerator.ensureSamplePDFExists()
+        let sampleURL = SamplePDFGenerator.ensureSamplePDFExists(for: appLanguage)
         openDocument(at: sampleURL)
     }
 
@@ -1478,9 +1533,8 @@ public final class AppStore: ObservableObject {
             bookmarksByDocument = decoded
         }
 
-        let legacySamplePath = SamplePDFGenerator.legacySampleURL.path
         if let favPaths = defaults.stringArray(forKey: Keys.favorites) {
-            for path in favPaths where path != legacySamplePath {
+            for path in favPaths {
                 if let url = resolveFileURL(path: path) {
                     favoriteDocumentIDs.insert(DocumentID(url: url))
                 }
@@ -1490,7 +1544,7 @@ public final class AppStore: ObservableObject {
         var detailRequests: [(id: DocumentID, needsPageCount: Bool)] = []
         if let data = defaults.data(forKey: Keys.recents),
            let entries = try? decoder.decode([PersistedRecentEntry].self, from: data) {
-            for entry in entries where entry.path != legacySamplePath {
+            for entry in entries {
                 guard recentDocumentIDs.count < Self.maxRecentDocuments,
                       let url = resolveFileURL(path: entry.path) else { continue }
                 let docID = DocumentID(url: url)

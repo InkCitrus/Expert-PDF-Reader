@@ -34,7 +34,7 @@ fi
 
 # The page-theme Metal shaders are compiled at runtime from the source in MetalShaderRenderer.swift,
 # so no .metallib is bundled.
-cp -R Sources/ExpertPDFReader/Resources/en.lproj Sources/ExpertPDFReader/Resources/zh-Hans.lproj "$APP_BUNDLE/Contents/Resources/"
+cp -R Sources/ExpertPDFReader/Resources/*.lproj "$APP_BUNDLE/Contents/Resources/"
 # Original app icon (regenerate with: swift scripts/make_app_icon.swift)
 cp Assets/AppIcon.icns "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 

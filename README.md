@@ -15,7 +15,7 @@ Retains only the core **PDF reading & theme switching** experience (no editing, 
   - **Night (夜间)**: Exact luminance inversion from `nightTexturingModeFragmentShader` ($v = 0.75 - 0.25(R+G+B)$, `#000000` paper, `#BFBFBF` 75% soft silver ink to prevent dark-room glare, `#202223` canvas backdrop).
   - **Lossless Retina + Zoom Sharpness**: Attaches `CIColorMatrix` above `NSClipView`'s magnification transform (`PDFScrollView.layer`) so `PDFPageLayerTile` layers rasterize at full `backingScaleFactor × magnification` before color-matrix filtering.
 - **Internationalization (i18n)**
-  - Supports **Follow System (跟随系统)**, **Simplified Chinese (简体中文)**, and **English**, switchable live from Settings (`⌘,`), the View menu, or the View Settings panel.
+  - Supports **Follow System (跟随系统)** and **12 languages**: **简体中文**, **繁體中文**, **English**, **日本語**, **한국어**, **Français**, **Deutsch**, **Español**, **Italiano**, **Português**, **Русский**, and **Українська**, switchable live from Settings (`⌘,`), the View menu, or the View Settings panel.
 - **PDF Expert 3–Style Interface**
   - **Unified 40pt title bar**: traffic lights centered on the tab strip, icon-only Home tab (`HomeTabButtonView`), document tabs (close on hover, context menu) and `+` to open files.
   - **Toolbar**: Document Summary / Page Overview / View Settings toggles, zoom pop-up with presets and `−`/`+`, Follow System / Day / Sepia / Night switcher, Clear Margins, Rotate, Share, Bookmark and a search field.

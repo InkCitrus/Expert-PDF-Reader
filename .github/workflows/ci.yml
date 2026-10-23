@@ -36,7 +36,7 @@ jobs:
         run: ./scripts/make_dmg.sh
 
       - name: Upload DMG
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: Expert-PDF-Reader-${{ github.sha }}
           path: build/*.dmg

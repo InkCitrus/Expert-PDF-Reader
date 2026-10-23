@@ -1,5 +1,7 @@
 # Expert PDF Reader (`OpenPDFExpert`)
 
+**English** · [简体中文](docs/README.zh-CN.md) · [繁體中文](docs/README.zh-TW.md) · [日本語](docs/README.ja.md) · [한국어](docs/README.ko.md)
+
 Clean-room macOS native implementation of **PDF Expert (v3.13.4) Reader Edition**, built following the [`morluto/rea`](https://github.com/morluto/rea) (`Decompile → Understand → Recreate`) reverse-engineering methodology.
 
 Retains only the core **PDF reading & theme switching** experience (no editing, annotation, or paywall bloat).

@@ -1,0 +1,7 @@
+# Keeps the workflows' actions up to date (e.g. when an action moves to a newer Node runtime)
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

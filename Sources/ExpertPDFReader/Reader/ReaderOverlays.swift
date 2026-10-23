@@ -81,7 +81,7 @@ struct SearchResultsPanel: View {
             return L10n.tr("在文档中查找文字", "Find text in document")
         }
         if tab.searchMatches.isEmpty {
-            return L10n.searchNotFound(query)
+            return tab.isSearching ? L10n.tr("正在搜索…", "Searching…") : L10n.searchNotFound(query)
         }
         return L10n.searchMatchSummary(current: tab.selectedMatchIndex + 1, total: tab.searchMatches.count)
     }
@@ -95,6 +95,9 @@ struct SearchResultsPanel: View {
                 subtitle: L10n.tr("在工具栏的搜索框中输入关键词，匹配结果会按页列在这里", "Type keywords in the toolbar search box to list matches by page"),
                 isDark: isDark
             )
+        } else if tab.searchMatches.isEmpty && tab.isSearching {
+            ProgressView()
+                .controlSize(.small)
         } else if tab.searchMatches.isEmpty {
             PanelEmptyState(
                 icon: "text.magnifyingglass",

@@ -112,24 +112,26 @@ In `ThemedPDFView` (`PDFReaderCanvasView.swift`), we attach the `CIColorMatrix` 
 ```text
 Expert-PDF-Reader/
 ├── Package.swift
-├── build.sh
-├── Expert PDF Reader.app/                 # Built macOS application bundle
+├── build.sh                               # Builds build/Expert PDF Reader.app (ARCHS="arm64 x86_64" for universal)
+├── LICENSE                                # MIT
+├── .github/workflows/                     # CI (.dmg artifact per push) + tag-triggered GitHub Release
+├── Support/
+│   └── Info.plist                         # App bundle Info.plist template
 ├── Assets/
 │   └── AppIcon.icns / AppIcon.png         # Original tri-theme app icon (generated)
 ├── scripts/
-│   └── make_app_icon.swift                # Draws the icon with SwiftUI ImageRenderer + iconutil
+│   ├── make_app_icon.swift                # Draws the icon with SwiftUI ImageRenderer + iconutil
+│   └── make_dmg.sh                        # Packages the built app as a drag-to-Applications .dmg
 ├── docs/
 │   └── REA_ANALYSIS.md
 └── Sources/ExpertPDFReader/
     ├── Resources/
-    │   ├── RDPDFShaders.metallib          # Extracted Metal shader library
     │   ├── en.lproj/Localizable.strings   # English localization strings
     │   └── zh-Hans.lproj/Localizable.strings # Simplified Chinese localization strings
     ├── Localization/
     │   └── L10n.swift                     # Reactive i18n manager (System / 简体中文 / English)
     ├── Shaders/
-    │   ├── RDPDFShaders.metal             # Reconstructed Metal shader source
-    │   └── MetalShaderRenderer.swift      # Metal + CoreImage GPU theme pipeline
+    │   └── MetalShaderRenderer.swift      # Metal (compiled at runtime from inline source) + CoreImage theme pipeline
     ├── DesignLibrary/
     │   └── RDDesignLibrary.swift          # Exact RDDesignLibrary.ColorPalette & PDFReadingThemeMode
     ├── Models/

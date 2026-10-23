@@ -2,11 +2,32 @@ import AppKit
 import SwiftUI
 
 public final class ExpertPDFReaderAppDelegate: NSObject, NSApplicationDelegate {
-    var store: AppStore?
+    var store: AppStore? {
+        didSet { openPendingURLs() }
+    }
+
+    /// Files handed to the app before the window has set `store` (e.g. double-clicking a PDF in Finder
+    /// while the app is not running); opened as soon as `store` is available.
+    private var pendingURLs: [URL] = []
+    private var zoomKeyMonitor: Any?
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+
+        // ⌘= zooms in like the menu's ⌘+, which needs Shift on many keyboard layouts
+        zoomKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+                  event.charactersIgnoringModifiers == "=" else {
+                return event
+            }
+            let handled = MainActor.assumeIsolated { () -> Bool in
+                guard let tab = self?.store?.activeDocumentTab else { return false }
+                tab.triggerZoom(.zoomIn)
+                return true
+            }
+            return handled ? nil : event
+        }
 
         // Open any PDF file paths passed via command-line arguments
         let args = Array(CommandLine.arguments.dropFirst())
@@ -14,16 +35,29 @@ public final class ExpertPDFReaderAppDelegate: NSObject, NSApplicationDelegate {
             let url = URL(fileURLWithPath: arg)
             if url.pathExtension.lowercased() == "pdf",
                FileManager.default.fileExists(atPath: url.path) {
-                Task { @MainActor in
-                    self.store?.openDocument(at: url)
-                }
+                pendingURLs.append(url)
             }
+        }
+        openPendingURLs()
+    }
+
+    public func applicationWillTerminate(_ notification: Notification) {
+        MainActor.assumeIsolated {
+            store?.saveSession()
         }
     }
 
     public func application(_ application: NSApplication, open urls: [URL]) {
+        pendingURLs.append(contentsOf: urls)
+        openPendingURLs()
+    }
+
+    private func openPendingURLs() {
+        guard let store, !pendingURLs.isEmpty else { return }
+        let urls = pendingURLs
+        pendingURLs.removeAll()
         Task { @MainActor in
-            self.store?.openDocuments(at: urls)
+            store.openDocuments(at: urls)
         }
     }
 }

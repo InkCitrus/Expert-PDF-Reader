@@ -1,16 +1,23 @@
 import AppKit
 import PDFKit
 
-/// Generates a rich multi-page sample PDF ("Getting Started - Open PDF Expert 入门指南.pdf")
+/// Generates a rich multi-page sample PDF ("Expert PDF Reader 阅读指南 (Getting Started).pdf")
 /// complete with hierarchical `PDFOutline` (Table of Contents), vector diagrams, color swatches,
 /// academic two-column layout, and wide margins for testing Clear Margins, Split View, and Shaders.
 public enum SamplePDFGenerator {
+    /// Where the guide was kept before the app was renamed; ignored when loading Recents and Favorites.
+    public static var legacySampleURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("OpenPDFExpert", isDirectory: true)
+            .appendingPathComponent("PDF Expert 阅读指南 (Getting Started).pdf")
+    }
+
     public static func ensureSamplePDFExists() -> URL {
         let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("OpenPDFExpert", isDirectory: true)
+            .appendingPathComponent("ExpertPDFReader", isDirectory: true)
         try? FileManager.default.createDirectory(at: supportDir, withIntermediateDirectories: true)
 
-        let fileURL = supportDir.appendingPathComponent("PDF Expert 阅读指南 (Getting Started).pdf")
+        let fileURL = supportDir.appendingPathComponent("Expert PDF Reader 阅读指南 (Getting Started).pdf")
         if FileManager.default.fileExists(atPath: fileURL.path) {
             return fileURL
         }
@@ -24,12 +31,12 @@ public enum SamplePDFGenerator {
 
         let pagesContent: [(title: String, subtitle: String, sections: [(heading: String, body: String)], drawColorSwatches: Bool)] = [
             (
-                title: "Open PDF Expert 阅读指南",
-                subtitle: "基于 morluto/rea 逆向工程还原的 macOS 原生 PDF 阅读器",
+                title: "Expert PDF Reader 阅读指南",
+                subtitle: "专注阅读的 macOS 原生 PDF 阅读器",
                 sections: [
                     (
-                        heading: "1. 欢迎使用 Open PDF Expert（纯粹阅读版）",
-                        body: "本应用基于 Readdle PDF Expert (v3.13.4) 逆向分析构建，移除了复杂的批注、签名与付费墙模块，完整保留了原版丝滑的 PDF 阅读体验、HomeTab 响应式架构、RDDesignLibrary 语义色彩系统，以及原版 RDPDFShaders.metallib 的 GPU 页面滤镜着色器。"
+                        heading: "1. 欢迎使用 Expert PDF Reader（纯粹阅读版）",
+                        body: "本应用只保留 PDF 阅读本身：多标签、分屏对比、缩略图 / 大纲 / 书签、全文查找、智能去白边，以及通过 GPU 着色器实时切换的日间 / 纸质 / 夜间阅读主题；不包含批注、签名与付费墙模块。"
                     ),
                     (
                         heading: "2. 三种阅读主题：日间 (Day) / 纸质 (Sepia) / 夜间 (Night)",
@@ -63,7 +70,7 @@ public enum SamplePDFGenerator {
                 sections: [
                     (
                         heading: "1. 实时主题缩略图面板 (Thumbnails)",
-                        body: "左侧面板第一栏为「缩略图」，所有页面缩略图均通过 Metal 着色器实时同步当前的日间 / 纸质 / 夜间主题，并以 PDF Expert 标志性的亮蓝色 (#2FA5FF) 描边高亮当前所在页。"
+                        body: "左侧面板第一栏为「缩略图」，所有页面缩略图均通过 Metal 着色器实时同步当前的日间 / 纸质 / 夜间主题，并以亮蓝色 (#2FA5FF) 描边高亮当前所在页。"
                     ),
                     (
                         heading: "2. 多级目录大纲 (Outline / Table of Contents)",
@@ -223,7 +230,7 @@ public enum SamplePDFGenerator {
                 .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .regular),
                 .foregroundColor: NSColor(calibratedWhite: 0.45, alpha: 1.0)
             ]
-            NSString(string: "Open PDF Expert • Clean-Room Reader Implementation • Page \(index + 1)")
+            NSString(string: "Expert PDF Reader • Page \(index + 1)")
                 .draw(at: CGPoint(x: marginX, y: 68), withAttributes: footerAttrs)
 
             NSGraphicsContext.restoreGraphicsState()

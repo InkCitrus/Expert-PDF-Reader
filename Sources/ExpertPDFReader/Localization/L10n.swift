@@ -94,6 +94,14 @@ public enum L10n {
         isChinese ? "未找到“\(query)”" : "No matches for “\(query)”"
     }
 
+    public static func passwordPromptTitle(_ fileName: String) -> String {
+        isChinese ? "“\(fileName)”受密码保护" : "“\(fileName)” is password protected"
+    }
+
+    public static func openFailedTitle(_ fileName: String) -> String {
+        isChinese ? "无法打开“\(fileName)”" : "“\(fileName)” can't be opened"
+    }
+
     public static func zoomPercentageAccessibility(_ percent: Int) -> String {
         isChinese ? "缩放比例 \(percent)%" : "Zoom \(percent)%"
     }

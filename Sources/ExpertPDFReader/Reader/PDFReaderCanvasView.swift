@@ -9,7 +9,8 @@ import SwiftUI
 ///   to `PDFScrollView.layer` (**above** `NSClipView.layer`'s magnification transform) while keeping `PDFScrollView`'s
 ///   background transparent (`alpha = 0`). This guarantees that `PDFPageLayerTile` bitmaps (`contentsScale = backingScale * magnification`)
 ///   are never offscreen-downsampled before `NSClipView` magnification, completely eliminating PDF blurriness when switching themes or layouts.
-/// - Supports Left (`←`) and Right (`→`) arrow key page navigation.
+/// - Supports Left (`←`) and Right (`→`) arrow key page navigation in the pane that has the keyboard focus.
+/// - Opens at the tab's saved page and zoom (`currentPageIndex`, `zoomScale` / `isAutoScaling`).
 public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
     public let pdfDocument: PDFDocument
     @Binding public var currentPageIndex: Int
@@ -23,6 +24,13 @@ public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
     public let pageJumpToken: Int
     public let zoomCommandToken: Int
     public let pendingZoomAction: DocumentTabState.ZoomAction?
+    /// Initial zoom mode: `false` opens at `zoomScale` instead of fitting the width
+    public let isAutoScaling: Bool
+    /// Changing it re-lays out pages whose crop boxes changed (Clear Margins computed in the background)
+    public let layoutToken: Int
+    /// The primary pane also turns pages when the keyboard focus is outside every PDF view
+    public let handlesUnfocusedArrowKeys: Bool
+    public let onAutoScalesChange: ((Bool) -> Void)?
     public let onStepPage: ((Int) -> Void)?
 
     public init(
@@ -38,6 +46,10 @@ public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
         pageJumpToken: Int = 0,
         zoomCommandToken: Int = 0,
         pendingZoomAction: DocumentTabState.ZoomAction? = nil,
+        isAutoScaling: Bool = true,
+        layoutToken: Int = 0,
+        handlesUnfocusedArrowKeys: Bool = true,
+        onAutoScalesChange: ((Bool) -> Void)? = nil,
         onStepPage: ((Int) -> Void)? = nil
     ) {
         self.pdfDocument = pdfDocument
@@ -52,6 +64,10 @@ public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
         self.pageJumpToken = pageJumpToken
         self.zoomCommandToken = zoomCommandToken
         self.pendingZoomAction = pendingZoomAction
+        self.isAutoScaling = isAutoScaling
+        self.layoutToken = layoutToken
+        self.handlesUnfocusedArrowKeys = handlesUnfocusedArrowKeys
+        self.onAutoScalesChange = onAutoScalesChange
         self.onStepPage = onStepPage
     }
 
@@ -61,6 +77,7 @@ public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
 
     public func makeNSView(context: Context) -> PDFView {
         let pdfView = ThemedPDFView()
+        pdfView.handlesUnfocusedArrowKeys = handlesUnfocusedArrowKeys
         pdfView.wantsLayer = true
         pdfView.layerUsesCoreImageFilters = true
         pdfView.autoScales = true
@@ -69,6 +86,15 @@ public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
         pdfView.interpolationQuality = .high
         pdfView.backgroundColor = .clear
         pdfView.document = pdfDocument
+
+        // Reopen where the document was left (see `AppStore.openDocument` / `DocumentTabState.restore`)
+        if !isAutoScaling {
+            pdfView.autoScales = false
+            pdfView.scaleFactor = max(0.1, min(10, zoomScale))
+        }
+        if currentPageIndex > 0, let page = pdfDocument.page(at: currentPageIndex) {
+            pdfView.pendingInitialPage = page
+        }
 
         context.coordinator.setupNotifications(for: pdfView)
         applyConfiguration(to: pdfView, coordinator: context.coordinator)
@@ -134,9 +160,20 @@ public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
             }
         }
 
+        // Crop boxes changed after layout: re-lay out without moving away from what is being read
+        if coordinator.lastLayoutToken != layoutToken {
+            coordinator.lastLayoutToken = layoutToken
+            let destination = pdfView.currentDestination
+            pdfView.layoutDocumentView()
+            if let destination {
+                pdfView.go(to: destination)
+            }
+        }
+
         // 2. Theme Background & Viewport Shader Filtering
         if let themed = pdfView as? ThemedPDFView {
             themed.onStepPage = onStepPage
+            themed.handlesUnfocusedArrowKeys = handlesUnfocusedArrowKeys
             themed.currentTheme = pdfTheme
             themed.isDarkUI = isDarkUI
             themed.applyThemeLayers()
@@ -219,10 +256,11 @@ public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
             }
             pdfView.highlightedSelections = selections
             if selectedMatchIndex >= 0 && selectedMatchIndex < searchMatches.count {
-                let activeSel = searchMatches[selectedMatchIndex].selection
-                if coordinator.lastHighlightedMatchIndex != selectedMatchIndex {
-                    coordinator.lastHighlightedMatchIndex = selectedMatchIndex
-                    pdfView.go(to: activeSel)
+                let activeMatch = searchMatches[selectedMatchIndex]
+                // Compare match IDs, not indices: a new search selects index 0 again
+                if coordinator.lastHighlightedMatchID != activeMatch.id {
+                    coordinator.lastHighlightedMatchID = activeMatch.id
+                    pdfView.go(to: activeMatch.selection)
                 }
             }
         }
@@ -234,12 +272,14 @@ public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
         var parent: RDPDFDocumentViewWrapper
         var lastPageJumpToken: Int = -1
         var lastZoomCommandToken: Int = -1
-        var lastHighlightedMatchIndex: Int = -1
+        var lastLayoutToken: Int
+        var lastHighlightedMatchID: UUID?
         private var observers: [NSObjectProtocol] = []
         nonisolated(unsafe) private var keyMonitor: Any?
 
         init(parent: RDPDFDocumentViewWrapper) {
             self.parent = parent
+            self.lastLayoutToken = parent.layoutToken
         }
 
         deinit {
@@ -258,6 +298,8 @@ public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
                 guard let self = self, let pdfView = pdfView,
                       let doc = pdfView.document,
                       let page = pdfView.currentPage else { return }
+                // Until the saved page is shown, PDFKit reports page 1 of the fresh layout: keep the saved index
+                if (pdfView as? ThemedPDFView)?.pendingInitialPage != nil { return }
                 let idx = doc.index(for: page)
                 if idx != self.parent.currentPageIndex {
                     self.parent.currentPageIndex = idx
@@ -270,6 +312,7 @@ public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
                 if abs(pdfView.scaleFactor - self.parent.zoomScale) > 0.005 {
                     self.parent.zoomScale = pdfView.scaleFactor
                 }
+                self.parent.onAutoScalesChange?(pdfView.autoScales)
                 (pdfView as? ThemedPDFView)?.applyThemeLayers()
             }
 
@@ -287,34 +330,16 @@ public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
                 observers.append(scrollObs)
             }
 
-            // Local keyDown monitor for Left (←, 123) and Right (→, 124) arrow keys when onStepPage is provided
-            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak pdfView] event in
-                guard let self = self,
-                      let stepHandler = self.parent.onStepPage,
-                      let pdfView = pdfView,
-                      let window = pdfView.window,
-                      event.window === window else {
+            // Local keyDown monitor so ←/→ turn pages even when a toolbar control has the focus;
+            // `ThemedPDFView.pageStep(for:)` decides which pane (if any) handles the key.
+            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak pdfView] event in
+                guard let themed = pdfView as? ThemedPDFView,
+                      let delta = themed.pageStep(for: event),
+                      let stepHandler = themed.onStepPage else {
                     return event
                 }
-                // Do not intercept arrow keys when typing inside any text field / search field
-                if window.firstResponder is NSText {
-                    return event
-                }
-                // Only handle unmodified Left / Right arrow keys (ignoring .numericPad / .function)
-                let disallowedModifiers: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
-                guard event.modifierFlags.intersection(disallowedModifiers).isEmpty else {
-                    return event
-                }
-                switch event.keyCode {
-                case 123: // Left Arrow (←) -> Previous Page
-                    stepHandler(-1)
-                    return nil
-                case 124: // Right Arrow (→) -> Next Page
-                    stepHandler(1)
-                    return nil
-                default:
-                    return event
-                }
+                stepHandler(delta)
+                return nil
             }
         }
     }
@@ -326,24 +351,73 @@ final class ThemedPDFView: PDFView {
     var currentTheme: PDFViewTheme = .day
     var isDarkUI: Bool = false
     var onStepPage: ((Int) -> Void)?
+    var handlesUnfocusedArrowKeys = true
+
+    /// Page to show once the view has a size: `go(to:)` before the first layout is lost.
+    var pendingInitialPage: PDFPage?
+    private var isShowingInitialPage = false
 
     override func keyDown(with event: NSEvent) {
-        let disallowedModifiers: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
-        if event.modifierFlags.intersection(disallowedModifiers).isEmpty,
-           let onStepPage {
-            if event.keyCode == 123 {
-                onStepPage(-1)
-                return
-            } else if event.keyCode == 124 {
-                onStepPage(1)
-                return
-            }
+        if let delta = pageStep(for: event), let onStepPage {
+            onStepPage(delta)
+            return
         }
         super.keyDown(with: event)
     }
 
+    /// `-1` / `1` when an unmodified ←/→ should turn the page in this view, `nil` to leave the key alone:
+    /// text fields and sidebar lists use the arrows themselves, a zoomed page wider than the view keeps them
+    /// for horizontal scrolling, and in Split View only the pane with the keyboard focus turns the page.
+    func pageStep(for event: NSEvent) -> Int? {
+        guard onStepPage != nil, event.keyCode == 123 || event.keyCode == 124 else { return nil }
+        let disallowedModifiers: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
+        guard event.modifierFlags.intersection(disallowedModifiers).isEmpty,
+              let window, event.window === window,
+              !canScrollHorizontally else {
+            return nil
+        }
+        let responder = window.firstResponder
+        if responder is NSText || responder is NSTableView {
+            return nil
+        }
+        if let focusedView = responder as? NSView, let focusedPDFView = Self.enclosingPDFView(of: focusedView) {
+            guard focusedPDFView === self else { return nil }
+        } else if !handlesUnfocusedArrowKeys {
+            return nil
+        }
+        return event.keyCode == 123 ? -1 : 1
+    }
+
+    private var canScrollHorizontally: Bool {
+        guard let scrollView = subviews.compactMap({ $0 as? NSScrollView }).first,
+              let documentView = scrollView.documentView else {
+            return false
+        }
+        return documentView.frame.width > scrollView.contentView.bounds.width + 1
+    }
+
+    private static func enclosingPDFView(of view: NSView) -> PDFView? {
+        var current: NSView? = view
+        while let candidate = current {
+            if let pdfView = candidate as? PDFView {
+                return pdfView
+            }
+            current = candidate.superview
+        }
+        return nil
+    }
+
     override func layout() {
         super.layout()
+        if let page = pendingInitialPage, !isShowingInitialPage, bounds.width > 0, bounds.height > 0 {
+            isShowingInitialPage = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.go(to: page)
+                self.pendingInitialPage = nil
+                self.isShowingInitialPage = false
+            }
+        }
         applyThemeLayers()
     }
 

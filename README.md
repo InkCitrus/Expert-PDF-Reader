@@ -8,7 +8,7 @@ Retains only the core **PDF reading & theme switching** experience (no editing, 
 
 ## ✨ Features
 
-- **1:1 GPU Page Reading Themes (`RDPDFShaders.metallib`)**
+- **1:1 GPU Page Reading Themes (Metal + Core Image color matrices)**
   - **Follow System (跟随系统)**: Automatically switches between Light and Dark reading themes to match the system/app appearance, with an optional **"Use Sepia in Light Mode (浅色时使用纸质替代日间)"** toggle.
   - **Day (日间)**: Crisp original colors (`#FFFFFF` paper, `#DCDCDE` / `#131314` canvas backdrop).
   - **Sepia (纸质)**: Exact affine color matrix from `sepiaTexturingModeFragmentShader` (`#F5EFDC` warm cream paper, `#3F2A18` espresso ink, `#E5DECF` canvas backdrop).
@@ -31,16 +31,42 @@ Retains only the core **PDF reading & theme switching** experience (no editing, 
   - **Left / Right Arrow Key Page Navigation (`←` / `→`)**: Quickly step to the previous or next page from anywhere in the reader.
   - **Clear Margins (智能清除空白边, `⇧⌘M`)**: Automatically detects ink bounding boxes and crops page margins.
   - **Left Sidebar (`⌘B`)**: Page Thumbnails (rendered with active GPU theme), hierarchical Table of Contents (`PDFOutline`), and Bookmarks (`⌘D`).
-  - **Full-Text Search (`⌘F`)**: Instant keyword highlighting; results listed per page with highlighted context snippets.
+  - **Full-Text Search (`⌘F`)**: Runs in the background and lists results per page as they are found, with highlighted context snippets.
+  - **Picks up where you left off**: every document reopens at its last page, zoom and layout, and the tabs of the last session are restored on launch.
+  - **Password-protected PDFs** prompt for their password; files that can't be opened say why.
+  - Drop PDFs anywhere on the window (Home, a document or the tab strip) or on the Dock icon; `⌘=` zooms in as well as `⌘+`.
+- **Fast Home Tab**: Recents keep up to 50 documents, cover thumbnails load in the background and are cached on disk, and moved or renamed files stay in Recents / Favorites (with their bookmarks and reading position).
 - **Original App Icon**: a dog-eared page shifting diagonally through Day → Sepia → Night, drawn in code by `scripts/make_app_icon.swift`.
+
+---
+
+## 📦 Install
+
+Download `Expert-PDF-Reader-<version>.dmg` from [Releases](https://github.com/InkCitrus/Expert-PDF-Reader/releases), open it and drag **Expert PDF Reader** into **Applications**. Requires macOS 14 or later (Apple Silicon or Intel).
+
+Release builds are not notarized by Apple yet, so macOS blocks the first launch. Open **System Settings › Privacy & Security** and click **Open Anyway**, or run:
+
+```zsh
+xattr -dr com.apple.quarantine "/Applications/Expert PDF Reader.app"
+```
 
 ---
 
 ## 🛠 Build & Run
 
+Requires the Xcode Command Line Tools (`xcode-select --install`).
+
 ```zsh
-./build.sh && open "Expert PDF Reader.app"
+./build.sh && open "build/Expert PDF Reader.app"
 ```
+
+Build a universal (Apple Silicon + Intel) app and package it as a `.dmg`:
+
+```zsh
+ARCHS="arm64 x86_64" ./build.sh && ./scripts/make_dmg.sh
+```
+
+To publish a release, either push a `v*` tag (`git tag v0.1.0 && git push origin v0.1.0`), publish a release with a new `v*` tag on GitHub, or run the **Release** workflow from the Actions tab with a version number. `.github/workflows/release.yml` then builds the `.dmg` and attaches it to the GitHub Release. Every push also builds a `.dmg` as a CI artifact.
 
 Regenerate the app icon (`Assets/AppIcon.icns` + `Assets/AppIcon.png`) after editing its design:
 
@@ -53,3 +79,11 @@ swift scripts/make_app_icon.swift
 ## 📄 Reverse Engineering Documentation
 
 See [docs/REA_ANALYSIS.md](docs/REA_ANALYSIS.md) for the complete disassembly, shader matrices, and architecture analysis of `/Applications/PDF Expert.app`.
+
+---
+
+## ⚖️ License
+
+[MIT](LICENSE) © 2026 InkCitrus
+
+Expert PDF Reader is an independent project and is not affiliated with, endorsed by, or sponsored by Readdle. PDF Expert is a trademark of Readdle Inc.

@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # Branches of this repository are already built by the push event; only build pull requests from forks here.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swiftc --version
+
+      - name: Build universal app
+        env:
+          ARCHS: arm64 x86_64
+        run: ./build.sh
+
+      - name: Package DMG
+        run: ./scripts/make_dmg.sh
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v6
+        with:
+          name: Expert-PDF-Reader-${{ github.sha }}
+          path: build/*.dmg
+          retention-days: 14
+          if-no-files-found: error

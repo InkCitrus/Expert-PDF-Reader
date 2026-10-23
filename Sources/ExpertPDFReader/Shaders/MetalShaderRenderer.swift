@@ -3,10 +3,9 @@ import CoreImage
 import Metal
 import QuartzCore
 
-/// Replicates `RDPDFMetalPipelineStatesProvider` & `RDPDFShaders.metallib` from PDF Expert.
-/// Provides both:
-/// 1. Direct GPU Metal rendering via `RDPDFShaders.metallib` (or inline fallback source) for thumbnails/bitmaps.
-/// 2. Pre-built `CIFilter`s (`CIColorMatrix` & sRGB-accurate `CIColorCube`) for 120Hz live `PDFPageLayer` filtering.
+/// Day / Sepia / Night page theme renderer. Provides both:
+/// 1. Direct GPU Metal rendering (shaders compiled at runtime from `metalShaderSource`) for thumbnails/bitmaps.
+/// 2. Pre-built `CIFilter`s (`CIColorMatrix`) for 120Hz live `PDFPageLayer` filtering.
 public final class MetalShaderRenderer {
     public static let shared = MetalShaderRenderer()
 
@@ -28,21 +27,8 @@ public final class MetalShaderRenderer {
     private func setupPipelines() {
         guard let device = self.device else { return }
 
-        var library: MTLLibrary?
-        // 1. Try loading bundled RDPDFShaders.metallib from main app bundle or SwiftPM resource bundle
-        if let url = Bundle.main.url(forResource: "RDPDFShaders", withExtension: "metallib") {
-            library = try? device.makeLibrary(URL: url)
-        }
-        #if SWIFT_PACKAGE
-        if library == nil, let url = Bundle.module.url(forResource: "RDPDFShaders", withExtension: "metallib") {
-            library = try? device.makeLibrary(URL: url)
-        }
-        #endif
-        // 2. Fallback to compiling inline reconstructed Metal shader source
-        if library == nil {
-            library = try? device.makeLibrary(source: Self.metalShaderSource, options: nil)
-        }
-        guard let lib = library,
+        // Compiled from source at runtime, so the Command Line Tools (without the Metal toolchain) can build the app
+        guard let lib = try? device.makeLibrary(source: Self.metalShaderSource, options: nil),
               let vtxFn = lib.makeFunction(name: "texturingModeVertexShader") else {
             return
         }
@@ -106,7 +92,7 @@ public final class MetalShaderRenderer {
         }
     }
 
-    /// Applies `RDPDFShaders.metallib` (`sepiaTexturingModeFragmentShader` or `nightTexturingModeFragmentShader`)
+    /// Applies `sepiaTexturingModeFragmentShader` or `nightTexturingModeFragmentShader`
     /// directly on the GPU to a `CGImage` (e.g. for themed thumbnails).
     public func applyShader(to cgImage: CGImage, theme: PDFViewTheme) -> CGImage? {
         if theme == .day { return cgImage }

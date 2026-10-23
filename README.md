@@ -1,41 +1,36 @@
 # Expert PDF Reader
 
-Clean-room macOS native implementation of **PDF Expert (v3.13.4) Reader Edition**, built following the [`morluto/rea`](https://github.com/morluto/rea) (`Decompile → Understand → Recreate`) reverse-engineering methodology.
-
-Retains only the core **PDF reading & theme switching** experience (no editing, annotation, or paywall bloat).
+A native macOS PDF reader built for reading: tabs, Split View, and Day / Sepia / Night page themes rendered on the GPU. The interface is inspired by PDF Expert 3, without editing, annotation or subscriptions.
 
 ---
 
 ## ✨ Features
 
-- **1:1 GPU Page Reading Themes (Metal + Core Image color matrices)**
-  - **Follow System (跟随系统)**: Automatically switches between Light and Dark reading themes to match the system/app appearance, with an optional **"Use Sepia in Light Mode (浅色时使用纸质替代日间)"** toggle.
-  - **Day (日间)**: Crisp original colors (`#FFFFFF` paper, `#DCDCDE` / `#131314` canvas backdrop).
-  - **Sepia (纸质)**: Exact affine color matrix from `sepiaTexturingModeFragmentShader` (`#F5EFDC` warm cream paper, `#3F2A18` espresso ink, `#E5DECF` canvas backdrop).
-  - **Night (夜间)**: Exact luminance inversion from `nightTexturingModeFragmentShader` ($v = 0.75 - 0.25(R+G+B)$, `#000000` paper, `#BFBFBF` 75% soft silver ink to prevent dark-room glare, `#202223` canvas backdrop).
-  - **Lossless Retina + Zoom Sharpness**: Attaches `CIColorMatrix` above `NSClipView`'s magnification transform (`PDFScrollView.layer`) so `PDFPageLayerTile` layers rasterize at full `backingScaleFactor × magnification` before color-matrix filtering.
-- **Internationalization (i18n)**
-  - Supports **Follow System (跟随系统)** and **12 languages**: **简体中文**, **繁體中文**, **English**, **日本語**, **한국어**, **Français**, **Deutsch**, **Español**, **Italiano**, **Português**, **Русский**, and **Українська**, switchable live from Settings (`⌘,`), the View menu, or the View Settings panel.
-- **PDF Expert 3–Style Interface**
-  - **Unified 40pt title bar**: traffic lights centered on the tab strip, icon-only Home tab (`HomeTabButtonView`), document tabs (close on hover, context menu) and `+` to open files.
-  - **Toolbar**: Document Summary / Page Overview / View Settings toggles, zoom pop-up with presets and `−`/`+`, Follow System / Day / Sepia / Night switcher, Clear Margins, Rotate, Share, Bookmark and a search field.
-  - **Left dock (240pt)**: icon segmented Thumbnails / Outline (highlights the section you are reading) / Bookmarks, or the View Settings panel (page layout, split view, reading theme, clear margins, rotation, appearance, language).
+- **Reading Themes**
+  - **Day (日间)**: original colors on a `#DCDCDE` / `#131314` canvas.
+  - **Sepia (纸质)**: warm `#F5EFDC` paper, `#3F2A18` ink, `#E5DECF` canvas.
+  - **Night (夜间)**: soft inversion ($v = 0.75 - 0.25(R+G+B)$): `#000000` paper and `#BFBFBF` ink to avoid glare in the dark, `#202223` canvas.
+  - **Follow System (跟随系统)** switches between Day and Night with the system appearance, optionally using Sepia instead of Day.
+  - Pages stay sharp at every zoom level: the color matrix is applied above `NSClipView`'s magnification, so PDFKit's tiles render at full Retina resolution.
+- **12 Languages**: **简体中文**, **繁體中文**, **English**, **日本語**, **한국어**, **Français**, **Deutsch**, **Español**, **Italiano**, **Português**, **Русский** and **Українська**, or Follow System; switchable live from Settings (`⌘,`), the View menu or the View Settings panel. The built-in Reading Guide PDF is localized too.
+- **Interface**
+  - **Unified 40pt title bar**: traffic lights centered on the tab strip, icon-only Home tab, document tabs (close on hover, context menu) and `+` to open files.
+  - **Toolbar**: Document Summary / Page Overview / View Settings toggles, zoom pop-up with presets and `−` / `+`, theme switcher, Clear Margins, Rotate, Share, Bookmark and a search field.
+  - **Left dock (240pt)**: Thumbnails / Outline (highlights the section you are reading) / Bookmarks, or the View Settings panel (page layout, split view, reading theme, clear margins, rotation, appearance, language).
   - **Right search dock**, bottom-right **page counter** (click → Go to Page) and a **Page Overview** grid (`⌃⌘1`).
-  - Unlike PDF Expert's always-graphite chrome, the tab strip, toolbar and panels follow the **System (跟随系统) / Light (浅色) / Dark (深色)** appearance (`RDDesignLibrary` light/dark token pairs).
-- **Home Tab (`HomeTab.framework` Architecture)**
-  - Opaque `216pt` sidebar (`主页` / `Home`, `最近打开` / `Recents`, `收藏夹` / `Favorites`, plus `打开文件…`, `阅读指南`, `设置`), dashed drag-and-drop area, reading-theme cards, Recents / Favorites grids, symlink-normalized `DocumentID`, and locale-aware timestamps.
-- **Multi-Tab & Split-Screen Comparison (`PDFDocumentsSplitViewController`)**
-  - Vertical (left/right) and Horizontal (top/bottom) Split View, Swap Sides, Sync Scroll & Zoom, and embedded HomeTab picker for secondary comparison documents.
-- **Reading Suite**
-  - Single Page, Two Pages, Two Pages with Single Cover (`⌘1`, `⌘2`, `⌘3`).
-  - **Left / Right Arrow Key Page Navigation (`←` / `→`)**: Quickly step to the previous or next page from anywhere in the reader.
-  - **Clear Margins (智能清除空白边, `⇧⌘M`)**: Automatically detects ink bounding boxes and crops page margins.
-  - **Left Sidebar (`⌘B`)**: Page Thumbnails (rendered with active GPU theme), hierarchical Table of Contents (`PDFOutline`), and Bookmarks (`⌘D`).
-  - **Full-Text Search (`⌘F`)**: Runs in the background and lists results per page as they are found, with highlighted context snippets.
-  - **Picks up where you left off**: every document reopens at its last page, zoom and layout, and the tabs of the last session are restored on launch.
-  - **Password-protected PDFs** prompt for their password; files that can't be opened say why.
-  - Drop PDFs anywhere on the window (Home, a document or the tab strip) or on the Dock icon; `⌘=` zooms in as well as `⌘+`.
-- **Fast Home Tab**: Recents keep up to 50 documents, cover thumbnails load in the background and are cached on disk, and moved or renamed files stay in Recents / Favorites (with their bookmarks and reading position).
+  - Tab strip, toolbar and panels follow the **System / Light / Dark** appearance.
+- **Home Tab**: sidebar with Home, Recents and Favorites (plus Open File…, Reading Guide and Settings), a drag-and-drop area, reading-theme cards and document grids with locale-aware dates.
+- **Tabs & Split View**: vertical (left / right) or horizontal (top / bottom) Split View with Swap Sides, Sync Scroll & Zoom, and the Home tab as a picker for the second document.
+- **Reading**
+  - Single Page, Two Pages and Two Pages with Single Cover (`⌘1`, `⌘2`, `⌘3`).
+  - **`←` / `→`** turn the page in the focused pane.
+  - **Clear Margins (`⇧⌘M`)** detects the content bounds of each page and crops the margins, computed in the background.
+  - **Left sidebar (`⌘B`)**: themed page thumbnails, the document outline and bookmarks (`⌘D`).
+  - **Full-text search (`⌘F`)** runs in the background and lists results per page as they are found, with highlighted context.
+  - **Picks up where you left off**: every document reopens at its last page, zoom and layout, and the last session's tabs are restored on launch.
+  - **Password-protected PDFs** ask for their password; files that can't be opened say why.
+  - Drop PDFs anywhere on the window or on the Dock icon; `⌘=` zooms in as well as `⌘+`.
+- **Fast Home Tab**: Recents keep up to 50 documents, cover thumbnails load in the background and are cached on disk, and moved or renamed files stay in Recents / Favorites with their bookmarks and reading position.
 - **Original App Icon**: a dog-eared page shifting diagonally through Day → Sepia → Night, drawn in code by `scripts/make_app_icon.swift`.
 
 ---
@@ -73,12 +68,6 @@ Regenerate the app icon (`Assets/AppIcon.icns` + `Assets/AppIcon.png`) after edi
 ```zsh
 swift scripts/make_app_icon.swift
 ```
-
----
-
-## 📄 Reverse Engineering Documentation
-
-See [docs/REA_ANALYSIS.md](docs/REA_ANALYSIS.md) for the complete disassembly, shader matrices, and architecture analysis of `/Applications/PDF Expert.app`.
 
 ---
 

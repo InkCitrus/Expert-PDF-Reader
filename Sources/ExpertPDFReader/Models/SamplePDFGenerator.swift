@@ -21,7 +21,7 @@ public enum SamplePDFGenerator {
         public let pages: [(title: String, subtitle: String, sections: [(heading: String, body: String)])]
     }
 
-    public static let guideDirectoryName = "Guides_v4"
+    public static let guideDirectoryName = "Guides_v5"
 
     public static func supportDirectory() -> URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -31,12 +31,10 @@ public enum SamplePDFGenerator {
         return dir
     }
 
-    /// Guides of any language and earlier versions' guides (`OpenPDFExpert/`, and 0.1.0's single guide)
+    /// The guide in any language, including copies generated into an older `Guides_v*` folder
     public static func isSampleGuideURL(_ url: URL) -> Bool {
         let path = url.standardizedFileURL.resolvingSymlinksInPath().path
         return path.contains("/ExpertPDFReader/Guides")
-            || path.contains("/OpenPDFExpert/")
-            || path.hasSuffix("/ExpertPDFReader/Expert PDF Reader 阅读指南 (Getting Started).pdf")
     }
 
     public static func ensureSamplePDFExists(for language: AppLanguage = L10n.resolvedLanguage) -> URL {
@@ -635,7 +633,7 @@ public enum SamplePDFGenerator {
                         title: "Expert PDF Reader 阅读指南",
                         subtitle: "原生 macOS 高清 PDF 阅读器与 GPU 实时阅读主题",
                         sections: [
-                            ("欢迎使用 Expert PDF Reader", "专注纯粹、丝滑的 macOS 原生 PDF 阅读体验。支持多标签页管理、HomeTab 响应式主页、RDDesignLibrary 语义色彩系统，以及原版 RDPDFShaders.metallib 的 GPU 页面滤镜着色器。"),
+                            ("欢迎使用 Expert PDF Reader", "专注纯粹、丝滑的 macOS 原生 PDF 阅读体验。支持多标签页管理、带“最近打开”与“收藏夹”的主页、跟随系统的浅色 / 深色外观，以及由 GPU 实时渲染的日间 / 纸质 / 夜间阅读主题。"),
                             ("四种阅读主题模式：跟随系统 / 日间 / 纸质 / 夜间", "点击顶部工具栏中央的主题按钮或在左侧「显示选项」面板中自由切换。当设为「跟随系统」时，浅色外观默认使用日间主题（可开启“浅色时使用纸质替代日间”），深色外观下自动切换为夜间护眼模式。")
                         ]
                     ),
@@ -703,7 +701,7 @@ public enum SamplePDFGenerator {
                         title: "Expert PDF Reader 閱讀指南",
                         subtitle: "原生 macOS 高清 PDF 閱讀器與 GPU 即時閱讀主題",
                         sections: [
-                            ("歡迎使用 Expert PDF Reader", "專注純粹、流暢的 macOS 原生 PDF 閱讀體驗。支援多分頁管理、HomeTab 響應式首頁、RDDesignLibrary 語義色彩系統，以及原版 RDPDFShaders.metallib 的 GPU 頁面濾鏡著色器。"),
+                            ("歡迎使用 Expert PDF Reader", "專注純粹、流暢的 macOS 原生 PDF 閱讀體驗。支援多分頁管理、含「最近打開」與「收藏夾」的首頁、跟隨系統的淺色 / 深色外觀，以及由 GPU 即時渲染的日間 / 紙質 / 夜間閱讀主題。"),
                             ("四種閱讀主題模式：跟隨系統 / 日間 / 紙質 / 夜間", "點按頂部工具列中央的主題按鈕或在左側「顯示選項」面板中自由切換。當設為「跟隨系統」時，淺色外觀預設使用日間主題（可開啟「淺色時使用紙質替代日間」），深色外觀下自動切換為夜間護眼模式。")
                         ]
                     ),
@@ -771,7 +769,7 @@ public enum SamplePDFGenerator {
                         title: "Expert PDF Reader 読書ガイド",
                         subtitle: "macOS ネイティブ PDF リーダー＆ GPU リアルタイム読書テーマ",
                         sections: [
-                            ("Expert PDF Reader へようこそ", "不要な編集機能や課金ウォールを省き、快適で鮮明な PDF 読書体験に特化した macOS ネイティブアプリです。マルチタブ、HomeTab、RDDesignLibrary カラートークン、GPU シェーダーを搭載しています。"),
+                            ("Expert PDF Reader へようこそ", "不要な編集機能や課金ウォールを省き、快適で鮮明な PDF 読書体験に特化した macOS ネイティブアプリです。マルチタブ、「最近の項目」と「お気に入り」を備えたホーム画面、ライト / ダークの外観、GPU で描画する昼 / セピア / 夜の読書テーマを搭載しています。"),
                             ("4つの読書テーマモード：システム連動 / 昼 / セピア / 夜", "ツールバー中央または左パネルの「表示設定」から切り替え可能です。「システムに合わせる」を選択すると、ライト時は昼（設定オン時はセピア）、ダーク時は夜モードに自動切り替えされます。")
                         ]
                     ),
@@ -839,7 +837,7 @@ public enum SamplePDFGenerator {
                         title: "Expert PDF Reader 읽기 가이드",
                         subtitle: "macOS 네이티브 고화질 PDF 리더 및 실시간 GPU 읽기 테마",
                         sections: [
-                            ("Expert PDF Reader에 오신 것을 환영합니다", "불필요한 편집 기능 없이 빠르고 선명한 PDF 읽기에 집중한 macOS 네이티브 앱입니다. 멀티 탭, HomeTab 아키텍처, RDDesignLibrary 색상 시스템 및 GPU 페이지 셰이더를 제공합니다."),
+                            ("Expert PDF Reader에 오신 것을 환영합니다", "불필요한 편집 기능 없이 빠르고 선명한 PDF 읽기에 집중한 macOS 네이티브 앱입니다. 멀티 탭, ‘최근 항목’과 ‘즐겨찾기’가 있는 홈 화면, 라이트 / 다크 모드, GPU로 렌더링하는 주간 / 세피아 / 야간 읽기 테마를 제공합니다."),
                             ("네 가지 읽기 테마: 시스템 설정 따르기 / 주간 / 세피아 / 야간", "도구 모음 중앙 또는 왼쪽 '보기 옵션'에서 전환할 수 있습니다. '시스템 설정 따르기'를 선택하면 라이트 모드에서는 주간(또는 옵션 활성화 시 세피아), 다크 모드에서는 야간 테마로 자동 전환됩니다.")
                         ]
                     ),
@@ -907,7 +905,7 @@ public enum SamplePDFGenerator {
                         title: "Guide de lecture Expert PDF Reader",
                         subtitle: "Lecteur PDF macOS natif avec thèmes GPU en temps réel",
                         sections: [
-                            ("Bienvenue dans Expert PDF Reader", "Conçu pour une lecture PDF fluide et parfaitement nette sur macOS, avec gestion multi-onglets, écran d’accueil HomeTab, palette RDDesignLibrary et shaders GPU RDPDFShaders.metallib."),
+                            ("Bienvenue dans Expert PDF Reader", "Conçu pour une lecture PDF fluide et parfaitement nette sur macOS, avec onglets multiples, écran d’accueil avec Récents et Favoris, apparence claire / sombre et thèmes de lecture Jour / Sépia / Nuit rendus par le GPU."),
                             ("Thèmes de lecture : Suivre le système, Jour, Sépia et Nuit", "En mode « Suivre le système », le mode clair utilise Jour (ou Sépia si l’option est activée) et le mode sombre bascule automatiquement sur Nuit avec une netteté Retina maximale.")
                         ]
                     ),
@@ -975,7 +973,7 @@ public enum SamplePDFGenerator {
                         title: "Expert PDF Reader Lesehandbuch",
                         subtitle: "Nativer macOS-PDF-Reader mit Echtzeit-GPU-Lesethemen",
                         sections: [
-                            ("Willkommen bei Expert PDF Reader", "Entwickelt für ein schnelles, gestochen scharfes PDF-Leseerlebnis unter macOS – mit Multi-Tab-Leiste, HomeTab, RDDesignLibrary-Farbsystem und originalen RDPDFShaders.metallib GPU-Shadern."),
+                            ("Willkommen bei Expert PDF Reader", "Entwickelt für ein schnelles, gestochen scharfes PDF-Leseerlebnis unter macOS – mit Tabs, einem Startbildschirm mit „Zuletzt geöffnet“ und Favoriten, hellem / dunklem Erscheinungsbild und per GPU berechneten Lesethemen Tag / Sepia / Nacht."),
                             ("Lesethemen: System folgen, Tag, Sepia und Nacht", "Im Modus „System folgen“ nutzt das helle Erscheinungsbild automatisch Tag (oder optional Sepia) und das dunkle Erscheinungsbild blendfreies Nacht-Rendering bei voller Retina-Schärfe.")
                         ]
                     ),
@@ -1043,7 +1041,7 @@ public enum SamplePDFGenerator {
                         title: "Guía de lectura de Expert PDF Reader",
                         subtitle: "Lector PDF nativo para macOS con temas GPU en tiempo real",
                         sections: [
-                            ("Bienvenido a Expert PDF Reader", "Diseñado para una lectura de PDF rápida y nítida en macOS, con múltiples pestañas, pantalla de inicio HomeTab, paleta RDDesignLibrary y sombreadores GPU RDPDFShaders.metallib."),
+                            ("Bienvenido a Expert PDF Reader", "Diseñado para una lectura de PDF rápida y nítida en macOS, con múltiples pestañas, pantalla de inicio con Recientes y Favoritos, apariencia clara / oscura y temas de lectura Día / Sepia / Noche renderizados por la GPU."),
                             ("Temas de lectura: Seguir al sistema, Día, Sepia y Noche", "Al elegir «Seguir al sistema», el modo claro utiliza Día (o Sepia si está activado) y el modo oscuro cambia automáticamente a Noche manteniendo total nitidez Retina.")
                         ]
                     ),
@@ -1111,7 +1109,7 @@ public enum SamplePDFGenerator {
                         title: "Guida alla lettura di Expert PDF Reader",
                         subtitle: "Lettore PDF nativo per macOS con temi GPU in tempo reale",
                         sections: [
-                            ("Benvenuto in Expert PDF Reader", "Progettato per una lettura PDF fluida e nitida su macOS, con schede multiple, schermata HomeTab, palette RDDesignLibrary e shader GPU RDPDFShaders.metallib."),
+                            ("Benvenuto in Expert PDF Reader", "Progettato per una lettura PDF fluida e nitida su macOS, con schede multiple, schermata Home con Recenti e Preferiti, aspetto chiaro / scuro e temi di lettura Giorno / Seppia / Notte resi dalla GPU."),
                             ("Temi di lettura: Segui il sistema, Giorno, Seppia e Notte", "Con «Segui il sistema», la modalità chiara utilizza Giorno (o Seppia se abilitato) e la modalità scura passa automaticamente a Notte mantenendo la massima nitidezza Retina.")
                         ]
                     ),
@@ -1179,7 +1177,7 @@ public enum SamplePDFGenerator {
                         title: "Guia de leitura do Expert PDF Reader",
                         subtitle: "Leitor de PDF nativo para macOS com temas de GPU em tempo real",
                         sections: [
-                            ("Bem-vindo ao Expert PDF Reader", "Criado para uma leitura de PDF rápida e nítida no macOS, com várias abas, tela inicial HomeTab, paleta RDDesignLibrary e shaders de GPU RDPDFShaders.metallib."),
+                            ("Bem-vindo ao Expert PDF Reader", "Criado para uma leitura de PDF rápida e nítida no macOS, com várias abas, tela inicial com Recentes e Favoritos, aparência clara / escura e temas de leitura Dia / Sépia / Noite renderizados pela GPU."),
                             ("Temas de leitura: Seguir o sistema, Dia, Sépia e Noite", "Em «Seguir o sistema», o modo claro usa Dia (ou Sépia quando ativado) e o modo escuro alterna automaticamente para Noite preservando toda a nitidez Retina.")
                         ]
                     ),
@@ -1247,7 +1245,7 @@ public enum SamplePDFGenerator {
                         title: "Руководство по Expert PDF Reader",
                         subtitle: "Нативное приложение macOS для чтения PDF с GPU-темами",
                         sections: [
-                            ("Добро пожаловать в Expert PDF Reader", "Быстрое и четкое чтение PDF на macOS: вкладки документов, главный экран HomeTab, цветовая палитра RDDesignLibrary и GPU-шейдеры RDPDFShaders.metallib."),
+                            ("Добро пожаловать в Expert PDF Reader", "Быстрое и четкое чтение PDF на macOS: вкладки документов, главный экран с недавними и избранными файлами, светлое / темное оформление и темы чтения «День» / «Сепия» / «Ночь», которые отрисовывает GPU."),
                             ("Темы чтения: Как в системе, День, Сепия и Ночь", "В режиме «Как в системе» светлая тема автоматически использует «День» (или «Сепия», если включено), а темная переключается на «Ночь» без потери Retina-четкости.")
                         ]
                     ),
@@ -1315,7 +1313,7 @@ public enum SamplePDFGenerator {
                         title: "Посібник із читання Expert PDF Reader",
                         subtitle: "Нативний застосунок macOS для читання PDF із GPU-темами",
                         sections: [
-                            ("Ласкаво просимо до Expert PDF Reader", "Швидке й чітке читання PDF на macOS: вкладки документів, головний екран HomeTab, палітра RDDesignLibrary та GPU-шейдери RDPDFShaders.metallib."),
+                            ("Ласкаво просимо до Expert PDF Reader", "Швидке й чітке читання PDF на macOS: вкладки документів, головний екран із нещодавніми й обраними файлами, світле / темне оформлення та теми читання «День» / «Сепія» / «Ніч», які відмальовує GPU."),
                             ("Теми читання: Як у системі, День, Сепія та Ніч", "У режимі «Як у системі» світла тема автоматично використовує «День» (або «Сепія», якщо ввімкнено), а темна перемикається на «Ніч» зі збереженням повної чіткості Retina.")
                         ]
                     ),
@@ -1383,7 +1381,7 @@ public enum SamplePDFGenerator {
                         title: "Expert PDF Reader Guide",
                         subtitle: "Native macOS PDF Reader with Real-Time GPU Reading Themes",
                         sections: [
-                            ("Welcome to Expert PDF Reader", "Built for a fast, crystal-clear native macOS reading experience—featuring multi-tab navigation, the HomeTab architecture, RDDesignLibrary semantic color tokens, and GPU page shaders from RDPDFShaders.metallib."),
+                            ("Welcome to Expert PDF Reader", "Built for a fast, crystal-clear native macOS reading experience—featuring tabs, a Home screen with Recents and Favorites, light and dark appearance, and GPU-rendered Day / Sepia / Night reading themes."),
                             ("Four Reading Theme Modes: Follow System, Day, Sepia & Night", "Switch themes anytime from the top toolbar or View Settings panel. When set to Follow System, Light appearance uses Day (or Sepia when 'Use Sepia in Light Mode' is enabled) and Dark appearance automatically switches to Night with full Retina sharpness.")
                         ]
                     ),

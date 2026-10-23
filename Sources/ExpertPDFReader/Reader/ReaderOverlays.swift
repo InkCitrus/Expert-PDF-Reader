@@ -2,7 +2,7 @@ import AppKit
 import PDFKit
 import SwiftUI
 
-// MARK: - SearchResultsPanel (PDFTextSearchPanelViewController — right dock)
+// MARK: - SearchResultsPanel (right dock)
 
 /// PDF Expert 3 lists full-text results in a dock beside the page; matches are grouped by page
 /// and the query is highlighted inside each snippet.
@@ -29,7 +29,7 @@ struct SearchResultsPanel: View {
             header
 
             Rectangle()
-                .fill(RDColorPalette.panelSeparator(isDark))
+                .fill(AppPalette.panelSeparator(isDark))
                 .frame(height: 1)
 
             content
@@ -37,10 +37,10 @@ struct SearchResultsPanel: View {
         }
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)
-        .background(RDColorPalette.panelBackground(isDark))
+        .background(AppPalette.panelBackground(isDark))
         .overlay(alignment: .leading) {
             Rectangle()
-                .fill(RDColorPalette.panelHairline(isDark))
+                .fill(AppPalette.panelHairline(isDark))
                 .frame(width: 1)
         }
     }
@@ -50,10 +50,10 @@ struct SearchResultsPanel: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(L10n.tr("搜索结果", "Search Results"))
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(RDColorPalette.labelPrimary(isDark))
+                    .foregroundColor(AppPalette.labelPrimary(isDark))
                 Text(summaryText)
                     .font(.system(size: 11))
-                    .foregroundColor(RDColorPalette.labelTertiary(isDark))
+                    .foregroundColor(AppPalette.labelTertiary(isDark))
                     .lineLimit(1)
             }
 
@@ -126,12 +126,12 @@ struct SearchResultsPanel: View {
                             } header: {
                                 Text(pageTitle(for: group.pageIndex))
                                     .font(.system(size: 11, weight: .semibold))
-                                    .foregroundColor(RDColorPalette.labelTertiary(isDark))
+                                    .foregroundColor(AppPalette.labelTertiary(isDark))
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .padding(.horizontal, 14)
                                     .padding(.top, 10)
                                     .padding(.bottom, 4)
-                                    .background(RDColorPalette.panelBackground(isDark))
+                                    .background(AppPalette.panelBackground(isDark))
                             }
                         }
                     }
@@ -184,7 +184,7 @@ struct SearchResultRow: View {
         Button(action: action) {
             highlightedSnippet
                 .font(.system(size: 12))
-                .foregroundColor(RDColorPalette.labelPrimary(isDark))
+                .foregroundColor(AppPalette.labelPrimary(isDark))
                 .lineLimit(3)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -192,8 +192,8 @@ struct SearchResultRow: View {
                 .padding(.vertical, 8)
                 .background(
                     isSelected
-                        ? RDColorPalette.accentBlue.opacity(isDark ? 0.22 : 0.12)
-                        : (isHovered ? RDColorPalette.rowHover(isDark) : Color.clear)
+                        ? AppPalette.accentBlue.opacity(isDark ? 0.22 : 0.12)
+                        : (isHovered ? AppPalette.rowHover(isDark) : Color.clear)
                 )
                 .contentShape(Rectangle())
         }
@@ -212,7 +212,7 @@ struct SearchResultRow: View {
         while cursor < snippet.endIndex,
               let range = snippet.range(of: needle, options: .caseInsensitive, range: cursor..<snippet.endIndex) {
             result = result + Text(snippet[cursor..<range.lowerBound])
-            result = result + Text(snippet[range]).bold().foregroundColor(RDColorPalette.accentBlue)
+            result = result + Text(snippet[range]).bold().foregroundColor(AppPalette.accentBlue)
             cursor = range.upperBound
         }
         return result + Text(snippet[cursor...])

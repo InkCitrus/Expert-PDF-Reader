@@ -14,7 +14,7 @@ extension URL {
     }
 }
 
-// MARK: - DocumentID (from HomeTab ARCHITECTURE.md)
+// MARK: - DocumentID
 
 public struct DocumentID: Hashable, Codable, Identifiable {
     public let url: URL
@@ -448,7 +448,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     // Page Overview grid (toolbar "Page Management" button, read-only here)
     @Published public var isPageOverviewVisible: Bool = false
 
-    // Split View state (PDFDocumentsSplitViewController)
+    // Split View state
     @Published public var splitMode: ReaderSplitMode = .disabled
     @Published public var isSplitSwapped: Bool = false
     @Published public var syncScrollAndZoom: Bool = false
@@ -463,7 +463,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     @Published public private(set) var forwardStack: [Int] = []
     private var isNavigatingHistory: Bool = false
 
-    // Search state (PDFTextSearchPanelViewController); `isSearchVisible` drives the right results dock
+    // Search state; `isSearchVisible` drives the right results dock
     @Published public var isSearchVisible: Bool = false
     @Published public var searchQuery: String = ""
     @Published public var searchMatches: [SearchMatchItem] = []
@@ -520,7 +520,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         )
     }
 
-    /// Applied before the reader view is created; `RDPDFDocumentViewWrapper` picks it up in `makeNSView`.
+    /// Applied before the reader view is created; `PDFReaderCanvasView` picks it up in `makeNSView`.
     public func restore(_ position: ReadingPosition) {
         currentPageIndex = max(0, min(position.pageIndex, pageCount - 1))
         zoomScale = CGFloat(position.zoomScale)
@@ -896,7 +896,7 @@ public enum AppTab: Identifiable, Equatable {
     }
 }
 
-// MARK: - ThumbnailGenerator & Cache (HomeTabThumbnailGenerator)
+// MARK: - Thumbnail Cache
 
 @MainActor
 public final class PDFThumbnailCache: ObservableObject {
@@ -988,7 +988,6 @@ public final class AppStore: ObservableObject {
     @Published public var appearanceMode: AppAppearanceMode {
         didSet {
             UserDefaults.standard.set(appearanceMode.rawValue, forKey: "expertPDFReader.appearanceMode")
-            UserDefaults.standard.set(appearanceMode.rawValue, forKey: "openPDFExpert.appearanceMode")
             applyAppAppearance()
         }
     }
@@ -1001,7 +1000,7 @@ public final class AppStore: ObservableObject {
         }
     }
 
-    // HomeTab Navigation State (HomeTabNavigationStateContainer)
+    // Home tab navigation state
     @Published public var homeCurrentPage: HomeTabPage = .home
 
     // DocumentsStore (Recents + Favorites + Bookmarks)
@@ -1010,7 +1009,7 @@ public final class AppStore: ObservableObject {
     @Published public private(set) var favoriteDocumentIDs: Set<DocumentID> = []
     @Published public private(set) var bookmarksByDocument: [String: [BookmarkItem]] = [:]
 
-    // TabsViewController State
+    // Window tabs
     @Published public var tabs: [AppTab] = [] {
         didSet { saveOpenTabs() }
     }
@@ -1032,9 +1031,9 @@ public final class AppStore: ObservableObject {
     private static let maxReadingPositions = 300
 
     private enum Keys {
-        static let recents = "openPDFExpert.Recents"
-        static let favorites = "openPDFExpert.Favorites"
-        static let bookmarks = "openPDFExpert.Bookmarks"
+        static let recents = "expertPDFReader.Recents"
+        static let favorites = "expertPDFReader.Favorites"
+        static let bookmarks = "expertPDFReader.Bookmarks"
         static let readingPositions = "expertPDFReader.ReadingPositions"
         static let fileBookmarks = "expertPDFReader.FileBookmarks"
         static let openTabs = "expertPDFReader.OpenTabs"
@@ -1062,30 +1061,17 @@ public final class AppStore: ObservableObject {
         let defaults = UserDefaults.standard
 
         let savedLangRaw = defaults.string(forKey: "expertPDFReader.appLanguage")
-            ?? defaults.string(forKey: "openPDFExpert.appLanguage")
             ?? AppLanguage.system.rawValue
         let lang = AppLanguage(rawValue: savedLangRaw) ?? .system
         self.appLanguage = lang
         L10n.currentLanguage = lang
 
-        if let savedModeRaw = defaults.string(forKey: "expertPDFReader.readingThemeMode"),
-           let mode = PDFReadingThemeMode(rawValue: savedModeRaw) {
-            self.readingThemeMode = mode
-        } else if defaults.object(forKey: "openPDFExpert.pdfTheme") != nil {
-            let legacyRaw = defaults.integer(forKey: "openPDFExpert.pdfTheme")
-            switch PDFViewTheme(rawValue: legacyRaw) ?? .day {
-            case .day:   self.readingThemeMode = .day
-            case .sepia: self.readingThemeMode = .sepia
-            case .night: self.readingThemeMode = .night
-            }
-        } else {
-            self.readingThemeMode = .system
-        }
+        let savedModeRaw = defaults.string(forKey: "expertPDFReader.readingThemeMode") ?? ""
+        self.readingThemeMode = PDFReadingThemeMode(rawValue: savedModeRaw) ?? .system
 
         self.useSepiaForLightSystemTheme = defaults.bool(forKey: "expertPDFReader.useSepiaForLightSystemTheme")
 
         let savedAppRaw = defaults.string(forKey: "expertPDFReader.appearanceMode")
-            ?? defaults.string(forKey: "openPDFExpert.appearanceMode")
             ?? AppAppearanceMode.system.rawValue
         self.appearanceMode = AppAppearanceMode(rawValue: savedAppRaw) ?? .system
 
@@ -1104,7 +1090,7 @@ public final class AppStore: ObservableObject {
         ensureSampleDocumentInRecents()
         applyAppAppearance()
 
-        // Observe locale changes to re-format DocumentItem.dateOpenedText (from ARCHITECTURE.md PEM-10270)
+        // Observe locale changes to re-format DocumentItem.dateOpenedText
         localeObserver = NotificationCenter.default.addObserver(
             forName: NSLocale.currentLocaleDidChangeNotification,
             object: nil,

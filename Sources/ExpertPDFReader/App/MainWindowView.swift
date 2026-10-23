@@ -2,10 +2,10 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Replicates `MainWindowController` + `TabsViewController` + `HomeTabButtonView` from `PDFExpert`:
+/// Main window:
 /// one unified `40pt` title bar hosting the traffic lights, the pinned Home tab and the document tabs.
 /// Unlike PDF Expert (always graphite), the strip follows the system / app appearance.
-/// Enforces a minimum window width of `600pt` per `HomeTab.framework/ARCHITECTURE.md`.
+/// Enforces a minimum window width of `600pt`.
 public struct MainWindowView: View {
     @ObservedObject var store: AppStore
     @Environment(\.colorScheme) private var colorScheme
@@ -21,7 +21,7 @@ public struct MainWindowView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            // Unified Title Bar: traffic lights + Home tab + document tabs (TabsViewController)
+            // Unified Title Bar: traffic lights + Home tab + document tabs
             TopTabBarView(store: store, metrics: chromeMetrics, isDark: isDark)
                 .frame(height: Self.tabStripHeight)
 
@@ -56,13 +56,13 @@ public struct MainWindowView: View {
             }
         }
         .frame(minWidth: 600, minHeight: 520)
-        .background(RDColorPalette.homeContentBackground(isDark))
+        .background(AppPalette.homeContentBackground(isDark))
         .background(WindowChromeConfigurator(titleBarHeight: Self.tabStripHeight, metrics: $chromeMetrics))
         .ignoresSafeArea(.container, edges: .top)
     }
 }
 
-// MARK: - TopTabBarView (TabsViewController + HomeTabButtonView + TabView)
+// MARK: - TopTabBarView
 
 struct TopTabBarView: View {
     @ObservedObject var store: AppStore
@@ -114,7 +114,7 @@ struct TopTabBarView: View {
             .frame(height: proxy.size.height)
         }
         .background(WindowDragArea())
-        .background(RDColorPalette.tabStripBackground(isDark))
+        .background(AppPalette.tabStripBackground(isDark))
     }
 
     private func documentTabsRow(_ documentTabs: [DocumentTabState], tabWidth: CGFloat) -> some View {
@@ -143,7 +143,7 @@ struct TopTabBarView: View {
 
     private var tabSeparator: some View {
         Rectangle()
-            .fill(RDColorPalette.tabSeparator(isDark))
+            .fill(AppPalette.tabSeparator(isDark))
             .frame(width: 1)
     }
 
@@ -157,7 +157,7 @@ struct TopTabBarView: View {
         } label: {
             Image(systemName: "house.fill")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(isHomeSelected ? RDColorPalette.labelPrimary(isDark) : RDColorPalette.labelTertiary(isDark))
+                .foregroundColor(isHomeSelected ? AppPalette.labelPrimary(isDark) : AppPalette.labelTertiary(isDark))
                 .frame(width: Self.homeTabWidth)
                 .frame(maxHeight: .infinity)
                 .background(tabFill(isSelected: isHomeSelected, isHovered: isHovered))
@@ -183,11 +183,11 @@ struct TopTabBarView: View {
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: 13, weight: .regular))
-                .foregroundColor(RDColorPalette.labelSecondary(isDark))
+                .foregroundColor(AppPalette.labelSecondary(isDark))
                 .frame(width: 28, height: 28)
                 .background(
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(isNewTabHovered ? RDColorPalette.tabHoverBackground(isDark) : Color.clear)
+                        .fill(isNewTabHovered ? AppPalette.tabHoverBackground(isDark) : Color.clear)
                 )
                 .frame(width: Self.newTabButtonWidth)
                 .frame(maxHeight: .infinity)
@@ -201,9 +201,9 @@ struct TopTabBarView: View {
 
     private func tabFill(isSelected: Bool, isHovered: Bool) -> Color {
         if isSelected {
-            return RDColorPalette.tabSelectedBackground(isDark)
+            return AppPalette.tabSelectedBackground(isDark)
         }
-        return isHovered ? RDColorPalette.tabHoverBackground(isDark) : Color.clear
+        return isHovered ? AppPalette.tabHoverBackground(isDark) : Color.clear
     }
 }
 
@@ -222,7 +222,7 @@ struct DocumentTabItemView: View {
         HStack(spacing: 6) {
             Text(state.title)
                 .font(.system(size: 12, weight: isSelected ? .medium : .regular))
-                .foregroundColor(isSelected ? RDColorPalette.labelPrimary(isDark) : RDColorPalette.labelSecondary(isDark))
+                .foregroundColor(isSelected ? AppPalette.labelPrimary(isDark) : AppPalette.labelSecondary(isDark))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -232,11 +232,11 @@ struct DocumentTabItemView: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .semibold))
-                    .foregroundColor(RDColorPalette.labelSecondary(isDark))
+                    .foregroundColor(AppPalette.labelSecondary(isDark))
                     .frame(width: 18, height: 18)
                     .background(
                         RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .fill(isCloseHovered ? RDColorPalette.toolbarHover(isDark) : Color.clear)
+                            .fill(isCloseHovered ? AppPalette.toolbarHover(isDark) : Color.clear)
                     )
                     .contentShape(Rectangle())
             }
@@ -252,8 +252,8 @@ struct DocumentTabItemView: View {
         .frame(maxHeight: .infinity)
         .background(
             isSelected
-                ? RDColorPalette.tabSelectedBackground(isDark)
-                : (isHovered ? RDColorPalette.tabHoverBackground(isDark) : Color.clear)
+                ? AppPalette.tabSelectedBackground(isDark)
+                : (isHovered ? AppPalette.tabHoverBackground(isDark) : Color.clear)
         )
         .contentShape(Rectangle())
         .onTapGesture {

@@ -1,9 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// PDF Page View Theme (`RDPDFViewTheme` / `_RDPDFDEDrawingModeForPDFViewTheme`)
-/// Reverse-engineered from `RDPDFKit.framework` (`-[RDPDFDocumentView documentBackgroundColorForViewTheme:]`)
-/// and `RDPDFShaders.metallib`.
+/// Reading theme applied to the PDF pages (see `MetalShaderRenderer` for the color matrices).
 public enum PDFViewTheme: Int, CaseIterable, Identifiable, Codable {
     case day = 0
     case sepia = 2
@@ -44,10 +42,10 @@ public enum PDFViewTheme: Int, CaseIterable, Identifiable, Codable {
         }
     }
 
-    /// Document canvas background color (`-[RDPDFDocumentView documentBackgroundColorForViewTheme:]` at `0xab1b4`):
-    /// - Day: `ColorPalette.systemBackgroundColor` (`#DCDCDE` Light / `#131314` Dark)
-    /// - Sepia: `RGB(0.90, 0.87, 0.81)` = `#E5DECF` (`0x2d2bc8..0x2d2bd8`)
-    /// - Night: `RGB(0.125490, 0.133333, 0.137255)` = `#202223` (`0x2d2be0, 0x2d29c8, 0x2d2be8`)
+    /// Canvas color behind the pages:
+    /// - Day: `AppPalette.systemBackground` (`#DCDCDE` Light / `#131314` Dark)
+    /// - Sepia: `RGB(0.90, 0.87, 0.81)` = `#E5DECF`
+    /// - Night: `RGB(0.125490, 0.133333, 0.137255)` = `#202223`
     public func documentBackgroundNSColor(isDarkUI: Bool) -> NSColor {
         switch self {
         case .day:
@@ -65,7 +63,7 @@ public enum PDFViewTheme: Int, CaseIterable, Identifiable, Codable {
         Color(nsColor: documentBackgroundNSColor(isDarkUI: isDarkUI))
     }
 
-    /// Page paper color (`White (1,1,1)` output of `RDPDFShaders.metallib`):
+    /// Page paper color (white `(1, 1, 1)` after the theme's color matrix):
     /// - Day: `#FFFFFF` `(1.0, 1.0, 1.0)`
     /// - Sepia: `#F5EFDC` `(0.961, 0.938, 0.863)`
     /// - Night: `#000000` `(0.0, 0.0, 0.0)`
@@ -84,7 +82,7 @@ public enum PDFViewTheme: Int, CaseIterable, Identifiable, Codable {
         Color(nsColor: pagePaperNSColor)
     }
 
-    /// Page primary ink color (`Black (0,0,0)` output of `RDPDFShaders.metallib`):
+    /// Page ink color (black `(0, 0, 0)` after the theme's color matrix):
     /// - Day: `#000000` `(0.0, 0.0, 0.0)`
     /// - Sepia: `#3F2A18` `(0.247, 0.165, 0.094)`
     /// - Night: `#BFBFBF` `(0.75, 0.75, 0.75)`
@@ -197,14 +195,14 @@ public enum AppAppearanceMode: String, CaseIterable, Identifiable, Codable {
     }
 }
 
-/// Exact replica of `RDDesignLibrary.ColorPalette` & `Assets.car` extracted from `PDF Expert.app`
-public enum RDColorPalette {
+/// The app's color tokens; most are light / dark pairs.
+public enum AppPalette {
     // Primary Brand & Tint Colors
     public static let primaryTint = Color(hex: 0x2FA5FF)
     public static let brightPrimaryTint = Color(hex: 0x7BC6FF)
     public static let systemDarkBlue = Color(hex: 0x0D72FF)
 
-    // Semantic Backgrounds (Light / Dark pairs extracted from RDDesignLibrary disassembly)
+    // Semantic Backgrounds (Light / Dark pairs)
     public static func systemBackground(_ isDark: Bool) -> Color {
         Color(hex: isDark ? 0x131314 : 0xDCDCDE)
     }
@@ -229,7 +227,7 @@ public enum RDColorPalette {
         Color(hex: isDark ? 0x131314 : 0xEEEEF0)
     }
 
-    // Semantic Labels (extracted from PE/Label/* in RDDesignLibrary Assets.car)
+    // Semantic Labels
     public static func labelPrimary(_ isDark: Bool) -> Color {
         Color(hex: isDark ? 0xE3E3E5 : 0x17171A)
     }
@@ -254,7 +252,7 @@ public enum RDColorPalette {
         Color(hex: isDark ? 0x232326 : 0xF8F8FB)
     }
 
-    // Primary action blue (prominent buttons, links, selection rings) as rendered by PDF Expert 3.13
+    // Primary action blue (prominent buttons, links, selection rings)
     public static let accentBlue = Color(hex: 0x3A82F7)
 
     // Window Chrome (tab strip + toolbar). PDF Expert always paints this chrome graphite; here every
@@ -329,7 +327,7 @@ public enum RDColorPalette {
         Color(hex: isDark ? 0x36363B : 0xF3F3F6)
     }
 
-    // Home Tab (opaque sidebar + white page, as in PDF Expert 3.13)
+    // Home Tab (opaque sidebar + white page)
     public static func homeSidebarBackground(_ isDark: Bool) -> Color {
         Color(hex: isDark ? 0x1F1F22 : 0xF1F3F5)
     }

@@ -92,7 +92,6 @@ public enum AppLanguage: String, CaseIterable, Identifiable, Codable {
 public enum L10n {
     public static var currentLanguage: AppLanguage = {
         let raw = UserDefaults.standard.string(forKey: "expertPDFReader.appLanguage")
-            ?? UserDefaults.standard.string(forKey: "openPDFExpert.appLanguage")
             ?? AppLanguage.system.rawValue
         return AppLanguage(rawValue: raw) ?? .system
     }()

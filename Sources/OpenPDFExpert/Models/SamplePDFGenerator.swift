@@ -44,7 +44,7 @@ public enum SamplePDFGenerator {
                 sections: [
                     (
                         heading: "1. 页面显示模式 (Single / Two Pages / Cover)",
-                        body: "支持单页连续滚动 (Single Page)、双页并排连续滚动 (Two Pages)，以及适合书籍杂志阅读的「双页（首屏单页封面显示）」模式。可通过顶部「视图设置」弹窗或菜单栏快捷键 (⌘1 / ⌘2 / ⌘3) 一键切换。"
+                        body: "支持单页连续滚动 (Single Page)、双页并排连续滚动 (Two Pages)，以及适合书籍杂志阅读的「双页（首屏单页封面显示）」模式。可在左侧「显示选项」面板中切换，或使用菜单栏快捷键 (⌘1 / ⌘2 / ⌘3) 一键切换。"
                     ),
                     (
                         heading: "2. 分屏对比视图 (Split View)",

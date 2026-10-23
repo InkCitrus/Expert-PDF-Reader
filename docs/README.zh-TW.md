@@ -57,6 +57,12 @@ xattr -dr com.apple.quarantine "/Applications/Expert PDF Reader.app"
 ./build.sh && open "build/Expert PDF Reader.app"
 ```
 
+`build.sh` 預設使用 `xcrun` 選定的 macOS SDK 建置。macOS 27 SDK 中的 SwiftUI 需要編譯器外掛 SwiftUIMacros，此外掛隨 Xcode 提供，命令列工具中並未包含；因此沒有 Xcode 時，`build.sh` 會改用已安裝的最新可用 SDK，並顯示所用的 SDK。如需自行指定 SDK，請設定 `SDK_PATH`：
+
+```zsh
+SDK_PATH=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk ./build.sh
+```
+
 建置通用（Apple 晶片 + Intel）版本，並封裝成 `.dmg`：
 
 ```zsh

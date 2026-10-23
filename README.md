@@ -57,6 +57,12 @@ Requires the Xcode Command Line Tools (`xcode-select --install`).
 ./build.sh && open "build/Expert PDF Reader.app"
 ```
 
+By default `build.sh` builds against the macOS SDK that `xcrun` selects. SwiftUI in the macOS 27 SDK needs a compiler plugin (SwiftUIMacros) that comes with Xcode but not with the Command Line Tools, so without Xcode `build.sh` falls back to the newest installed SDK that works and prints which one it used. To choose the SDK yourself, set `SDK_PATH`:
+
+```zsh
+SDK_PATH=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk ./build.sh
+```
+
 Build a universal (Apple Silicon + Intel) app and package it as a `.dmg`:
 
 ```zsh

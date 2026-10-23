@@ -1,0 +1,949 @@
+import AppKit
+import Combine
+import Foundation
+import PDFKit
+import SwiftUI
+
+// MARK: - URL Symlink Normalization (from HomeTab/Utils/URL+SymlinkNormalized.swift)
+
+extension URL {
+    /// Returns `standardizedFileURL.resolvingSymlinksInPath()` so `/var/...` and `/private/var/...` converge.
+    public var symlinkNormalizedURL: URL {
+        self.standardizedFileURL.resolvingSymlinksInPath()
+    }
+}
+
+// MARK: - DocumentID (from HomeTab ARCHITECTURE.md)
+
+public struct DocumentID: Hashable, Codable, Identifiable {
+    public let url: URL
+    public let normalizedPath: String
+
+    public var id: String { normalizedPath }
+
+    public init(url: URL) {
+        self.url = url
+        self.normalizedPath = url.symlinkNormalizedURL.path
+    }
+
+    public static func == (lhs: DocumentID, rhs: DocumentID) -> Bool {
+        lhs.normalizedPath == rhs.normalizedPath
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(normalizedPath)
+    }
+}
+
+// MARK: - DocumentItem & BookmarkItem
+
+public struct DocumentItem: Identifiable, Equatable {
+    public let documentID: DocumentID
+    public let title: String
+    public let fileSizeText: String
+    public let pageCount: Int
+    public let dateOpened: Date
+    public var dateOpenedText: String
+    public var isFavorite: Bool
+    public var thumbnail: NSImage
+
+    public var id: String { documentID.id }
+    public var url: URL { documentID.url }
+
+    public static func == (lhs: DocumentItem, rhs: DocumentItem) -> Bool {
+        lhs.documentID == rhs.documentID &&
+        lhs.dateOpened == rhs.dateOpened &&
+        lhs.dateOpenedText == rhs.dateOpenedText &&
+        lhs.isFavorite == rhs.isFavorite
+    }
+}
+
+public struct BookmarkItem: Identifiable, Codable, Equatable {
+    public var id: UUID = UUID()
+    public var pageIndex: Int
+    public var title: String
+    public var createdAt: Date = Date()
+
+    public init(pageIndex: Int, title: String) {
+        self.pageIndex = pageIndex
+        self.title = title
+    }
+}
+
+// MARK: - HomeTabPage & Reader Enums
+
+public enum HomeTabPage: String, CaseIterable, Identifiable {
+    case home = "home"
+    case recents = "recents"
+    case favorites = "favorites"
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .home:      return "主页"
+        case .recents:   return "最近打开"
+        case .favorites: return "收藏夹"
+        }
+    }
+
+    public var iconName: String {
+        switch self {
+        case .home:      return "house"
+        case .recents:   return "clock"
+        case .favorites: return "star"
+        }
+    }
+}
+
+public enum ReaderLayoutMode: String, CaseIterable, Identifiable, Codable {
+    case singlePage = "single"
+    case twoPages = "twoPages"
+    case twoPagesCover = "twoPagesCover"
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .singlePage:    return "单页"
+        case .twoPages:      return "双页"
+        case .twoPagesCover: return "双页（首屏单页显示）"
+        }
+    }
+
+    public var shortTitle: String {
+        switch self {
+        case .singlePage:    return "单页"
+        case .twoPages:      return "双页"
+        case .twoPagesCover: return "双页封面"
+        }
+    }
+
+    public var iconName: String {
+        switch self {
+        case .singlePage:    return "doc.text"
+        case .twoPages:      return "book"
+        case .twoPagesCover: return "book.closed"
+        }
+    }
+}
+
+public enum ReaderSplitMode: String, CaseIterable, Identifiable, Codable {
+    case disabled = "disabled"
+    case vertical = "vertical"
+    case horizontal = "horizontal"
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .disabled:   return "禁用分屏视图"
+        case .vertical:   return "垂直分屏（左右）"
+        case .horizontal: return "水平分屏（上下）"
+        }
+    }
+
+    public var iconName: String {
+        switch self {
+        case .disabled:   return "rectangle"
+        case .vertical:   return "rectangle.split.2x1"
+        case .horizontal: return "rectangle.split.1x2"
+        }
+    }
+}
+
+public enum ReaderSidebarTab: String, CaseIterable, Identifiable {
+    case thumbnails = "thumbnails"
+    case outline = "outline"
+    case bookmarks = "bookmarks"
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .thumbnails: return "缩略图"
+        case .outline:    return "大纲"
+        case .bookmarks:  return "书签"
+        }
+    }
+
+    public var iconName: String {
+        switch self {
+        case .thumbnails: return "square.grid.2x2"
+        case .outline:    return "list.bullet.indent"
+        case .bookmarks:  return "bookmark"
+        }
+    }
+}
+
+public struct SearchMatchItem: Identifiable {
+    public let id = UUID()
+    public let pageIndex: Int
+    public let snippet: String
+    public let selection: PDFSelection
+}
+
+// MARK: - DocumentTabState (Per-Tab Reader State)
+
+@MainActor
+public final class DocumentTabState: ObservableObject, Identifiable {
+    public let id: UUID = UUID()
+    public let documentID: DocumentID
+    public let pdfDocument: PDFDocument
+    public let title: String
+
+    @Published public var currentPageIndex: Int = 0
+    @Published public var zoomScale: CGFloat = 1.0
+    @Published public var layoutMode: ReaderLayoutMode = .singlePage
+    @Published public var isClearMarginsEnabled: Bool = false
+
+    // Left Sidebar state
+    @Published public var isLeftSidebarVisible: Bool = true
+    @Published public var activeSidebarTab: ReaderSidebarTab = .thumbnails
+
+    // Split View state (PDFDocumentsSplitViewController)
+    @Published public var splitMode: ReaderSplitMode = .disabled
+    @Published public var isSplitSwapped: Bool = false
+    @Published public var syncScrollAndZoom: Bool = false
+    @Published public var secondaryDocumentURL: URL?
+    @Published public var secondaryPDFDocument: PDFDocument?
+    @Published public var secondaryPageIndex: Int = 0
+    @Published public var secondaryZoomScale: CGFloat = 1.0
+    @Published public var showSplitDocumentPicker: Bool = false
+
+    // Navigation History (Go Back / Go Forward)
+    @Published public private(set) var backStack: [Int] = []
+    @Published public private(set) var forwardStack: [Int] = []
+    private var isNavigatingHistory: Bool = false
+
+    // Search state (PDFTextSearchPanelViewController)
+    @Published public var isSearchVisible: Bool = false
+    @Published public var searchQuery: String = ""
+    @Published public var searchMatches: [SearchMatchItem] = []
+    @Published public var selectedMatchIndex: Int = 0
+
+    // Action triggers for PDFView imperative commands
+    @Published public var zoomCommandToken: Int = 0
+    @Published public var pendingZoomAction: ZoomAction?
+    @Published public var pageJumpToken: Int = 0
+
+    public enum ZoomAction {
+        case zoomIn
+        case zoomOut
+        case actualSize
+        case fitWidth
+        case fitPage
+    }
+
+    // Cached original mediaBox and computed tight cropBox per page index
+    private var originalCropBoxes: [Int: CGRect] = [:]
+    private var computedTightCropBoxes: [Int: CGRect] = [:]
+
+    public init(url: URL, pdfDocument: PDFDocument) {
+        self.documentID = DocumentID(url: url)
+        self.pdfDocument = pdfDocument
+        self.title = url.deletingPathExtension().lastPathComponent
+        // Default secondary pane to same document so split comparison works out-of-the-box
+        self.secondaryDocumentURL = url
+        self.secondaryPDFDocument = pdfDocument
+    }
+
+    public var pageCount: Int {
+        pdfDocument.pageCount
+    }
+
+    public func navigateToPage(_ index: Int, recordHistory: Bool = true) {
+        let clamped = max(0, min(max(0, pageCount - 1), index))
+        guard clamped != currentPageIndex else { return }
+        if recordHistory && !isNavigatingHistory {
+            backStack.append(currentPageIndex)
+            if backStack.count > 50 { backStack.removeFirst() }
+            forwardStack.removeAll()
+        }
+        currentPageIndex = clamped
+        pageJumpToken &+= 1
+        if syncScrollAndZoom && secondaryPDFDocument == pdfDocument {
+            secondaryPageIndex = clamped
+        }
+    }
+
+    public var canGoBack: Bool { !backStack.isEmpty }
+    public var canGoForward: Bool { !forwardStack.isEmpty }
+
+    public func goBack() {
+        guard let prev = backStack.popLast() else { return }
+        isNavigatingHistory = true
+        forwardStack.append(currentPageIndex)
+        currentPageIndex = prev
+        pageJumpToken &+= 1
+        isNavigatingHistory = false
+    }
+
+    public func goForward() {
+        guard let next = forwardStack.popLast() else { return }
+        isNavigatingHistory = true
+        backStack.append(currentPageIndex)
+        currentPageIndex = next
+        pageJumpToken &+= 1
+        isNavigatingHistory = false
+    }
+
+    public func triggerZoom(_ action: ZoomAction) {
+        pendingZoomAction = action
+        zoomCommandToken &+= 1
+    }
+
+    public func rotateCurrentPage(clockwise: Bool) {
+        guard let page = pdfDocument.page(at: currentPageIndex) else { return }
+        let delta = clockwise ? 90 : -90
+        let newRotation = ((page.rotation + delta) % 360 + 360) % 360
+        page.rotation = newRotation
+        pageJumpToken &+= 1
+    }
+
+    public func setSecondaryDocument(url: URL) {
+        if let doc = PDFDocument(url: url) {
+            self.secondaryDocumentURL = url
+            self.secondaryPDFDocument = doc
+            self.secondaryPageIndex = 0
+            self.showSplitDocumentPicker = false
+        }
+    }
+
+    // MARK: - Clear Margins (智能去白边)
+
+    public func applyClearMarginsIfNeeded() {
+        for idx in 0..<pdfDocument.pageCount {
+            guard let page = pdfDocument.page(at: idx) else { continue }
+            if originalCropBoxes[idx] == nil {
+                originalCropBoxes[idx] = page.bounds(for: .cropBox)
+            }
+            if isClearMarginsEnabled {
+                let tight = computedTightCropBoxes[idx] ?? computeTightCropBox(for: page)
+                computedTightCropBoxes[idx] = tight
+                page.setBounds(tight, for: .cropBox)
+            } else if let orig = originalCropBoxes[idx] {
+                page.setBounds(orig, for: .cropBox)
+            }
+        }
+    }
+
+    private func computeTightCropBox(for page: PDFPage) -> CGRect {
+        let mediaBounds = page.bounds(for: .mediaBox)
+        guard mediaBounds.width > 40, mediaBounds.height > 40 else { return mediaBounds }
+
+        // Render low-res bitmap (150 x 200) to detect non-white ink bounding box (works for both text & scans)
+        let sampleW = 150
+        let sampleH = 200
+        var pixels = [UInt8](repeating: 255, count: sampleW * sampleH)
+        let graySpace = CGColorSpaceCreateDeviceGray()
+
+        guard let ctx = CGContext(
+            data: &pixels,
+            width: sampleW,
+            height: sampleH,
+            bitsPerComponent: 8,
+            bytesPerRow: sampleW,
+            space: graySpace,
+            bitmapInfo: CGImageAlphaInfo.none.rawValue
+        ) else {
+            return mediaBounds.insetBy(dx: mediaBounds.width * 0.08, dy: mediaBounds.height * 0.08)
+        }
+
+        ctx.setFillColor(gray: 1.0, alpha: 1.0)
+        ctx.fill(CGRect(x: 0, y: 0, width: sampleW, height: sampleH))
+        ctx.saveGState()
+        ctx.scaleBy(x: CGFloat(sampleW) / mediaBounds.width, y: CGFloat(sampleH) / mediaBounds.height)
+        ctx.translateBy(x: -mediaBounds.minX, y: -mediaBounds.minY)
+        page.draw(with: .mediaBox, to: ctx)
+        ctx.restoreGState()
+
+        var minX = sampleW
+        var maxX = 0
+        var minY = sampleH
+        var maxY = 0
+        let threshold: UInt8 = 246
+
+        for y in 0..<sampleH {
+            for x in 0..<sampleW {
+                // Note: CGContext row 0 in memory is top row
+                let val = pixels[y * sampleW + x]
+                if val < threshold {
+                    if x < minX { minX = x }
+                    if x > maxX { maxX = x }
+                    // Convert top-origin row y to bottom-origin PDF y
+                    let pdfRow = sampleH - 1 - y
+                    if pdfRow < minY { minY = pdfRow }
+                    if pdfRow > maxY { maxY = pdfRow }
+                }
+            }
+        }
+
+        guard minX <= maxX, minY <= maxY else {
+            return mediaBounds
+        }
+
+        let scaleX = mediaBounds.width / CGFloat(sampleW)
+        let scaleY = mediaBounds.height / CGFloat(sampleH)
+        let pad: CGFloat = 14.0
+
+        let rx = max(mediaBounds.minX, mediaBounds.minX + CGFloat(minX) * scaleX - pad)
+        let ry = max(mediaBounds.minY, mediaBounds.minY + CGFloat(minY) * scaleY - pad)
+        let rMaxX = min(mediaBounds.maxX, mediaBounds.minX + CGFloat(maxX + 1) * scaleX + pad)
+        let rMaxY = min(mediaBounds.maxY, mediaBounds.minY + CGFloat(maxY + 1) * scaleY + pad)
+
+        return CGRect(x: rx, y: ry, width: max(40, rMaxX - rx), height: max(40, rMaxY - ry))
+    }
+
+    // MARK: - Full-Text Search
+
+    public func performSearch() {
+        let trimmed = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            searchMatches = []
+            selectedMatchIndex = 0
+            return
+        }
+
+        let selections = pdfDocument.findString(trimmed, withOptions: [.caseInsensitive])
+        var results: [SearchMatchItem] = []
+
+        for sel in selections {
+            guard let page = sel.pages.first else { continue }
+            let pageIdx = pdfDocument.index(for: page)
+            let pageText = (page.string ?? "").replacingOccurrences(of: "\n", with: " ")
+            let matchStr = sel.string ?? trimmed
+            var snippet = matchStr
+            if let range = pageText.range(of: matchStr, options: .caseInsensitive) {
+                let start = pageText.index(range.lowerBound, offsetBy: -26, limitedBy: pageText.startIndex) ?? pageText.startIndex
+                let end = pageText.index(range.upperBound, offsetBy: 36, limitedBy: pageText.endIndex) ?? pageText.endIndex
+                let prefix = start > pageText.startIndex ? "…" : ""
+                let suffix = end < pageText.endIndex ? "…" : ""
+                snippet = prefix + String(pageText[start..<end]) + suffix
+            }
+            results.append(SearchMatchItem(pageIndex: pageIdx, snippet: snippet, selection: sel))
+        }
+
+        searchMatches = results
+        selectedMatchIndex = 0
+        if let first = results.first {
+            navigateToPage(first.pageIndex, recordHistory: false)
+        }
+    }
+
+    public func selectNextSearchMatch() {
+        guard !searchMatches.isEmpty else { return }
+        selectedMatchIndex = (selectedMatchIndex + 1) % searchMatches.count
+        let match = searchMatches[selectedMatchIndex]
+        navigateToPage(match.pageIndex, recordHistory: false)
+    }
+
+    public func selectPreviousSearchMatch() {
+        guard !searchMatches.isEmpty else { return }
+        selectedMatchIndex = (selectedMatchIndex - 1 + searchMatches.count) % searchMatches.count
+        let match = searchMatches[selectedMatchIndex]
+        navigateToPage(match.pageIndex, recordHistory: false)
+    }
+}
+
+// MARK: - AppTab (Window Tab Item)
+
+public enum AppTab: Identifiable, Equatable {
+    case home(UUID)
+    case document(DocumentTabState)
+
+    public var id: UUID {
+        switch self {
+        case .home(let uuid):      return uuid
+        case .document(let state): return state.id
+        }
+    }
+
+    public var title: String {
+        switch self {
+        case .home:                return "主页"
+        case .document(let state): return state.title
+        }
+    }
+
+    public var isHome: Bool {
+        if case .home = self { return true }
+        return false
+    }
+
+    public static func == (lhs: AppTab, rhs: AppTab) -> Bool {
+        lhs.id == rhs.id
+    }
+}
+
+// MARK: - ThumbnailGenerator & Cache (HomeTabThumbnailGenerator)
+
+@MainActor
+public final class PDFThumbnailCache: ObservableObject {
+    public static let shared = PDFThumbnailCache()
+
+    private var cache: [String: NSImage] = [:]
+
+    public func thumbnail(for page: PDFPage, documentID: String, pageIndex: Int, theme: PDFViewTheme, size: CGSize = CGSize(width: 160, height: 210)) -> NSImage {
+        let key = "\(documentID)#\(pageIndex)#\(theme.rawValue)#\(Int(size.width))x\(Int(size.height))"
+        if let cached = cache[key] {
+            return cached
+        }
+        let baseImg = page.thumbnail(of: size, for: .mediaBox)
+        if theme == .day {
+            cache[key] = baseImg
+            return baseImg
+        }
+        if let cgImg = baseImg.cgImage(forProposedRect: nil, context: nil, hints: nil),
+           let filteredCG = MetalShaderRenderer.shared.applyShader(to: cgImg, theme: theme) {
+            let themedImg = NSImage(cgImage: filteredCG, size: baseImg.size)
+            cache[key] = themedImg
+            return themedImg
+        }
+        cache[key] = baseImg
+        return baseImg
+    }
+}
+
+// MARK: - AppStore (Root Domain Controller + Coordinator)
+
+@MainActor
+public final class AppStore: ObservableObject {
+    // Global Theme & Appearance
+    @Published public var pdfTheme: PDFViewTheme {
+        didSet {
+            UserDefaults.standard.set(pdfTheme.rawValue, forKey: "openPDFExpert.pdfTheme")
+        }
+    }
+
+    @Published public var appearanceMode: AppAppearanceMode {
+        didSet {
+            UserDefaults.standard.set(appearanceMode.rawValue, forKey: "openPDFExpert.appearanceMode")
+            applyAppAppearance()
+        }
+    }
+
+    // HomeTab Navigation State (HomeTabNavigationStateContainer)
+    @Published public var homeCurrentPage: HomeTabPage = .home
+    @Published public var isDraggingOverHome: Bool = false
+
+    // DocumentsStore (Recents + Favorites + Bookmarks)
+    @Published public private(set) var documents: [DocumentItem] = []
+    @Published public private(set) var recentDocumentIDs: [DocumentID] = []
+    @Published public private(set) var favoriteDocumentIDs: Set<DocumentID> = []
+    @Published public private(set) var bookmarksByDocument: [String: [BookmarkItem]] = [:]
+
+    // TabsViewController State
+    @Published public var tabs: [AppTab] = []
+    @Published public var selectedTabID: UUID
+
+    private var dateFormatter: DateFormatter
+    private var localeObserver: NSObjectProtocol?
+
+    private struct PersistedRecentEntry: Codable {
+        let path: String
+        let dateOpened: Date
+    }
+
+    public init() {
+        let savedThemeRaw = UserDefaults.standard.integer(forKey: "openPDFExpert.pdfTheme")
+        self.pdfTheme = PDFViewTheme(rawValue: savedThemeRaw) ?? .day
+
+        let savedAppRaw = UserDefaults.standard.string(forKey: "openPDFExpert.appearanceMode") ?? AppAppearanceMode.system.rawValue
+        self.appearanceMode = AppAppearanceMode(rawValue: savedAppRaw) ?? .system
+
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .short
+        self.dateFormatter = formatter
+
+        let homeTabID = UUID()
+        self.tabs = [.home(homeTabID)]
+        self.selectedTabID = homeTabID
+
+        loadPersistedState()
+        ensureSampleDocumentInRecents()
+        applyAppAppearance()
+
+        // Observe locale changes to re-format DocumentItem.dateOpenedText (from ARCHITECTURE.md PEM-10270)
+        localeObserver = NotificationCenter.default.addObserver(
+            forName: NSLocale.currentLocaleDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.handleLocaleChange()
+            }
+        }
+    }
+
+    public func applyAppAppearance() {
+        switch appearanceMode {
+        case .system:
+            NSApp?.appearance = nil
+        case .light:
+            NSApp?.appearance = NSAppearance(named: .aqua)
+        case .dark:
+            NSApp?.appearance = NSAppearance(named: .darkAqua)
+        }
+    }
+
+    private func handleLocaleChange() {
+        let newFormatter = DateFormatter()
+        newFormatter.dateStyle = .short
+        newFormatter.timeStyle = .short
+        self.dateFormatter = newFormatter
+
+        for idx in documents.indices {
+            documents[idx].dateOpenedText = newFormatter.string(from: documents[idx].dateOpened)
+        }
+    }
+
+    // MARK: - Computed Document Collections
+
+    public var recentDocuments: [DocumentItem] {
+        recentDocumentIDs.compactMap { id in
+            documents.first(where: { $0.documentID == id })
+        }
+    }
+
+    public var favoriteDocuments: [DocumentItem] {
+        documents.filter { favoriteDocumentIDs.contains($0.documentID) }
+    }
+
+    public var openedDocumentItems: [DocumentItem] {
+        tabs.compactMap { tab in
+            guard case .document(let state) = tab else { return nil }
+            return documents.first(where: { $0.documentID == state.documentID })
+        }
+    }
+
+    public var activeDocumentTab: DocumentTabState? {
+        guard let tab = tabs.first(where: { $0.id == selectedTabID }),
+              case .document(let state) = tab else {
+            return nil
+        }
+        return state
+    }
+
+    // MARK: - Tab & Document Actions
+
+    public func selectHomeTab() {
+        if let existing = tabs.first(where: { $0.isHome }) {
+            selectedTabID = existing.id
+        } else {
+            let newID = UUID()
+            tabs.insert(.home(newID), at: 0)
+            selectedTabID = newID
+        }
+    }
+
+    public func openNewHomeTab() {
+        selectHomeTab()
+        homeCurrentPage = .home
+    }
+
+    public func openFilePicker() {
+        let panel = NSOpenPanel()
+        panel.title = "打开 PDF 文档"
+        panel.allowedContentTypes = [.pdf]
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        if panel.runModal() == .OK {
+            openDocuments(at: panel.urls)
+        }
+    }
+
+    public func openDocuments(at urls: [URL]) {
+        for url in urls {
+            openDocument(at: url)
+        }
+    }
+
+    @discardableResult
+    public func openDocument(at url: URL) -> DocumentTabState? {
+        let docID = DocumentID(url: url)
+
+        // If already open in a tab, switch to it
+        if let existingTab = tabs.first(where: {
+            if case .document(let state) = $0 {
+                return state.documentID == docID
+            }
+            return false
+        }), case .document(let existingState) = existingTab {
+            selectedTabID = existingTab.id
+            recordDocumentOpen(url: url, pdfDocument: existingState.pdfDocument)
+            return existingState
+        }
+
+        guard let pdfDoc = PDFDocument(url: url) else {
+            return nil
+        }
+
+        recordDocumentOpen(url: url, pdfDocument: pdfDoc)
+        let tabState = DocumentTabState(url: url, pdfDocument: pdfDoc)
+        let newTab = AppTab.document(tabState)
+        tabs.append(newTab)
+        selectedTabID = newTab.id
+        return tabState
+    }
+
+    public func closeTab(id: UUID) {
+        guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
+        if tabs[idx].isHome && tabs.count == 1 {
+            return
+        }
+        let wasSelected = (selectedTabID == id)
+        tabs.remove(at: idx)
+        if tabs.isEmpty {
+            let homeID = UUID()
+            tabs = [.home(homeID)]
+            selectedTabID = homeID
+        } else if wasSelected {
+            let nextIdx = max(0, min(idx, tabs.count - 1))
+            selectedTabID = tabs[nextIdx].id
+        }
+    }
+
+    public func closeCurrentTab() {
+        closeTab(id: selectedTabID)
+    }
+
+    public func selectNextTab() {
+        guard tabs.count > 1,
+              let idx = tabs.firstIndex(where: { $0.id == selectedTabID }) else { return }
+        selectedTabID = tabs[(idx + 1) % tabs.count].id
+    }
+
+    public func selectPreviousTab() {
+        guard tabs.count > 1,
+              let idx = tabs.firstIndex(where: { $0.id == selectedTabID }) else { return }
+        selectedTabID = tabs[(idx - 1 + tabs.count) % tabs.count].id
+    }
+
+    // MARK: - Recents & Favorites Management
+
+    public func setFavorite(id: DocumentID, isFavorite: Bool) {
+        if isFavorite {
+            favoriteDocumentIDs.insert(id)
+        } else {
+            favoriteDocumentIDs.remove(id)
+        }
+        if let idx = documents.firstIndex(where: { $0.documentID == id }) {
+            documents[idx].isFavorite = isFavorite
+        }
+        savePersistedState()
+    }
+
+    public func toggleFavorite(id: DocumentID) {
+        let current = favoriteDocumentIDs.contains(id)
+        setFavorite(id: id, isFavorite: !current)
+    }
+
+    public func removeFromRecents(id: DocumentID) {
+        recentDocumentIDs.removeAll(where: { $0 == id })
+        if !favoriteDocumentIDs.contains(id) {
+            documents.removeAll(where: { $0.documentID == id })
+        }
+        savePersistedState()
+    }
+
+    public func clearAllRecents() {
+        recentDocumentIDs.removeAll()
+        documents.removeAll(where: { !favoriteDocumentIDs.contains($0.documentID) })
+        savePersistedState()
+    }
+
+    public func clearAllFavorites() {
+        favoriteDocumentIDs.removeAll()
+        for idx in documents.indices {
+            documents[idx].isFavorite = false
+        }
+        savePersistedState()
+    }
+
+    public func showInFinder(id: DocumentID) {
+        NSWorkspace.shared.activateFileViewerSelecting([id.url])
+    }
+
+    // MARK: - Bookmarks Management
+
+    public func bookmarks(for documentID: DocumentID) -> [BookmarkItem] {
+        bookmarksByDocument[documentID.normalizedPath] ?? []
+    }
+
+    public func isPageBookmarked(pageIndex: Int, in documentID: DocumentID) -> Bool {
+        bookmarks(for: documentID).contains(where: { $0.pageIndex == pageIndex })
+    }
+
+    public func toggleBookmark(pageIndex: Int, defaultTitle: String? = nil, in documentID: DocumentID) {
+        var list = bookmarksByDocument[documentID.normalizedPath] ?? []
+        if let existingIdx = list.firstIndex(where: { $0.pageIndex == pageIndex }) {
+            list.remove(at: existingIdx)
+        } else {
+            let label = defaultTitle ?? "第 \(pageIndex + 1) 页"
+            list.append(BookmarkItem(pageIndex: pageIndex, title: label))
+            list.sort(by: { $0.pageIndex < $1.pageIndex })
+        }
+        bookmarksByDocument[documentID.normalizedPath] = list
+        savePersistedState()
+    }
+
+    public func removeBookmark(id: UUID, in documentID: DocumentID) {
+        guard var list = bookmarksByDocument[documentID.normalizedPath] else { return }
+        list.removeAll(where: { $0.id == id })
+        bookmarksByDocument[documentID.normalizedPath] = list
+        savePersistedState()
+    }
+
+    public func renameBookmark(id: UUID, newTitle: String, in documentID: DocumentID) {
+        guard var list = bookmarksByDocument[documentID.normalizedPath],
+              let idx = list.firstIndex(where: { $0.id == id }) else { return }
+        list[idx].title = newTitle
+        bookmarksByDocument[documentID.normalizedPath] = list
+        savePersistedState()
+    }
+
+    // MARK: - Persistence & Sample Initialization
+
+    private func ensureSampleDocumentInRecents() {
+        let sampleURL = SamplePDFGenerator.ensureSamplePDFExists()
+        let sampleID = DocumentID(url: sampleURL)
+        if !documents.contains(where: { $0.documentID == sampleID }),
+           let pdfDoc = PDFDocument(url: sampleURL) {
+            recordDocumentOpen(url: sampleURL, pdfDocument: pdfDoc)
+            setFavorite(id: sampleID, isFavorite: true)
+        }
+    }
+
+    public func openGettingStartedGuide() {
+        let sampleURL = SamplePDFGenerator.ensureSamplePDFExists()
+        openDocument(at: sampleURL)
+    }
+
+    private func recordDocumentOpen(url: URL, pdfDocument: PDFDocument) {
+        let docID = DocumentID(url: url)
+        let now = Date()
+        let dateText = dateFormatter.string(from: now)
+        let isFav = favoriteDocumentIDs.contains(docID)
+        let coverThumb = generateCoverThumbnail(for: pdfDocument, documentID: docID.id)
+        let sizeText = formattedFileSize(for: url)
+
+        let item = DocumentItem(
+            documentID: docID,
+            title: url.deletingPathExtension().lastPathComponent,
+            fileSizeText: sizeText,
+            pageCount: pdfDocument.pageCount,
+            dateOpened: now,
+            dateOpenedText: dateText,
+            isFavorite: isFav,
+            thumbnail: coverThumb
+        )
+
+        if let idx = documents.firstIndex(where: { $0.documentID == docID }) {
+            documents[idx] = item
+        } else {
+            documents.insert(item, at: 0)
+        }
+
+        recentDocumentIDs.removeAll(where: { $0 == docID })
+        recentDocumentIDs.insert(docID, at: 0)
+        savePersistedState()
+    }
+
+    private func generateCoverThumbnail(for pdfDocument: PDFDocument, documentID: String) -> NSImage {
+        guard let firstPage = pdfDocument.page(at: 0) else {
+            return NSImage(size: NSSize(width: 140, height: 184))
+        }
+        return firstPage.thumbnail(of: CGSize(width: 280, height: 368), for: .mediaBox)
+    }
+
+    private func formattedFileSize(for url: URL) -> String {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let bytes = attrs[.size] as? Int64 else {
+            return ""
+        }
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
+    }
+
+    private func loadPersistedState() {
+        let defaults = UserDefaults.standard
+
+        if let favPaths = defaults.stringArray(forKey: "openPDFExpert.Favorites") {
+            for p in favPaths where FileManager.default.fileExists(atPath: p) {
+                favoriteDocumentIDs.insert(DocumentID(url: URL(fileURLWithPath: p)))
+            }
+        }
+
+        if let recentsData = defaults.data(forKey: "openPDFExpert.Recents"),
+           let entries = try? JSONDecoder().decode([PersistedRecentEntry].self, from: recentsData) {
+            for entry in entries where FileManager.default.fileExists(atPath: entry.path) {
+                let url = URL(fileURLWithPath: entry.path)
+                guard let pdfDoc = PDFDocument(url: url) else { continue }
+                let docID = DocumentID(url: url)
+                let item = DocumentItem(
+                    documentID: docID,
+                    title: url.deletingPathExtension().lastPathComponent,
+                    fileSizeText: formattedFileSize(for: url),
+                    pageCount: pdfDoc.pageCount,
+                    dateOpened: entry.dateOpened,
+                    dateOpenedText: dateFormatter.string(from: entry.dateOpened),
+                    isFavorite: favoriteDocumentIDs.contains(docID),
+                    thumbnail: generateCoverThumbnail(for: pdfDoc, documentID: docID.id)
+                )
+                if !documents.contains(where: { $0.documentID == docID }) {
+                    documents.append(item)
+                }
+                if !recentDocumentIDs.contains(docID) {
+                    recentDocumentIDs.append(docID)
+                }
+            }
+        }
+
+        // Also ensure any favorite not in recents is loaded
+        for favID in favoriteDocumentIDs {
+            if !documents.contains(where: { $0.documentID == favID }),
+               FileManager.default.fileExists(atPath: favID.url.path),
+               let pdfDoc = PDFDocument(url: favID.url) {
+                let now = Date()
+                let item = DocumentItem(
+                    documentID: favID,
+                    title: favID.url.deletingPathExtension().lastPathComponent,
+                    fileSizeText: formattedFileSize(for: favID.url),
+                    pageCount: pdfDoc.pageCount,
+                    dateOpened: now,
+                    dateOpenedText: dateFormatter.string(from: now),
+                    isFavorite: true,
+                    thumbnail: generateCoverThumbnail(for: pdfDoc, documentID: favID.id)
+                )
+                documents.append(item)
+            }
+        }
+
+        if let bmData = defaults.data(forKey: "openPDFExpert.Bookmarks"),
+           let decoded = try? JSONDecoder().decode([String: [BookmarkItem]].self, from: bmData) {
+            bookmarksByDocument = decoded
+        }
+    }
+
+    private func savePersistedState() {
+        let defaults = UserDefaults.standard
+        let favPaths = favoriteDocumentIDs.map { $0.normalizedPath }
+        defaults.set(favPaths, forKey: "openPDFExpert.Favorites")
+
+        let entries: [PersistedRecentEntry] = recentDocumentIDs.compactMap { id in
+            guard let item = documents.first(where: { $0.documentID == id }) else { return nil }
+            return PersistedRecentEntry(path: id.url.path, dateOpened: item.dateOpened)
+        }
+        if let data = try? JSONEncoder().encode(entries) {
+            defaults.set(data, forKey: "openPDFExpert.Recents")
+        }
+
+        if let bmData = try? JSONEncoder().encode(bookmarksByDocument) {
+            defaults.set(bmData, forKey: "openPDFExpert.Bookmarks")
+        }
+    }
+}

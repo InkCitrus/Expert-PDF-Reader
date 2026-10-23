@@ -1,0 +1,9 @@
+.DS_Store
+.build/
+.swiftpm/
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+DerivedData/
+OpenPDFExpert.app/Contents/MacOS/OpenPDFExpert
+OpenPDFExpert.app/Contents/_CodeSignature/

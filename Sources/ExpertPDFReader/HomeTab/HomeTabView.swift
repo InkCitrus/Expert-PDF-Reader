@@ -2,9 +2,8 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Replicates `HomeTabRootView`, `HomeTabPageView`, `HomeTabSidebarView`, `HorizontalItemsRow`,
-/// and `DocumentsCollectionView` from `HomeTab.framework/Resources/ARCHITECTURE.md`, laid out like
-/// PDF Expert 3.13's Home: opaque `216pt` sidebar, large page title, dashed drop area and card sections.
+/// The Home tab, laid out like PDF Expert 3's Home: opaque `216pt` sidebar, large page title, dashed drop
+/// area and card sections (reading themes, Recents, Favorites).
 public struct HomeTabRootView: View {
     @ObservedObject var store: AppStore
     var isStandaloneSplitPane: Bool = false
@@ -42,7 +41,7 @@ public struct HomeTabRootView: View {
 
             pageContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(RDColorPalette.homeContentBackground(isDark))
+                .background(AppPalette.homeContentBackground(isDark))
         }
         .overlay {
             // Drag-and-Drop Overlay (DropOverlayView)
@@ -89,19 +88,19 @@ public struct HomeTabRootView: View {
             // Drop Area Section (HomeSection.dropArea)
             HomeDropAreaCard(isDark: isDark, isCompact: isStandaloneSplitPane, onOpenFilePicker: openFilePicker)
 
-            // Reading Themes (RDPDFShaders) — PDF Expert's "Tools for You" card row
+            // Reading Themes card row
             if !isStandaloneSplitPane {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(alignment: .firstTextBaseline) {
                         Text(L10n.tr("阅读主题", "Reading Theme"))
                             .font(.system(size: 20, weight: .bold))
-                            .foregroundColor(RDColorPalette.labelPrimary(isDark))
+                            .foregroundColor(AppPalette.labelPrimary(isDark))
                         Spacer()
                         Toggle(L10n.tr("浅色时使用纸质替代日间", "Use Sepia in Light Mode"), isOn: $store.useSepiaForLightSystemTheme)
                             .toggleStyle(.switch)
                             .controlSize(.mini)
                             .font(.system(size: 12))
-                            .foregroundColor(RDColorPalette.labelSecondary(isDark))
+                            .foregroundColor(AppPalette.labelSecondary(isDark))
                     }
                     HStack(spacing: 12) {
                         ForEach(PDFReadingThemeMode.allCases) { mode in
@@ -158,7 +157,7 @@ public struct HomeTabRootView: View {
             if items.isEmpty {
                 Text(emptyText)
                     .font(.system(size: 13))
-                    .foregroundColor(RDColorPalette.labelTertiary(isDark))
+                    .foregroundColor(AppPalette.labelTertiary(isDark))
                     .padding(.vertical, 4)
             } else {
                 documentsGrid(Array(items.prefix(Self.homeSectionItemLimit)), allowsRemoval: allowsRemoval)
@@ -230,11 +229,11 @@ public struct HomeTabRootView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.system(size: isStandaloneSplitPane ? 22 : 28, weight: .bold))
-                .foregroundColor(RDColorPalette.labelPrimary(isDark))
+                .foregroundColor(AppPalette.labelPrimary(isDark))
             if let subtitle {
                 Text(subtitle)
                     .font(.system(size: 12.5))
-                    .foregroundColor(RDColorPalette.labelSecondary(isDark))
+                    .foregroundColor(AppPalette.labelSecondary(isDark))
             }
         }
     }
@@ -328,7 +327,7 @@ struct HomeTabSidebarView: View {
                 } label: {
                     HomeSidebarRowLabel(
                         icon: "\(page.iconName).fill",
-                        iconColor: page == .home ? RDColorPalette.systemRed : RDColorPalette.labelPrimary(isDark),
+                        iconColor: page == .home ? AppPalette.systemRed : AppPalette.labelPrimary(isDark),
                         title: page.title,
                         badge: badge(for: page),
                         isSelected: store.homeCurrentPage == page,
@@ -344,26 +343,26 @@ struct HomeTabSidebarView: View {
             Button {
                 store.openFilePicker()
             } label: {
-                HomeSidebarRowLabel(icon: "folder", iconColor: RDColorPalette.labelSecondary(isDark), title: L10n.tr("打开文件…", "Open File…"), badge: "⌘O", isSecondary: true, isDark: isDark)
+                HomeSidebarRowLabel(icon: "folder", iconColor: AppPalette.labelSecondary(isDark), title: L10n.tr("打开文件…", "Open File…"), badge: "⌘O", isSecondary: true, isDark: isDark)
             }
             .buttonStyle(.plain)
 
             Button {
                 store.openGettingStartedGuide()
             } label: {
-                HomeSidebarRowLabel(icon: "questionmark.circle", iconColor: RDColorPalette.labelSecondary(isDark), title: L10n.tr("阅读指南", "Reading Guide"), isSecondary: true, isDark: isDark)
+                HomeSidebarRowLabel(icon: "questionmark.circle", iconColor: AppPalette.labelSecondary(isDark), title: L10n.tr("阅读指南", "Reading Guide"), isSecondary: true, isDark: isDark)
             }
             .buttonStyle(.plain)
 
             SettingsLink {
-                HomeSidebarRowLabel(icon: "gearshape", iconColor: RDColorPalette.labelSecondary(isDark), title: L10n.tr("设置", "Settings"), badge: "⌘,", isSecondary: true, isDark: isDark)
+                HomeSidebarRowLabel(icon: "gearshape", iconColor: AppPalette.labelSecondary(isDark), title: L10n.tr("设置", "Settings"), badge: "⌘,", isSecondary: true, isDark: isDark)
             }
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 12)
         .padding(.top, 14)
         .padding(.bottom, 14)
-        .background(RDColorPalette.homeSidebarBackground(isDark))
+        .background(AppPalette.homeSidebarBackground(isDark))
     }
 
     private func badge(for page: HomeTabPage) -> String? {
@@ -397,13 +396,13 @@ struct HomeSidebarRowLabel: View {
                 .frame(width: 22)
             Text(title)
                 .font(.system(size: isSecondary ? 13 : 14, weight: isSelected ? .semibold : .regular))
-                .foregroundColor(isSecondary ? RDColorPalette.labelSecondary(isDark) : RDColorPalette.labelPrimary(isDark))
+                .foregroundColor(isSecondary ? AppPalette.labelSecondary(isDark) : AppPalette.labelPrimary(isDark))
             Spacer(minLength: 4)
             if let badge {
                 Text(badge)
                     .font(.system(size: 11.5))
                     .monospacedDigit()
-                    .foregroundColor(RDColorPalette.labelTertiary(isDark))
+                    .foregroundColor(AppPalette.labelTertiary(isDark))
             }
         }
         .padding(.horizontal, 10)
@@ -412,8 +411,8 @@ struct HomeSidebarRowLabel: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(
                     isSelected
-                        ? RDColorPalette.homeSidebarSelection(isDark)
-                        : (isHovered ? RDColorPalette.homeSidebarSelection(isDark).opacity(0.55) : Color.clear)
+                        ? AppPalette.homeSidebarSelection(isDark)
+                        : (isHovered ? AppPalette.homeSidebarSelection(isDark).opacity(0.55) : Color.clear)
                 )
         )
         .contentShape(Rectangle())
@@ -438,12 +437,12 @@ struct HomeSectionHeader: View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text(title)
                 .font(.system(size: 20, weight: .bold))
-                .foregroundColor(RDColorPalette.labelPrimary(isDark))
+                .foregroundColor(AppPalette.labelPrimary(isDark))
             Spacer()
             ForEach(Array(actions.enumerated()), id: \.element.id) { idx, action in
                 if idx > 0 {
                     Rectangle()
-                        .fill(RDColorPalette.separator(isDark))
+                        .fill(AppPalette.separator(isDark))
                         .frame(width: 1, height: 14)
                 }
                 HomeLinkButton(title: action.title, action: action.action)
@@ -462,7 +461,7 @@ struct HomeLinkButton: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 13.5))
-                .foregroundColor(RDColorPalette.accentBlue.opacity(isHovered ? 0.75 : 1))
+                .foregroundColor(AppPalette.accentBlue.opacity(isHovered ? 0.75 : 1))
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
@@ -482,7 +481,7 @@ struct HomePrimaryButton: View {
                 .foregroundColor(.white)
                 .padding(.horizontal, 18)
                 .frame(height: 30)
-                .background(Capsule().fill(RDColorPalette.accentBlue.opacity(isHovered ? 0.88 : 1)))
+                .background(Capsule().fill(AppPalette.accentBlue.opacity(isHovered ? 0.88 : 1)))
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -508,22 +507,22 @@ struct HomeDropAreaCard: View {
 
             Text(L10n.tr("或将 PDF 文件拖放到此处", "or drag and drop PDF files here"))
                 .font(.system(size: 12.5))
-                .foregroundColor(RDColorPalette.accentBlue.opacity(0.85))
+                .foregroundColor(AppPalette.accentBlue.opacity(0.85))
         }
         .frame(maxWidth: .infinity)
         .frame(height: isCompact ? 176 : 196)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(RDColorPalette.accentBlue.opacity(isDark ? 0.10 : 0.05))
+                .fill(AppPalette.accentBlue.opacity(isDark ? 0.10 : 0.05))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(RDColorPalette.accentBlue.opacity(isDark ? 0.22 : 0.13), lineWidth: 3)
+                .strokeBorder(AppPalette.accentBlue.opacity(isDark ? 0.22 : 0.13), lineWidth: 3)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 11, style: .continuous)
                 .strokeBorder(
-                    RDColorPalette.accentBlue.opacity(isHovered ? 0.75 : 0.42),
+                    AppPalette.accentBlue.opacity(isHovered ? 0.75 : 0.42),
                     style: StrokeStyle(lineWidth: 1.5, dash: [8, 6])
                 )
                 .padding(6)
@@ -534,7 +533,7 @@ struct HomeDropAreaCard: View {
     }
 }
 
-/// Three fanned pages with a "PDF" label (PDF Expert's drop-area artwork, drawn with shapes).
+/// Three fanned pages with a "PDF" label, drawn with shapes.
 struct PDFStackIllustration: View {
     let isDark: Bool
 
@@ -550,7 +549,7 @@ struct PDFStackIllustration: View {
                 .overlay(
                     Text("PDF")
                         .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(RDColorPalette.accentBlue.opacity(0.75))
+                        .foregroundColor(AppPalette.accentBlue.opacity(0.75))
                         .offset(y: 9)
                 )
         }
@@ -562,14 +561,14 @@ struct PDFStackIllustration: View {
             .frame(width: 42, height: 54)
             .overlay(
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .stroke(RDColorPalette.accentBlue.opacity(0.28), lineWidth: 1)
+                    .stroke(AppPalette.accentBlue.opacity(0.28), lineWidth: 1)
             )
             .overlay(alignment: .topLeading) {
                 if showsLines {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(0..<4, id: \.self) { line in
                             Capsule()
-                                .fill(RDColorPalette.accentBlue.opacity(0.25))
+                                .fill(AppPalette.accentBlue.opacity(0.25))
                                 .frame(width: line == 3 ? 14 : 24, height: 2)
                         }
                     }
@@ -626,21 +625,21 @@ struct HomeThemeModeCard: View {
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 13))
-                            .foregroundColor(RDColorPalette.accentBlue)
+                            .foregroundColor(AppPalette.accentBlue)
                     }
                 }
-                .foregroundColor(RDColorPalette.labelPrimary(isDark))
+                .foregroundColor(AppPalette.labelPrimary(isDark))
                 .padding(.horizontal, 2)
             }
             .padding(10)
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(isHovered ? RDColorPalette.homeCardHover(isDark) : RDColorPalette.homeCardBackground(isDark))
+                    .fill(isHovered ? AppPalette.homeCardHover(isDark) : AppPalette.homeCardBackground(isDark))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(isSelected ? RDColorPalette.accentBlue : Color.clear, lineWidth: 2)
+                    .stroke(isSelected ? AppPalette.accentBlue : Color.clear, lineWidth: 2)
             )
             .contentShape(Rectangle())
         }
@@ -686,7 +685,7 @@ struct DocumentCardView: View {
                         Button(action: onToggleFavorite) {
                             Image(systemName: item.isFavorite ? "star.fill" : "star")
                                 .font(.system(size: 10.5, weight: .semibold))
-                                .foregroundColor(item.isFavorite ? RDColorPalette.systemYellow : .white)
+                                .foregroundColor(item.isFavorite ? AppPalette.systemYellow : .white)
                                 .frame(width: 22, height: 22)
                                 .background(Circle().fill(Color.black.opacity(0.5)))
                         }
@@ -701,14 +700,14 @@ struct DocumentCardView: View {
             VStack(spacing: 2) {
                 Text(item.title)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(RDColorPalette.labelPrimary(isDark))
+                    .foregroundColor(AppPalette.labelPrimary(isDark))
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
                     .truncationMode(.middle)
 
                 Text(subtitleText)
                     .font(.system(size: 10.5))
-                    .foregroundColor(RDColorPalette.labelTertiary(isDark))
+                    .foregroundColor(AppPalette.labelTertiary(isDark))
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity)
@@ -716,7 +715,7 @@ struct DocumentCardView: View {
         .padding(8)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(isHovered ? RDColorPalette.homeCardHover(isDark) : Color.clear)
+                .fill(isHovered ? AppPalette.homeCardHover(isDark) : Color.clear)
         )
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
@@ -749,13 +748,13 @@ struct HomeEmptyStateView: View {
         VStack(spacing: 12) {
             Image(systemName: icon)
                 .font(.system(size: 36, weight: .light))
-                .foregroundColor(RDColorPalette.labelQuaternary(isDark))
+                .foregroundColor(AppPalette.labelQuaternary(isDark))
             Text(title)
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundColor(RDColorPalette.labelPrimary(isDark))
+                .foregroundColor(AppPalette.labelPrimary(isDark))
             Text(subtitle)
                 .font(.system(size: 12.5))
-                .foregroundColor(RDColorPalette.labelSecondary(isDark))
+                .foregroundColor(AppPalette.labelSecondary(isDark))
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 380)
             HomePrimaryButton(title: actionTitle, action: action)
@@ -772,16 +771,16 @@ struct DropOverlayView: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(RDColorPalette.accentBlue.opacity(0.10))
+                .fill(AppPalette.accentBlue.opacity(0.10))
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(RDColorPalette.accentBlue, style: StrokeStyle(lineWidth: 2, dash: [10, 6]))
+                .strokeBorder(AppPalette.accentBlue, style: StrokeStyle(lineWidth: 2, dash: [10, 6]))
             VStack(spacing: 10) {
                 Image(systemName: "arrow.down.doc.fill")
                     .font(.system(size: 40))
-                    .foregroundColor(RDColorPalette.accentBlue)
+                    .foregroundColor(AppPalette.accentBlue)
                 Text(L10n.tr("松开鼠标即可打开 PDF", "Release to open PDF"))
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(RDColorPalette.labelPrimary(isDark))
+                    .foregroundColor(AppPalette.labelPrimary(isDark))
             }
             .padding(28)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))

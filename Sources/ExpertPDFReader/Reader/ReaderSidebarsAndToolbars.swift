@@ -2,7 +2,7 @@ import AppKit
 import PDFKit
 import SwiftUI
 
-// MARK: - Top Reader Toolbar (RDToolbarView / MainToolbarDelegateImplementation)
+// MARK: - Top Reader Toolbar
 
 /// PDF Expert 3 toolbar layout: dock toggles + zoom on the left, reading tools in the middle,
 /// share / bookmark / search on the right. Colors follow the app appearance instead of PDF Expert's fixed graphite.
@@ -60,14 +60,14 @@ public struct ReaderToolbarView: View {
 
             Spacer(minLength: 16)
 
-            // Center Group: Follow System / Day / Sepia / Night (RDPDFShaders) + Page Tools
+            // Center Group: Follow System / Day / Sepia / Night + Page Tools
             HStack(spacing: 2) {
                 ForEach(PDFReadingThemeMode.allCases) { mode in
                     ToolbarIconButton(
                         icon: mode.toolbarIconName,
                         tooltip: "\(L10n.tr("阅读主题", "Reading Theme")): \(mode.title)",
                         isActive: store.readingThemeMode == mode,
-                        activeTint: RDColorPalette.accentBlue,
+                        activeTint: AppPalette.accentBlue,
                         isDark: isDark
                     ) {
                         withAnimation(.easeInOut(duration: 0.16)) {
@@ -114,7 +114,7 @@ public struct ReaderToolbarView: View {
                 icon: isBookmarked ? "bookmark.fill" : "bookmark",
                 tooltip: isBookmarked ? L10n.tr("移除当前页书签 (⌘D)", "Remove Bookmark for Current Page (⌘D)") : L10n.tr("为当前页添加书签 (⌘D)", "Add Bookmark for Current Page (⌘D)"),
                 isActive: isBookmarked,
-                activeTint: RDColorPalette.systemRed,
+                activeTint: AppPalette.systemRed,
                 isDark: isDark
             ) {
                 store.toggleBookmark(pageIndex: tab.currentPageIndex, in: tab.documentID)
@@ -126,10 +126,10 @@ public struct ReaderToolbarView: View {
         }
         .padding(.horizontal, 8)
         .frame(height: Self.height)
-        .background(RDColorPalette.toolbarBackground(isDark))
+        .background(AppPalette.toolbarBackground(isDark))
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(RDColorPalette.chromeHairline(isDark))
+                .fill(AppPalette.chromeHairline(isDark))
                 .frame(height: 1)
         }
         .onChange(of: tab.searchFocusToken) { _, _ in
@@ -150,13 +150,13 @@ public struct ReaderToolbarView: View {
                         .monospacedDigit()
                     Image(systemName: "chevron.down")
                         .font(.system(size: 8.5, weight: .semibold))
-                        .foregroundColor(RDColorPalette.labelTertiary(isDark))
+                        .foregroundColor(AppPalette.labelTertiary(isDark))
                 }
-                .foregroundColor(RDColorPalette.toolbarIcon(isDark))
+                .foregroundColor(AppPalette.toolbarIcon(isDark))
                 .frame(width: 72, height: 28)
                 .background(
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(RDColorPalette.toolbarControlFill(isDark))
+                        .fill(AppPalette.toolbarControlFill(isDark))
                 )
                 .contentShape(Rectangle())
             }
@@ -170,7 +170,7 @@ public struct ReaderToolbarView: View {
                     tab.triggerZoom(.zoomOut)
                 }
                 Rectangle()
-                    .fill(RDColorPalette.toolbarIcon(isDark).opacity(0.18))
+                    .fill(AppPalette.toolbarIcon(isDark).opacity(0.18))
                     .frame(width: 1, height: 14)
                 ZoomStepButton(icon: "plus", tooltip: L10n.tr("放大 (⌘+)", "Zoom In (⌘+)"), isDark: isDark) {
                     tab.triggerZoom(.zoomIn)
@@ -178,7 +178,7 @@ public struct ReaderToolbarView: View {
             }
             .background(
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(RDColorPalette.toolbarControlFill(isDark))
+                    .fill(AppPalette.toolbarControlFill(isDark))
             )
         }
     }
@@ -211,12 +211,12 @@ public struct ReaderToolbarView: View {
         HStack(spacing: 5) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 11.5, weight: .medium))
-                .foregroundColor(RDColorPalette.labelTertiary(isDark))
+                .foregroundColor(AppPalette.labelTertiary(isDark))
 
             TextField(L10n.tr("搜索", "Search"), text: $tab.searchQuery)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12.5))
-                .foregroundColor(RDColorPalette.labelPrimary(isDark))
+                .foregroundColor(AppPalette.labelPrimary(isDark))
                 .focused($isSearchFieldFocused)
                 .onSubmit { submitSearch() }
                 .onExitCommand { endSearch() }
@@ -227,7 +227,7 @@ public struct ReaderToolbarView: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 11.5))
-                        .foregroundColor(RDColorPalette.labelTertiary(isDark))
+                        .foregroundColor(AppPalette.labelTertiary(isDark))
                 }
                 .buttonStyle(.plain)
                 .help(L10n.tr("清除搜索", "Clear Search"))
@@ -237,14 +237,14 @@ public struct ReaderToolbarView: View {
         .frame(height: 28)
         .background(
             RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(RDColorPalette.toolbarControlFill(isDark))
+                .fill(AppPalette.toolbarControlFill(isDark))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .stroke(RDColorPalette.accentBlue.opacity(isSearchFieldFocused ? 0.75 : 0), lineWidth: 1.5)
+                .stroke(AppPalette.accentBlue.opacity(isSearchFieldFocused ? 0.75 : 0), lineWidth: 1.5)
         )
         .task(id: tab.searchQuery) {
-            // Debounced live search, like PDFTextSearchPanelViewController refreshing while typing
+            // Debounced live search while typing
             let trimmed = tab.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
             guard trimmed != tab.lastSearchedQuery else { return }
             try? await Task.sleep(nanoseconds: 260_000_000)
@@ -314,20 +314,20 @@ struct ToolbarIconButton: View {
 
     private var foregroundColor: Color {
         if isDisabled {
-            return RDColorPalette.labelQuaternary(isDark)
+            return AppPalette.labelQuaternary(isDark)
         }
         if isActive, let tint = activeTint {
             return tint
         }
-        return RDColorPalette.toolbarIcon(isDark)
+        return AppPalette.toolbarIcon(isDark)
     }
 
     private var backgroundColor: Color {
         if isActive {
-            return RDColorPalette.toolbarActive(isDark)
+            return AppPalette.toolbarActive(isDark)
         }
         if isHovered && !isDisabled {
-            return RDColorPalette.toolbarHover(isDark)
+            return AppPalette.toolbarHover(isDark)
         }
         return Color.clear
     }
@@ -345,11 +345,11 @@ struct ZoomStepButton: View {
         Button(action: action) {
             Image(systemName: icon)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundColor(RDColorPalette.toolbarIcon(isDark))
+                .foregroundColor(AppPalette.toolbarIcon(isDark))
                 .frame(width: 30, height: 28)
                 .background(
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(isHovered ? RDColorPalette.toolbarActive(isDark) : Color.clear)
+                        .fill(isHovered ? AppPalette.toolbarActive(isDark) : Color.clear)
                 )
                 .contentShape(Rectangle())
         }
@@ -365,7 +365,7 @@ struct ToolbarDivider: View {
 
     var body: some View {
         Rectangle()
-            .fill(RDColorPalette.toolbarIcon(isDark).opacity(0.16))
+            .fill(AppPalette.toolbarIcon(isDark).opacity(0.16))
             .frame(width: 1, height: 18)
             .padding(.horizontal, 6)
     }
@@ -472,10 +472,10 @@ public struct ReaderLeftSidebarView: View {
         }
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)
-        .background(RDColorPalette.panelBackground(isDark))
+        .background(AppPalette.panelBackground(isDark))
         .overlay(alignment: .trailing) {
             Rectangle()
-                .fill(RDColorPalette.panelHairline(isDark))
+                .fill(AppPalette.panelHairline(isDark))
                 .frame(width: 1)
         }
     }
@@ -496,7 +496,7 @@ public struct ReaderLeftSidebarView: View {
             HStack(spacing: 6) {
                 Text(tab.activeSidebarTab.title)
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(RDColorPalette.labelPrimary(isDark))
+                    .foregroundColor(AppPalette.labelPrimary(isDark))
                 Spacer()
                 headerAccessory
             }
@@ -504,7 +504,7 @@ public struct ReaderLeftSidebarView: View {
             .frame(height: 34)
 
             Rectangle()
-                .fill(RDColorPalette.panelSeparator(isDark))
+                .fill(AppPalette.panelSeparator(isDark))
                 .frame(height: 1)
 
             // Active Panel Content
@@ -529,7 +529,7 @@ public struct ReaderLeftSidebarView: View {
             Text(L10n.pageCountText(tab.pageCount))
                 .font(.system(size: 11))
                 .monospacedDigit()
-                .foregroundColor(RDColorPalette.labelTertiary(isDark))
+                .foregroundColor(AppPalette.labelTertiary(isDark))
         case .outline:
             EmptyView()
         case .bookmarks:
@@ -565,12 +565,12 @@ struct PanelSegmentedControl<Item: Identifiable & Hashable, SegmentLabel: View>:
                     }
                 } label: {
                     label(item, isSelected)
-                        .foregroundColor(isSelected ? RDColorPalette.labelPrimary(isDark) : RDColorPalette.labelSecondary(isDark))
+                        .foregroundColor(isSelected ? AppPalette.labelPrimary(isDark) : AppPalette.labelSecondary(isDark))
                         .frame(maxWidth: .infinity)
                         .frame(height: 24)
                         .background(
                             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(isSelected ? RDColorPalette.segmentedThumb(isDark) : Color.clear)
+                                .fill(isSelected ? AppPalette.segmentedThumb(isDark) : Color.clear)
                                 .shadow(color: Color.black.opacity(isSelected ? (isDark ? 0.35 : 0.10) : 0), radius: 1.5, x: 0, y: 0.5)
                         )
                         .contentShape(Rectangle())
@@ -581,7 +581,7 @@ struct PanelSegmentedControl<Item: Identifiable & Hashable, SegmentLabel: View>:
         .padding(3)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(RDColorPalette.segmentedTrack(isDark))
+                .fill(AppPalette.segmentedTrack(isDark))
         )
     }
 }
@@ -599,11 +599,11 @@ struct PanelHeaderIconButton: View {
         Button(action: action) {
             Image(systemName: icon)
                 .font(.system(size: 10.5, weight: .semibold))
-                .foregroundColor(isDisabled ? RDColorPalette.labelQuaternary(isDark) : RDColorPalette.labelSecondary(isDark))
+                .foregroundColor(isDisabled ? AppPalette.labelQuaternary(isDark) : AppPalette.labelSecondary(isDark))
                 .frame(width: 22, height: 22)
                 .background(
                     Circle()
-                        .fill(isHovered && !isDisabled ? RDColorPalette.toolbarActive(isDark) : RDColorPalette.segmentedTrack(isDark))
+                        .fill(isHovered && !isDisabled ? AppPalette.toolbarActive(isDark) : AppPalette.segmentedTrack(isDark))
                 )
                 .contentShape(Circle())
         }
@@ -632,16 +632,16 @@ struct PanelTextButton: View {
                     .font(.system(size: 11.5, weight: .medium))
                     .lineLimit(1)
             }
-            .foregroundColor(RDColorPalette.labelPrimary(isDark))
+            .foregroundColor(AppPalette.labelPrimary(isDark))
             .frame(maxWidth: .infinity)
             .frame(height: 26)
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(isHovered ? RDColorPalette.rowHover(isDark) : RDColorPalette.panelListBackground(isDark))
+                    .fill(isHovered ? AppPalette.rowHover(isDark) : AppPalette.panelListBackground(isDark))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(RDColorPalette.panelSeparator(isDark), lineWidth: 1)
+                    .stroke(AppPalette.panelSeparator(isDark), lineWidth: 1)
             )
             .contentShape(Rectangle())
         }
@@ -660,14 +660,14 @@ struct PanelEmptyState: View {
         VStack(spacing: 8) {
             Image(systemName: icon)
                 .font(.system(size: 26, weight: .light))
-                .foregroundColor(RDColorPalette.labelQuaternary(isDark))
+                .foregroundColor(AppPalette.labelQuaternary(isDark))
             Text(title)
                 .font(.system(size: 12.5, weight: .medium))
-                .foregroundColor(RDColorPalette.labelSecondary(isDark))
+                .foregroundColor(AppPalette.labelSecondary(isDark))
             if let subtitle {
                 Text(subtitle)
                     .font(.system(size: 11))
-                    .foregroundColor(RDColorPalette.labelTertiary(isDark))
+                    .foregroundColor(AppPalette.labelTertiary(isDark))
                     .multilineTextAlignment(.center)
             }
         }
@@ -754,7 +754,7 @@ struct PageThumbnailCell: View {
                             if isBookmarked {
                                 Image(systemName: "bookmark.fill")
                                     .font(.system(size: 13))
-                                    .foregroundColor(RDColorPalette.systemRed)
+                                    .foregroundColor(AppPalette.systemRed)
                                     .shadow(color: Color.black.opacity(0.2), radius: 1, x: 0, y: 0.5)
                                     .padding(.trailing, 8)
                                     .offset(y: -2)
@@ -766,8 +766,8 @@ struct PageThumbnailCell: View {
                             RoundedRectangle(cornerRadius: 5, style: .continuous)
                                 .stroke(
                                     isCurrent
-                                        ? RDColorPalette.accentBlue
-                                        : (isHovered ? RDColorPalette.accentBlue.opacity(0.35) : Color.clear),
+                                        ? AppPalette.accentBlue
+                                        : (isHovered ? AppPalette.accentBlue.opacity(0.35) : Color.clear),
                                     lineWidth: 2
                                 )
                         )
@@ -776,12 +776,12 @@ struct PageThumbnailCell: View {
                 Text(page?.label ?? "\(pageIndex + 1)")
                     .font(.system(size: 11, weight: isCurrent ? .semibold : .regular))
                     .monospacedDigit()
-                    .foregroundColor(isCurrent ? .white : RDColorPalette.labelSecondary(isDark))
+                    .foregroundColor(isCurrent ? .white : AppPalette.labelSecondary(isDark))
                     .padding(.horizontal, 7)
                     .padding(.vertical, 2)
                     .background(
                         RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .fill(isCurrent ? RDColorPalette.accentBlue : Color.clear)
+                            .fill(isCurrent ? AppPalette.accentBlue : Color.clear)
                     )
             }
             .contentShape(Rectangle())
@@ -845,7 +845,7 @@ struct PDFOutlinePanel: View {
                             )
                         }
                     }
-                    .background(RDColorPalette.panelListBackground(isDark))
+                    .background(AppPalette.panelListBackground(isDark))
                 }
             }
         }
@@ -972,7 +972,7 @@ struct PDFOutlineRowView: View {
                     Button(action: onToggle) {
                         Image(systemName: "chevron.right")
                             .font(.system(size: 9.5, weight: .semibold))
-                            .foregroundColor(RDColorPalette.labelTertiary(isDark))
+                            .foregroundColor(AppPalette.labelTertiary(isDark))
                             .rotationEffect(.degrees(isExpanded ? 90 : 0))
                             .frame(width: 18, height: 18)
                             .contentShape(Rectangle())
@@ -984,7 +984,7 @@ struct PDFOutlineRowView: View {
 
             Text(node.title)
                 .font(.system(size: 12.5, weight: level == 0 ? .medium : .regular))
-                .foregroundColor(isActive ? RDColorPalette.accentBlue : RDColorPalette.labelPrimary(isDark))
+                .foregroundColor(isActive ? AppPalette.accentBlue : AppPalette.labelPrimary(isDark))
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -994,7 +994,7 @@ struct PDFOutlineRowView: View {
                 Text(label)
                     .font(.system(size: 11))
                     .monospacedDigit()
-                    .foregroundColor(isActive ? RDColorPalette.accentBlue : RDColorPalette.labelTertiary(isDark))
+                    .foregroundColor(isActive ? AppPalette.accentBlue : AppPalette.labelTertiary(isDark))
                     .padding(.top, 2)
             }
         }
@@ -1003,12 +1003,12 @@ struct PDFOutlineRowView: View {
         .padding(.vertical, 8)
         .background(
             isActive
-                ? RDColorPalette.accentBlue.opacity(isDark ? 0.20 : 0.10)
-                : (isHovered ? RDColorPalette.rowHover(isDark) : Color.clear)
+                ? AppPalette.accentBlue.opacity(isDark ? 0.20 : 0.10)
+                : (isHovered ? AppPalette.rowHover(isDark) : Color.clear)
         )
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(RDColorPalette.panelSeparator(isDark))
+                .fill(AppPalette.panelSeparator(isDark))
                 .frame(height: 1)
                 .padding(.leading, 30 + CGFloat(level) * 14)
         }
@@ -1049,7 +1049,7 @@ struct PDFBookmarksPanel: View {
                         )
                     }
                 }
-                .background(RDColorPalette.panelListBackground(isDark))
+                .background(AppPalette.panelListBackground(isDark))
             }
         }
     }
@@ -1069,29 +1069,29 @@ struct BookmarkRowView: View {
         HStack(spacing: 8) {
             Image(systemName: "bookmark.fill")
                 .font(.system(size: 11))
-                .foregroundColor(RDColorPalette.systemRed)
+                .foregroundColor(AppPalette.systemRed)
 
             Text(bookmark.title)
                 .font(.system(size: 12.5, weight: isCurrent ? .medium : .regular))
-                .foregroundColor(isCurrent ? RDColorPalette.accentBlue : RDColorPalette.labelPrimary(isDark))
+                .foregroundColor(isCurrent ? AppPalette.accentBlue : AppPalette.labelPrimary(isDark))
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Text(pageLabel)
                 .font(.system(size: 11))
                 .monospacedDigit()
-                .foregroundColor(RDColorPalette.labelTertiary(isDark))
+                .foregroundColor(AppPalette.labelTertiary(isDark))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
         .background(
             isCurrent
-                ? RDColorPalette.accentBlue.opacity(isDark ? 0.20 : 0.10)
-                : (isHovered ? RDColorPalette.rowHover(isDark) : Color.clear)
+                ? AppPalette.accentBlue.opacity(isDark ? 0.20 : 0.10)
+                : (isHovered ? AppPalette.rowHover(isDark) : Color.clear)
         )
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(RDColorPalette.panelSeparator(isDark))
+                .fill(AppPalette.panelSeparator(isDark))
                 .frame(height: 1)
                 .padding(.leading, 33)
         }
@@ -1106,7 +1106,7 @@ struct BookmarkRowView: View {
     }
 }
 
-// MARK: - 4. DocumentViewSettingsPanel (DocumentDisplaySettingsPanelViewController / "Layout options")
+// MARK: - 4. DocumentViewSettingsPanel ("Layout options")
 
 struct DocumentViewSettingsPanel: View {
     @ObservedObject var store: AppStore
@@ -1118,7 +1118,7 @@ struct DocumentViewSettingsPanel: View {
             VStack(alignment: .leading, spacing: 18) {
                 Text(L10n.tr("显示选项", "View Settings"))
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(RDColorPalette.labelPrimary(isDark))
+                    .foregroundColor(AppPalette.labelPrimary(isDark))
 
                 // 1. Page Layout Mode (Single / Two Pages / Cover)
                 settingsSection(L10n.tr("页面布局", "Page Layout")) {
@@ -1131,7 +1131,7 @@ struct DocumentViewSettingsPanel: View {
                     }
                 }
 
-                // 2. Split View Mode (PDFDocumentsSplitViewController)
+                // 2. Split View Mode
                 settingsSection(L10n.tr("分屏视图", "Split View")) {
                     HStack(spacing: 6) {
                         ForEach(ReaderSplitMode.allCases) { mode in
@@ -1149,7 +1149,7 @@ struct DocumentViewSettingsPanel: View {
                                 .toggleStyle(.switch)
                                 .controlSize(.mini)
                                 .font(.system(size: 12))
-                                .foregroundColor(RDColorPalette.labelPrimary(isDark))
+                                .foregroundColor(AppPalette.labelPrimary(isDark))
 
                             HStack(spacing: 6) {
                                 PanelTextButton(title: L10n.tr("对调位置", "Swap Panes"), icon: "arrow.left.arrow.right", isDark: isDark) {
@@ -1184,7 +1184,7 @@ struct DocumentViewSettingsPanel: View {
                     Toggle(isOn: $store.useSepiaForLightSystemTheme) {
                         Text(L10n.tr("浅色时使用纸质替代日间", "Use Sepia in Light Mode"))
                             .font(.system(size: 11.5))
-                            .foregroundColor(RDColorPalette.labelPrimary(isDark))
+                            .foregroundColor(AppPalette.labelPrimary(isDark))
                     }
                     .toggleStyle(.switch)
                     .controlSize(.mini)
@@ -1203,10 +1203,10 @@ struct DocumentViewSettingsPanel: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(L10n.tr("清除空白边", "Clear Margins"))
                                 .font(.system(size: 12.5))
-                                .foregroundColor(RDColorPalette.labelPrimary(isDark))
+                                .foregroundColor(AppPalette.labelPrimary(isDark))
                             Text(L10n.tr("识别内容边界并裁切页边距", "Detect content bounds and crop page margins"))
                                 .font(.system(size: 10.5))
-                                .foregroundColor(RDColorPalette.labelTertiary(isDark))
+                                .foregroundColor(AppPalette.labelTertiary(isDark))
                         }
                     }
                     .toggleStyle(.switch)
@@ -1230,12 +1230,46 @@ struct DocumentViewSettingsPanel: View {
                     }
                 }
 
-                // 6. Language (System / 简体中文 / English)
+                // 6. Language (Follow System + 12 Languages)
                 settingsSection(L10n.tr("语言", "Language")) {
-                    PanelSegmentedControl(items: AppLanguage.allCases, selection: $store.appLanguage, isDark: isDark) { lang, _ in
-                        Text(lang.shortTitle)
-                            .font(.system(size: 11.5, weight: .medium))
+                    Menu {
+                        ForEach(AppLanguage.allCases) { lang in
+                            Button {
+                                store.appLanguage = lang
+                            } label: {
+                                HStack {
+                                    Text(lang.title)
+                                    if store.appLanguage == lang {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "globe")
+                                .font(.system(size: 11.5, weight: .medium))
+                                .foregroundColor(AppPalette.labelSecondary(isDark))
+                            Text(store.appLanguage.title)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(AppPalette.labelPrimary(isDark))
+                            Spacer()
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 9.5, weight: .semibold))
+                                .foregroundColor(AppPalette.labelTertiary(isDark))
+                        }
+                        .padding(.horizontal, 10)
+                        .frame(height: 28)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(AppPalette.panelListBackground(isDark))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .stroke(AppPalette.panelSeparator(isDark), lineWidth: 1)
+                        )
                     }
+                    .menuStyle(.borderlessButton)
                 }
             }
             .padding(14)
@@ -1246,7 +1280,7 @@ struct DocumentViewSettingsPanel: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.system(size: 10.5, weight: .semibold))
-                .foregroundColor(RDColorPalette.labelTertiary(isDark))
+                .foregroundColor(AppPalette.labelTertiary(isDark))
             content()
         }
     }
@@ -1272,16 +1306,16 @@ struct OptionTile: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
             }
-            .foregroundColor(isSelected ? RDColorPalette.accentBlue : RDColorPalette.labelSecondary(isDark))
+            .foregroundColor(isSelected ? AppPalette.accentBlue : AppPalette.labelSecondary(isDark))
             .frame(maxWidth: .infinity)
             .frame(height: 58)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isSelected ? RDColorPalette.panelListBackground(isDark) : (isHovered ? RDColorPalette.rowHover(isDark) : Color.clear))
+                    .fill(isSelected ? AppPalette.panelListBackground(isDark) : (isHovered ? AppPalette.rowHover(isDark) : Color.clear))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(isSelected ? RDColorPalette.accentBlue.opacity(0.6) : Color.clear, lineWidth: 1.5)
+                    .stroke(isSelected ? AppPalette.accentBlue.opacity(0.6) : Color.clear, lineWidth: 1.5)
             )
             .contentShape(Rectangle())
         }
@@ -1323,14 +1357,14 @@ struct ThemeModePreviewTile: View {
                 .frame(height: 46)
                 .overlay(
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .stroke(isSelected ? RDColorPalette.accentBlue : RDColorPalette.panelSeparator(isDark), lineWidth: isSelected ? 2 : 1)
+                        .stroke(isSelected ? AppPalette.accentBlue : AppPalette.panelSeparator(isDark), lineWidth: isSelected ? 2 : 1)
                 )
 
                 Text(mode.shortTitle)
                     .font(.system(size: 10.5, weight: isSelected ? .semibold : .regular))
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
-                    .foregroundColor(isSelected ? RDColorPalette.accentBlue : RDColorPalette.labelSecondary(isDark))
+                    .foregroundColor(isSelected ? AppPalette.accentBlue : AppPalette.labelSecondary(isDark))
             }
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())

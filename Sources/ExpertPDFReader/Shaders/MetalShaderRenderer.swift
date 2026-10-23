@@ -29,14 +29,14 @@ public final class MetalShaderRenderer {
 
         // Compiled from source at runtime, so the Command Line Tools (without the Metal toolchain) can build the app
         guard let lib = try? device.makeLibrary(source: Self.metalShaderSource, options: nil),
-              let vtxFn = lib.makeFunction(name: "texturingModeVertexShader") else {
+              let vtxFn = lib.makeFunction(name: "pageVertex") else {
             return
         }
 
         let mapping: [(PDFViewTheme, String)] = [
-            (.day, "normalTexturingModeFragmentShader"),
-            (.sepia, "sepiaTexturingModeFragmentShader"),
-            (.night, "nightTexturingModeFragmentShader")
+            (.day, "dayPageFragment"),
+            (.sepia, "sepiaPageFragment"),
+            (.night, "nightPageFragment")
         ]
 
         for (theme, fragName) in mapping {
@@ -52,7 +52,7 @@ public final class MetalShaderRenderer {
     }
 
     private func setupLayerFilters() {
-        // Sepia: Exact affine matrix from sepiaTexturingModeFragmentShader
+        // Sepia: same affine matrix as sepiaPageFragment
         // R' = 0.247 + 0.207*R + 0.407*G + 0.100*B
         // G' = 0.165 + 0.224*R + 0.441*G + 0.108*B
         // B' = 0.094 + 0.222*R + 0.438*G + 0.109*B
@@ -66,7 +66,7 @@ public final class MetalShaderRenderer {
             layerFilters[.sepia] = sepiaFilter
         }
 
-        // Night: Exact affine matrix from nightTexturingModeFragmentShader
+        // Night: same affine matrix as nightPageFragment
         // v = 0.75 - dot(rgb, (0.25, 0.25, 0.25))
         if let nightFilter = CIFilter(name: "CIColorMatrix") {
             nightFilter.setDefaults()
@@ -92,7 +92,7 @@ public final class MetalShaderRenderer {
         }
     }
 
-    /// Applies `sepiaTexturingModeFragmentShader` or `nightTexturingModeFragmentShader`
+    /// Applies `sepiaPageFragment` or `nightPageFragment`
     /// directly on the GPU to a `CGImage` (e.g. for themed thumbnails).
     public func applyShader(to cgImage: CGImage, theme: PDFViewTheme) -> CGImage? {
         if theme == .day { return cgImage }
@@ -199,7 +199,7 @@ public final class MetalShaderRenderer {
         float2 textureCoordinate;
         float opacity;
     };
-    vertex TextureVertexOut texturingModeVertexShader(
+    vertex TextureVertexOut pageVertex(
         uint vertexID [[vertex_id]],
         constant float2 *vertexArray [[buffer(0)]],
         constant float2 *textureCoordinatesArray [[buffer(1)]],
@@ -216,7 +216,7 @@ public final class MetalShaderRenderer {
         out.opacity = *opacityPtr;
         return out;
     }
-    fragment float4 normalTexturingModeFragmentShader(
+    fragment float4 dayPageFragment(
         TextureVertexOut in [[stage_in]],
         texture2d<half, access::sample> colorTexture [[texture(0)]]
     ) {
@@ -224,7 +224,7 @@ public final class MetalShaderRenderer {
         float4 c = float4(colorTexture.sample(s, in.textureCoordinate));
         return float4(c.rgb, c.a * in.opacity);
     }
-    fragment float4 sepiaTexturingModeFragmentShader(
+    fragment float4 sepiaPageFragment(
         TextureVertexOut in [[stage_in]],
         texture2d<half, access::sample> colorTexture [[texture(0)]]
     ) {
@@ -236,7 +236,7 @@ public final class MetalShaderRenderer {
         sepia.b = 0.094f + 0.222f * c.r + 0.438f * c.g + 0.109f * c.b;
         return float4(clamp(sepia, 0.0f, 1.0f), c.a * in.opacity);
     }
-    fragment float4 nightTexturingModeFragmentShader(
+    fragment float4 nightPageFragment(
         TextureVertexOut in [[stage_in]],
         texture2d<half, access::sample> colorTexture [[texture(0)]]
     ) {

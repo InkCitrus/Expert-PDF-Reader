@@ -14,7 +14,7 @@ extension URL {
     }
 }
 
-// MARK: - DocumentID (from HomeTab ARCHITECTURE.md)
+// MARK: - DocumentID
 
 public struct DocumentID: Hashable, Codable, Identifiable {
     public let url: URL
@@ -448,7 +448,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     // Page Overview grid (toolbar "Page Management" button, read-only here)
     @Published public var isPageOverviewVisible: Bool = false
 
-    // Split View state (PDFDocumentsSplitViewController)
+    // Split View state
     @Published public var splitMode: ReaderSplitMode = .disabled
     @Published public var isSplitSwapped: Bool = false
     @Published public var syncScrollAndZoom: Bool = false
@@ -463,7 +463,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     @Published public private(set) var forwardStack: [Int] = []
     private var isNavigatingHistory: Bool = false
 
-    // Search state (PDFTextSearchPanelViewController); `isSearchVisible` drives the right results dock
+    // Search state; `isSearchVisible` drives the right results dock
     @Published public var isSearchVisible: Bool = false
     @Published public var searchQuery: String = ""
     @Published public var searchMatches: [SearchMatchItem] = []
@@ -520,7 +520,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         )
     }
 
-    /// Applied before the reader view is created; `RDPDFDocumentViewWrapper` picks it up in `makeNSView`.
+    /// Applied before the reader view is created; `PDFReaderCanvasView` picks it up in `makeNSView`.
     public func restore(_ position: ReadingPosition) {
         currentPageIndex = max(0, min(position.pageIndex, pageCount - 1))
         zoomScale = CGFloat(position.zoomScale)
@@ -896,7 +896,7 @@ public enum AppTab: Identifiable, Equatable {
     }
 }
 
-// MARK: - ThumbnailGenerator & Cache (HomeTabThumbnailGenerator)
+// MARK: - Thumbnail Cache
 
 @MainActor
 public final class PDFThumbnailCache: ObservableObject {
@@ -988,7 +988,6 @@ public final class AppStore: ObservableObject {
     @Published public var appearanceMode: AppAppearanceMode {
         didSet {
             UserDefaults.standard.set(appearanceMode.rawValue, forKey: "expertPDFReader.appearanceMode")
-            UserDefaults.standard.set(appearanceMode.rawValue, forKey: "openPDFExpert.appearanceMode")
             applyAppAppearance()
         }
     }
@@ -1001,7 +1000,7 @@ public final class AppStore: ObservableObject {
         }
     }
 
-    // HomeTab Navigation State (HomeTabNavigationStateContainer)
+    // Home tab navigation state
     @Published public var homeCurrentPage: HomeTabPage = .home
 
     // DocumentsStore (Recents + Favorites + Bookmarks)
@@ -1010,7 +1009,7 @@ public final class AppStore: ObservableObject {
     @Published public private(set) var favoriteDocumentIDs: Set<DocumentID> = []
     @Published public private(set) var bookmarksByDocument: [String: [BookmarkItem]] = [:]
 
-    // TabsViewController State
+    // Window tabs
     @Published public var tabs: [AppTab] = [] {
         didSet { saveOpenTabs() }
     }
@@ -1032,9 +1031,9 @@ public final class AppStore: ObservableObject {
     private static let maxReadingPositions = 300
 
     private enum Keys {
-        static let recents = "openPDFExpert.Recents"
-        static let favorites = "openPDFExpert.Favorites"
-        static let bookmarks = "openPDFExpert.Bookmarks"
+        static let recents = "expertPDFReader.Recents"
+        static let favorites = "expertPDFReader.Favorites"
+        static let bookmarks = "expertPDFReader.Bookmarks"
         static let readingPositions = "expertPDFReader.ReadingPositions"
         static let fileBookmarks = "expertPDFReader.FileBookmarks"
         static let openTabs = "expertPDFReader.OpenTabs"
@@ -1062,30 +1061,17 @@ public final class AppStore: ObservableObject {
         let defaults = UserDefaults.standard
 
         let savedLangRaw = defaults.string(forKey: "expertPDFReader.appLanguage")
-            ?? defaults.string(forKey: "openPDFExpert.appLanguage")
             ?? AppLanguage.system.rawValue
         let lang = AppLanguage(rawValue: savedLangRaw) ?? .system
         self.appLanguage = lang
         L10n.currentLanguage = lang
 
-        if let savedModeRaw = defaults.string(forKey: "expertPDFReader.readingThemeMode"),
-           let mode = PDFReadingThemeMode(rawValue: savedModeRaw) {
-            self.readingThemeMode = mode
-        } else if defaults.object(forKey: "openPDFExpert.pdfTheme") != nil {
-            let legacyRaw = defaults.integer(forKey: "openPDFExpert.pdfTheme")
-            switch PDFViewTheme(rawValue: legacyRaw) ?? .day {
-            case .day:   self.readingThemeMode = .day
-            case .sepia: self.readingThemeMode = .sepia
-            case .night: self.readingThemeMode = .night
-            }
-        } else {
-            self.readingThemeMode = .system
-        }
+        let savedModeRaw = defaults.string(forKey: "expertPDFReader.readingThemeMode") ?? ""
+        self.readingThemeMode = PDFReadingThemeMode(rawValue: savedModeRaw) ?? .system
 
         self.useSepiaForLightSystemTheme = defaults.bool(forKey: "expertPDFReader.useSepiaForLightSystemTheme")
 
         let savedAppRaw = defaults.string(forKey: "expertPDFReader.appearanceMode")
-            ?? defaults.string(forKey: "openPDFExpert.appearanceMode")
             ?? AppAppearanceMode.system.rawValue
         self.appearanceMode = AppAppearanceMode(rawValue: savedAppRaw) ?? .system
 
@@ -1100,11 +1086,11 @@ public final class AppStore: ObservableObject {
         self.selectedTabID = homeTabID
 
         loadPersistedState()
-        ensureSampleDocumentInRecents()
         restoreOpenTabs()
+        ensureSampleDocumentInRecents()
         applyAppAppearance()
 
-        // Observe locale changes to re-format DocumentItem.dateOpenedText (from ARCHITECTURE.md PEM-10270)
+        // Observe locale changes to re-format DocumentItem.dateOpenedText
         localeObserver = NotificationCenter.default.addObserver(
             forName: NSLocale.currentLocaleDidChangeNotification,
             object: nil,
@@ -1137,6 +1123,7 @@ public final class AppStore: ObservableObject {
         for idx in documents.indices {
             documents[idx].dateOpenedText = newFormatter.string(from: documents[idx].dateOpened)
         }
+        refreshLocalizedSampleGuide()
     }
 
     // MARK: - Computed Document Collections
@@ -1371,17 +1358,71 @@ public final class AppStore: ObservableObject {
     // MARK: - Persistence & Sample Initialization
 
     private func ensureSampleDocumentInRecents() {
-        let sampleURL = SamplePDFGenerator.ensureSamplePDFExists()
+        refreshLocalizedSampleGuide(ensurePresentIfMissing: true)
+    }
+
+    private func refreshLocalizedSampleGuide(ensurePresentIfMissing: Bool = false) {
+        let sampleURL = SamplePDFGenerator.ensureSamplePDFExists(for: appLanguage)
         let sampleID = DocumentID(url: sampleURL)
-        if !documents.contains(where: { $0.documentID == sampleID }),
-           let pdfDoc = PDFDocument(url: sampleURL) {
+        guard let pdfDoc = PDFDocument(url: sampleURL) else { return }
+
+        // Check if any existing sample guide (in another language or legacy folder) was in recents/favorites
+        let existingGuideIDs = documents
+            .map(\.documentID)
+            .filter { SamplePDFGenerator.isSampleGuideURL($0.url) && $0 != sampleID }
+
+        let replacesRecentGuide = existingGuideIDs.contains(where: { recentDocumentIDs.contains($0) })
+        let replacesFavoriteGuide = existingGuideIDs.contains(where: { favoriteDocumentIDs.contains($0) })
+        // Only (re)record when the guide is missing or replaces another language's copy, so it doesn't
+        // jump to the top of Recents on every launch
+        let addsMissingGuide = ensurePresentIfMissing
+            && existingGuideIDs.isEmpty
+            && !documents.contains(where: { $0.documentID == sampleID })
+
+        for oldID in existingGuideIDs {
+            recentDocumentIDs.removeAll(where: { $0 == oldID })
+            favoriteDocumentIDs.remove(oldID)
+            documents.removeAll(where: { $0.documentID == oldID })
+        }
+
+        if addsMissingGuide || replacesRecentGuide || replacesFavoriteGuide {
             recordDocumentOpen(url: sampleURL, pdfDocument: pdfDoc)
-            setFavorite(id: sampleID, isFavorite: true)
+            if addsMissingGuide || replacesFavoriteGuide {
+                setFavorite(id: sampleID, isFavorite: true)
+            }
+        }
+
+        // Also update any currently open Reading Guide tab in-place so switching language immediately updates the open guide
+        for idx in tabs.indices {
+            guard case .document(let oldState) = tabs[idx],
+                  SamplePDFGenerator.isSampleGuideURL(oldState.documentID.url),
+                  oldState.documentID != sampleID else {
+                continue
+            }
+            let wasSelected = (selectedTabID == oldState.id)
+            let newState = DocumentTabState(url: sampleURL, pdfDocument: pdfDoc)
+            newState.currentPageIndex = min(oldState.currentPageIndex, max(0, pdfDoc.pageCount - 1))
+            newState.zoomScale = oldState.zoomScale
+            newState.isAutoScaling = oldState.isAutoScaling
+            newState.layoutMode = oldState.layoutMode
+            newState.isClearMarginsEnabled = oldState.isClearMarginsEnabled
+            newState.isLeftSidebarVisible = oldState.isLeftSidebarVisible
+            newState.leftPanel = oldState.leftPanel
+            newState.activeSidebarTab = oldState.activeSidebarTab
+            if newState.isClearMarginsEnabled {
+                newState.applyClearMarginsIfNeeded()
+            }
+            observeReadingPosition(of: newState)
+            let newTab = AppTab.document(newState)
+            tabs[idx] = newTab
+            if wasSelected {
+                selectedTabID = newTab.id
+            }
         }
     }
 
     public func openGettingStartedGuide() {
-        let sampleURL = SamplePDFGenerator.ensureSamplePDFExists()
+        let sampleURL = SamplePDFGenerator.ensureSamplePDFExists(for: appLanguage)
         openDocument(at: sampleURL)
     }
 
@@ -1478,9 +1519,8 @@ public final class AppStore: ObservableObject {
             bookmarksByDocument = decoded
         }
 
-        let legacySamplePath = SamplePDFGenerator.legacySampleURL.path
         if let favPaths = defaults.stringArray(forKey: Keys.favorites) {
-            for path in favPaths where path != legacySamplePath {
+            for path in favPaths {
                 if let url = resolveFileURL(path: path) {
                     favoriteDocumentIDs.insert(DocumentID(url: url))
                 }
@@ -1490,7 +1530,7 @@ public final class AppStore: ObservableObject {
         var detailRequests: [(id: DocumentID, needsPageCount: Bool)] = []
         if let data = defaults.data(forKey: Keys.recents),
            let entries = try? decoder.decode([PersistedRecentEntry].self, from: data) {
-            for entry in entries where entry.path != legacySamplePath {
+            for entry in entries {
                 guard recentDocumentIDs.count < Self.maxRecentDocuments,
                       let url = resolveFileURL(path: entry.path) else { continue }
                 let docID = DocumentID(url: url)

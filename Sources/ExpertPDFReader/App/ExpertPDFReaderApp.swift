@@ -84,7 +84,7 @@ public struct ExpertPDFReaderApp: App {
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1180, height: 780)
         .commands {
-            PDFExpertMenuCommands(store: store)
+            ReaderMenuCommands(store: store)
         }
 
         Settings {
@@ -95,7 +95,7 @@ public struct ExpertPDFReaderApp: App {
 
 // MARK: - MainMenu Commands (Localized zh-Hans / en)
 
-struct PDFExpertMenuCommands: Commands {
+struct ReaderMenuCommands: Commands {
     @ObservedObject var store: AppStore
 
     var body: some Commands {

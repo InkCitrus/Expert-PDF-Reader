@@ -7,7 +7,7 @@ public struct WindowChromeMetrics: Equatable {
     public var isFullScreen: Bool = false
 }
 
-/// Replicates the unified title bar of `MainWindowController`: the native title is hidden, content runs
+/// Unified title bar: the native title is hidden, content runs
 /// under the transparent title bar and the traffic lights are re-centered on the `40pt` tab strip.
 /// Mounted as a zero-size background of `MainWindowView`.
 struct WindowChromeConfigurator: NSViewRepresentable {

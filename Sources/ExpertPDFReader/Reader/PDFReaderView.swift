@@ -2,8 +2,8 @@ import AppKit
 import PDFKit
 import SwiftUI
 
-/// Replicates `PDFDocumentPresentationViewController` + `PDFDocumentsSplitViewController` from `PDFExpert`:
-/// `ReaderToolbarView` on top, the left dock (`ReaderLeftSidebarView`), the primary `RDPDFDocumentViewWrapper`
+/// The reader of one document tab:
+/// `ReaderToolbarView` on top, the left dock (`ReaderLeftSidebarView`), the primary `PDFReaderCanvasView`
 /// with its page indicator / page overview, the optional Split View comparison pane and the right search dock.
 public struct PDFReaderView: View {
     @ObservedObject var store: AppStore
@@ -90,7 +90,7 @@ public struct PDFReaderView: View {
     // MARK: - Primary PDF Canvas Pane
 
     private var primaryCanvasPane: some View {
-        RDPDFDocumentViewWrapper(
+        PDFReaderCanvasView(
             pdfDocument: tab.pdfDocument,
             currentPageIndex: $tab.currentPageIndex,
             zoomScale: $tab.zoomScale,
@@ -132,7 +132,7 @@ public struct PDFReaderView: View {
         }
     }
 
-    // MARK: - Secondary Split View Pane (PDFDocumentsSplitViewController)
+    // MARK: - Secondary Split View Pane
 
     private var secondarySplitPane: some View {
         VStack(spacing: 0) {
@@ -140,11 +140,11 @@ public struct PDFReaderView: View {
             HStack(spacing: 6) {
                 Image(systemName: tab.splitMode == .vertical ? "rectangle.split.2x1" : "rectangle.split.1x2")
                     .font(.system(size: 11.5, weight: .medium))
-                    .foregroundColor(RDColorPalette.accentBlue)
+                    .foregroundColor(AppPalette.accentBlue)
 
                 Text(tab.secondaryDocumentURL?.deletingPathExtension().lastPathComponent ?? tab.title)
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(RDColorPalette.labelPrimary(isDark))
+                    .foregroundColor(AppPalette.labelPrimary(isDark))
                     .lineLimit(1)
                     .truncationMode(.middle)
 
@@ -152,7 +152,7 @@ public struct PDFReaderView: View {
                     Text("\(tab.secondaryPageIndex + 1) / \(secDoc.pageCount)")
                         .font(.system(size: 11))
                         .monospacedDigit()
-                        .foregroundColor(RDColorPalette.labelTertiary(isDark))
+                        .foregroundColor(AppPalette.labelTertiary(isDark))
                 }
 
                 Spacer(minLength: 8)
@@ -161,7 +161,7 @@ public struct PDFReaderView: View {
                     .toggleStyle(.switch)
                     .controlSize(.mini)
                     .font(.system(size: 11))
-                    .foregroundColor(RDColorPalette.labelSecondary(isDark))
+                    .foregroundColor(AppPalette.labelSecondary(isDark))
 
                 ToolbarIconButton(
                     icon: tab.showSplitDocumentPicker ? "doc.text" : "folder",
@@ -186,20 +186,20 @@ public struct PDFReaderView: View {
             .padding(.leading, 12)
             .padding(.trailing, 6)
             .frame(height: 34)
-            .background(RDColorPalette.toolbarBackground(isDark))
+            .background(AppPalette.toolbarBackground(isDark))
             .overlay(alignment: .bottom) {
                 Rectangle()
-                    .fill(RDColorPalette.chromeHairline(isDark))
+                    .fill(AppPalette.chromeHairline(isDark))
                     .frame(height: 1)
             }
 
-            // Secondary Split Content: Either HomeTabViewFactory.makeSplitScreenHomeTabView or Secondary PDFView
+            // Secondary Split Content: the Home tab as a document picker, or the secondary PDF view
             if tab.showSplitDocumentPicker {
                 HomeTabRootView(store: store, isStandaloneSplitPane: true) { chosenURL in
                     tab.setSecondaryDocument(url: chosenURL)
                 }
             } else if let secDoc = tab.secondaryPDFDocument {
-                RDPDFDocumentViewWrapper(
+                PDFReaderCanvasView(
                     pdfDocument: secDoc,
                     currentPageIndex: Binding(
                         get: { tab.secondaryPageIndex },

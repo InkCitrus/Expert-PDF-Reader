@@ -3,15 +3,15 @@ import PDFKit
 import QuartzCore
 import SwiftUI
 
-/// Replicates `RDPDFDocumentView` from `RDPDFKit.framework`:
+/// The themed PDF canvas:
 /// - Applies exact theme background color (`#DCDCDE`/`#131314` Day, `#E5DECF` Sepia, `#202223` Night) on the root `ThemedPDFView` layer.
-/// - Attaches the GPU `CIFilter` (`sepiaTexturingModeFragmentShader` / `nightTexturingModeFragmentShader` color matrices)
+/// - Attaches the GPU `CIFilter` (Sepia / Night color matrices, see `MetalShaderRenderer`)
 ///   to `PDFScrollView.layer` (**above** `NSClipView.layer`'s magnification transform) while keeping `PDFScrollView`'s
 ///   background transparent (`alpha = 0`). This guarantees that `PDFPageLayerTile` bitmaps (`contentsScale = backingScale * magnification`)
 ///   are never offscreen-downsampled before `NSClipView` magnification, completely eliminating PDF blurriness when switching themes or layouts.
 /// - Supports Left (`←`) and Right (`→`) arrow key page navigation in the pane that has the keyboard focus.
 /// - Opens at the tab's saved page and zoom (`currentPageIndex`, `zoomScale` / `isAutoScaling`).
-public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
+public struct PDFReaderCanvasView: NSViewRepresentable {
     public let pdfDocument: PDFDocument
     @Binding public var currentPageIndex: Int
     @Binding public var zoomScale: CGFloat
@@ -269,7 +269,7 @@ public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
     // MARK: - Coordinator
 
     public final class Coordinator: NSObject {
-        var parent: RDPDFDocumentViewWrapper
+        var parent: PDFReaderCanvasView
         var lastPageJumpToken: Int = -1
         var lastZoomCommandToken: Int = -1
         var lastLayoutToken: Int
@@ -277,7 +277,7 @@ public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
         private var observers: [NSObjectProtocol] = []
         nonisolated(unsafe) private var keyMonitor: Any?
 
-        init(parent: RDPDFDocumentViewWrapper) {
+        init(parent: PDFReaderCanvasView) {
             self.parent = parent
             self.lastLayoutToken = parent.layoutToken
         }

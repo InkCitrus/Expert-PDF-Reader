@@ -1,4 +1,4 @@
-// Renders the OpenPDFExpert app icon — an original design, not PDF Expert's artwork:
+// Renders the Expert PDF Reader app icon, an original design:
 // a dog-eared page whose surface shifts diagonally through the three reading themes
 // (Day white → Sepia cream → Night charcoal), with the text lines changing ink color across
 // the bands, on a blue squircle that follows the macOS icon grid (824pt body on a 1024pt canvas).
@@ -261,7 +261,7 @@ func pngData(size: Int) -> Data {
 MainActor.assumeIsolated {
     let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
     let assets = root.appendingPathComponent("Assets", isDirectory: true)
-    let iconset = FileManager.default.temporaryDirectory.appendingPathComponent("OpenPDFExpert-AppIcon.iconset", isDirectory: true)
+    let iconset = FileManager.default.temporaryDirectory.appendingPathComponent("ExpertPDFReader-AppIcon.iconset", isDirectory: true)
     try? FileManager.default.removeItem(at: iconset)
     try! FileManager.default.createDirectory(at: iconset, withIntermediateDirectories: true)
     try! FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true)

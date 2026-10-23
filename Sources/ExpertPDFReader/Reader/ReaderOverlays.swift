@@ -48,7 +48,7 @@ struct SearchResultsPanel: View {
     private var header: some View {
         HStack(spacing: 4) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("搜索结果")
+                Text(L10n.tr("搜索结果", "Search Results"))
                     .font(.system(size: 13, weight: .bold))
                     .foregroundColor(RDColorPalette.labelPrimary(isDark))
                 Text(summaryText)
@@ -59,13 +59,13 @@ struct SearchResultsPanel: View {
 
             Spacer(minLength: 4)
 
-            PanelHeaderIconButton(icon: "chevron.up", tooltip: "查找上一个 (⇧⌘G)", isDisabled: tab.searchMatches.isEmpty, isDark: isDark) {
+            PanelHeaderIconButton(icon: "chevron.up", tooltip: L10n.tr("查找上一个 (⇧⌘G)", "Find Previous (⇧⌘G)"), isDisabled: tab.searchMatches.isEmpty, isDark: isDark) {
                 tab.selectPreviousSearchMatch()
             }
-            PanelHeaderIconButton(icon: "chevron.down", tooltip: "查找下一个 (⌘G)", isDisabled: tab.searchMatches.isEmpty, isDark: isDark) {
+            PanelHeaderIconButton(icon: "chevron.down", tooltip: L10n.tr("查找下一个 (⌘G)", "Find Next (⌘G)"), isDisabled: tab.searchMatches.isEmpty, isDark: isDark) {
                 tab.selectNextSearchMatch()
             }
-            PanelHeaderIconButton(icon: "xmark", tooltip: "关闭搜索", isDark: isDark) {
+            PanelHeaderIconButton(icon: "xmark", tooltip: L10n.tr("关闭搜索", "Close Search"), isDark: isDark) {
                 withAnimation(.easeInOut(duration: 0.18)) {
                     tab.endSearch()
                 }
@@ -78,12 +78,12 @@ struct SearchResultsPanel: View {
     private var summaryText: String {
         let query = tab.lastSearchedQuery
         if query.isEmpty {
-            return "在文档中查找文字"
+            return L10n.tr("在文档中查找文字", "Find text in document")
         }
         if tab.searchMatches.isEmpty {
-            return "未找到“\(query)”"
+            return L10n.searchNotFound(query)
         }
-        return "第 \(tab.selectedMatchIndex + 1) 处，共 \(tab.searchMatches.count) 处匹配"
+        return L10n.searchMatchSummary(current: tab.selectedMatchIndex + 1, total: tab.searchMatches.count)
     }
 
     @ViewBuilder
@@ -91,12 +91,17 @@ struct SearchResultsPanel: View {
         if tab.lastSearchedQuery.isEmpty {
             PanelEmptyState(
                 icon: "magnifyingglass",
-                title: "全文搜索",
-                subtitle: "在工具栏的搜索框中输入关键词，匹配结果会按页列在这里",
+                title: L10n.tr("全文搜索", "Full-Text Search"),
+                subtitle: L10n.tr("在工具栏的搜索框中输入关键词，匹配结果会按页列在这里", "Type keywords in the toolbar search box to list matches by page"),
                 isDark: isDark
             )
         } else if tab.searchMatches.isEmpty {
-            PanelEmptyState(icon: "text.magnifyingglass", title: "没有匹配结果", subtitle: "请尝试其他关键词", isDark: isDark)
+            PanelEmptyState(
+                icon: "text.magnifyingglass",
+                title: L10n.tr("没有匹配结果", "No Matches Found"),
+                subtitle: L10n.tr("请尝试其他关键词", "Try another keyword"),
+                isDark: isDark
+            )
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
@@ -159,7 +164,7 @@ struct SearchResultsPanel: View {
 
     private func pageTitle(for pageIndex: Int) -> String {
         let label = tab.pdfDocument.page(at: pageIndex)?.label ?? "\(pageIndex + 1)"
-        return "第 \(label) 页"
+        return L10n.pageTitle(label)
     }
 }
 
@@ -251,7 +256,7 @@ struct PageIndicatorOverlay: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("前往页码…")
+        .help(L10n.tr("前往页码…", "Go to Page…"))
         .opacity(isVisible || isHovered || showGoToPage ? 1 : 0)
         .animation(.easeInOut(duration: 0.25), value: isVisible || isHovered || showGoToPage)
         .onHover { isHovered = $0 }
@@ -264,13 +269,13 @@ struct PageIndicatorOverlay: View {
         }
         .popover(isPresented: $showGoToPage, arrowEdge: .top) {
             HStack(spacing: 8) {
-                Text("前往页码")
+                Text(L10n.tr("前往页码", "Go to Page"))
                     .font(.system(size: 12))
                 TextField("1–\(tab.pageCount)", text: $goToPageInput)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 64)
                     .onSubmit(commitGoToPage)
-                Button("前往", action: commitGoToPage)
+                Button(L10n.tr("前往", "Go"), action: commitGoToPage)
                     .keyboardShortcut(.defaultAction)
                     .controlSize(.small)
             }
@@ -352,6 +357,6 @@ struct PageOverviewGridView: View {
                 proxy.scrollTo(tab.currentPageIndex, anchor: .center)
             }
         }
-        .background(store.pdfTheme.documentBackgroundColor(isDarkUI: isDark))
+        .background(store.resolvedPDFTheme(isDark: isDark).documentBackgroundColor(isDarkUI: isDark))
     }
 }

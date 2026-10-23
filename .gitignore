@@ -5,5 +5,6 @@
 *.xcworkspace
 xcuserdata/
 DerivedData/
-OpenPDFExpert.app/Contents/MacOS/OpenPDFExpert
-OpenPDFExpert.app/Contents/_CodeSignature/
+Expert PDF Reader.app/Contents/MacOS/ExpertPDFReader
+Expert PDF Reader.app/Contents/_CodeSignature/
+OpenPDFExpert.app/

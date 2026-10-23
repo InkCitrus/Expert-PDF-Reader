@@ -24,7 +24,7 @@ public struct ReaderToolbarView: View {
             // Left Group: Document Summary / Page Overview / View Settings + Zoom (PDFZoomToolbarItemView)
             ToolbarIconButton(
                 icon: "sidebar.left",
-                tooltip: "文档概要：缩略图、大纲与书签 (⌘B)",
+                tooltip: L10n.tr("文档概要：缩略图、大纲与书签 (⌘B)", "Document Summary: Thumbnails, Outline & Bookmarks (⌘B)"),
                 isActive: tab.isLeftSidebarVisible && tab.leftPanel == .documentSummary,
                 isDark: isDark
             ) {
@@ -35,7 +35,7 @@ public struct ReaderToolbarView: View {
 
             ToolbarIconButton(
                 icon: "square.grid.2x2",
-                tooltip: "页面概览 (⌃⌘1)",
+                tooltip: L10n.tr("页面概览 (⌃⌘1)", "Page Overview (⌃⌘1)"),
                 isActive: tab.isPageOverviewVisible,
                 isDark: isDark
             ) {
@@ -46,7 +46,7 @@ public struct ReaderToolbarView: View {
 
             ToolbarIconButton(
                 icon: "book",
-                tooltip: "显示选项：页面布局、分屏与阅读主题",
+                tooltip: L10n.tr("显示选项：页面布局、分屏与阅读主题", "View Settings: Page Layout, Split View & Reading Theme"),
                 isActive: tab.isLeftSidebarVisible && tab.leftPanel == .viewSettings,
                 isDark: isDark
             ) {
@@ -60,18 +60,18 @@ public struct ReaderToolbarView: View {
 
             Spacer(minLength: 16)
 
-            // Center Group: Day / Sepia / Night (RDPDFShaders) + Page Tools
+            // Center Group: Follow System / Day / Sepia / Night (RDPDFShaders) + Page Tools
             HStack(spacing: 2) {
-                ForEach([PDFViewTheme.day, .sepia, .night]) { theme in
+                ForEach(PDFReadingThemeMode.allCases) { mode in
                     ToolbarIconButton(
-                        icon: theme.toolbarIconName,
-                        tooltip: "阅读主题：\(theme.title)",
-                        isActive: store.pdfTheme == theme,
+                        icon: mode.toolbarIconName,
+                        tooltip: "\(L10n.tr("阅读主题", "Reading Theme")): \(mode.title)",
+                        isActive: store.readingThemeMode == mode,
                         activeTint: RDColorPalette.accentBlue,
                         isDark: isDark
                     ) {
                         withAnimation(.easeInOut(duration: 0.16)) {
-                            store.pdfTheme = theme
+                            store.readingThemeMode = mode
                         }
                     }
                 }
@@ -80,7 +80,7 @@ public struct ReaderToolbarView: View {
 
                 ToolbarIconButton(
                     icon: "crop",
-                    tooltip: tab.isClearMarginsEnabled ? "恢复页面空白边 (⇧⌘M)" : "清除空白边 (⇧⌘M)",
+                    tooltip: tab.isClearMarginsEnabled ? L10n.tr("恢复页面空白边 (⇧⌘M)", "Restore Page Margins (⇧⌘M)") : L10n.tr("清除空白边 (⇧⌘M)", "Clear Margins (⇧⌘M)"),
                     isActive: tab.isClearMarginsEnabled,
                     isDark: isDark
                 ) {
@@ -90,7 +90,7 @@ public struct ReaderToolbarView: View {
 
                 ToolbarIconButton(
                     icon: "rotate.left",
-                    tooltip: "向左旋转当前页面",
+                    tooltip: L10n.tr("向左旋转当前页面", "Rotate Current Page Left"),
                     isDark: isDark
                 ) {
                     tab.rotateCurrentPage(clockwise: false)
@@ -102,7 +102,7 @@ public struct ReaderToolbarView: View {
             // Right Group: Share + Bookmark + Search Field (PDFSearchToolbarItemView)
             ToolbarIconButton(
                 icon: "square.and.arrow.up",
-                tooltip: "分享",
+                tooltip: L10n.tr("分享", "Share"),
                 isDark: isDark
             ) {
                 presentSharingPicker()
@@ -112,7 +112,7 @@ public struct ReaderToolbarView: View {
             let isBookmarked = store.isPageBookmarked(pageIndex: tab.currentPageIndex, in: tab.documentID)
             ToolbarIconButton(
                 icon: isBookmarked ? "bookmark.fill" : "bookmark",
-                tooltip: isBookmarked ? "移除当前页书签 (⌘D)" : "为当前页添加书签 (⌘D)",
+                tooltip: isBookmarked ? L10n.tr("移除当前页书签 (⌘D)", "Remove Bookmark for Current Page (⌘D)") : L10n.tr("为当前页添加书签 (⌘D)", "Add Bookmark for Current Page (⌘D)"),
                 isActive: isBookmarked,
                 activeTint: RDColorPalette.systemRed,
                 isDark: isDark
@@ -162,17 +162,17 @@ public struct ReaderToolbarView: View {
             }
             .buttonStyle(.plain)
             .background(ViewAnchorRepresentable(anchor: zoomAnchor))
-            .help("缩放比例")
-            .accessibilityLabel(Text("缩放比例 \(Int((tab.zoomScale * 100).rounded()))%"))
+            .help(L10n.tr("缩放比例", "Zoom Level"))
+            .accessibilityLabel(Text("\(L10n.tr("缩放比例", "Zoom Level")) \(Int((tab.zoomScale * 100).rounded()))%"))
 
             HStack(spacing: 0) {
-                ZoomStepButton(icon: "minus", tooltip: "缩小 (⌘-)", isDark: isDark) {
+                ZoomStepButton(icon: "minus", tooltip: L10n.tr("缩小 (⌘-)", "Zoom Out (⌘-)"), isDark: isDark) {
                     tab.triggerZoom(.zoomOut)
                 }
                 Rectangle()
                     .fill(RDColorPalette.toolbarIcon(isDark).opacity(0.18))
                     .frame(width: 1, height: 14)
-                ZoomStepButton(icon: "plus", tooltip: "放大 (⌘+)", isDark: isDark) {
+                ZoomStepButton(icon: "plus", tooltip: L10n.tr("放大 (⌘+)", "Zoom In (⌘+)"), isDark: isDark) {
                     tab.triggerZoom(.zoomIn)
                 }
             }
@@ -186,9 +186,9 @@ public struct ReaderToolbarView: View {
     private func presentZoomMenu() {
         let currentPercent = Int((tab.zoomScale * 100).rounded())
         var items: [NativeMenuItem] = [
-            .action("缩放至适应宽度", keyEquivalent: "8") { tab.triggerZoom(.fitWidth) },
-            .action("缩放至适应页面", keyEquivalent: "9") { tab.triggerZoom(.fitPage) },
-            .action("实际大小", keyEquivalent: "0") { tab.triggerZoom(.actualSize) },
+            .action(L10n.tr("缩放至适应宽度", "Zoom to Fit Width"), keyEquivalent: "8") { tab.triggerZoom(.fitWidth) },
+            .action(L10n.tr("缩放至适应页面", "Zoom to Fit Page"), keyEquivalent: "9") { tab.triggerZoom(.fitPage) },
+            .action(L10n.tr("实际大小", "Actual Size"), keyEquivalent: "0") { tab.triggerZoom(.actualSize) },
             .separator
         ]
         for percent in [50, 75, 100, 125, 150, 200, 300, 400] {
@@ -213,7 +213,7 @@ public struct ReaderToolbarView: View {
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundColor(RDColorPalette.labelTertiary(isDark))
 
-            TextField("搜索", text: $tab.searchQuery)
+            TextField(L10n.tr("搜索", "Search"), text: $tab.searchQuery)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12.5))
                 .foregroundColor(RDColorPalette.labelPrimary(isDark))
@@ -230,7 +230,7 @@ public struct ReaderToolbarView: View {
                         .foregroundColor(RDColorPalette.labelTertiary(isDark))
                 }
                 .buttonStyle(.plain)
-                .help("清除搜索")
+                .help(L10n.tr("清除搜索", "Clear Search"))
             }
         }
         .padding(.horizontal, 8)
@@ -526,7 +526,7 @@ public struct ReaderLeftSidebarView: View {
     private var headerAccessory: some View {
         switch tab.activeSidebarTab {
         case .thumbnails:
-            Text("\(tab.pageCount) 页")
+            Text(L10n.pageCountText(tab.pageCount))
                 .font(.system(size: 11))
                 .monospacedDigit()
                 .foregroundColor(RDColorPalette.labelTertiary(isDark))
@@ -536,7 +536,7 @@ public struct ReaderLeftSidebarView: View {
             let isCurrentBookmarked = store.isPageBookmarked(pageIndex: tab.currentPageIndex, in: tab.documentID)
             PanelHeaderIconButton(
                 icon: "plus",
-                tooltip: "为当前页添加书签 (⌘D)",
+                tooltip: L10n.tr("为当前页添加书签 (⌘D)", "Add Bookmark for Current Page (⌘D)"),
                 isDisabled: isCurrentBookmarked,
                 isDark: isDark
             ) {
@@ -738,7 +738,7 @@ struct PageThumbnailCell: View {
                         for: page,
                         documentID: tab.documentID.id,
                         pageIndex: pageIndex,
-                        theme: store.pdfTheme,
+                        theme: store.resolvedPDFTheme(isDark: isDark),
                         size: CGSize(width: maxSize.width * 2, height: maxSize.height * 2)
                     )
                     Image(nsImage: thumb)
@@ -789,7 +789,7 @@ struct PageThumbnailCell: View {
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
         .contextMenu {
-            Button(isBookmarked ? "移除书签" : "添加书签") {
+            Button(isBookmarked ? L10n.tr("移除书签", "Remove Bookmark") : L10n.tr("添加书签", "Add Bookmark")) {
                 store.toggleBookmark(pageIndex: pageIndex, in: tab.documentID)
             }
         }
@@ -823,7 +823,7 @@ struct PDFOutlinePanel: View {
     var body: some View {
         Group {
             if hasLoaded && nodes.isEmpty {
-                PanelEmptyState(icon: "list.bullet.indent", title: "此文档不包含目录大纲", subtitle: nil, isDark: isDark)
+                PanelEmptyState(icon: "list.bullet.indent", title: L10n.tr("此文档不包含目录大纲", "This document has no outline"), subtitle: nil, isDark: isDark)
             } else {
                 let rows = visibleRows
                 let activeID = activeNodeID(in: rows)
@@ -932,7 +932,7 @@ struct PDFOutlinePanel: View {
             }
             result.append(
                 PDFOutlineNode(
-                    title: child.label ?? "未命名章节",
+                    title: child.label ?? L10n.tr("未命名章节", "Untitled Section"),
                     pageIndex: pageIdx,
                     pageLabel: pageLabel,
                     children: buildOutlineNodes(from: child)
@@ -1031,8 +1031,8 @@ struct PDFBookmarksPanel: View {
         if items.isEmpty {
             PanelEmptyState(
                 icon: "bookmark",
-                title: "暂无页面书签",
-                subtitle: "按 ⌘D 或点击右上角的 + 标记当前页",
+                title: L10n.tr("暂无页面书签", "No Page Bookmarks"),
+                subtitle: L10n.tr("按 ⌘D 或点击右上角的 + 标记当前页", "Press ⌘D or click + in the top right to bookmark this page"),
                 isDark: isDark
             )
         } else {
@@ -1099,9 +1099,9 @@ struct BookmarkRowView: View {
         .onTapGesture(perform: onSelect)
         .onHover { isHovered = $0 }
         .contextMenu {
-            Button("跳转到第 \(pageLabel) 页", action: onSelect)
+            Button(L10n.jumpToPage(pageLabel), action: onSelect)
             Divider()
-            Button("删除书签", role: .destructive, action: onDelete)
+            Button(L10n.tr("删除书签", "Delete Bookmark"), role: .destructive, action: onDelete)
         }
     }
 }
@@ -1116,12 +1116,12 @@ struct DocumentViewSettingsPanel: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Text("显示选项")
+                Text(L10n.tr("显示选项", "View Settings"))
                     .font(.system(size: 13, weight: .bold))
                     .foregroundColor(RDColorPalette.labelPrimary(isDark))
 
                 // 1. Page Layout Mode (Single / Two Pages / Cover)
-                settingsSection("页面布局") {
+                settingsSection(L10n.tr("页面布局", "Page Layout")) {
                     HStack(spacing: 6) {
                         ForEach(ReaderLayoutMode.allCases) { mode in
                             OptionTile(icon: mode.iconName, title: mode.shortTitle, isSelected: tab.layoutMode == mode, isDark: isDark) {
@@ -1132,7 +1132,7 @@ struct DocumentViewSettingsPanel: View {
                 }
 
                 // 2. Split View Mode (PDFDocumentsSplitViewController)
-                settingsSection("分屏视图") {
+                settingsSection(L10n.tr("分屏视图", "Split View")) {
                     HStack(spacing: 6) {
                         ForEach(ReaderSplitMode.allCases) { mode in
                             OptionTile(icon: mode.iconName, title: mode.shortTitle, isSelected: tab.splitMode == mode, isDark: isDark) {
@@ -1145,17 +1145,17 @@ struct DocumentViewSettingsPanel: View {
 
                     if tab.splitMode != .disabled {
                         VStack(alignment: .leading, spacing: 8) {
-                            Toggle("同步滚动和缩放", isOn: $tab.syncScrollAndZoom)
+                            Toggle(L10n.tr("同步滚动和缩放", "Sync Scroll & Zoom"), isOn: $tab.syncScrollAndZoom)
                                 .toggleStyle(.switch)
                                 .controlSize(.mini)
                                 .font(.system(size: 12))
                                 .foregroundColor(RDColorPalette.labelPrimary(isDark))
 
                             HStack(spacing: 6) {
-                                PanelTextButton(title: "对调位置", icon: "arrow.left.arrow.right", isDark: isDark) {
+                                PanelTextButton(title: L10n.tr("对调位置", "Swap Panes"), icon: "arrow.left.arrow.right", isDark: isDark) {
                                     tab.isSplitSwapped.toggle()
                                 }
-                                PanelTextButton(title: "对比文档…", icon: "doc.on.doc", isDark: isDark) {
+                                PanelTextButton(title: L10n.tr("对比文档…", "Compare…"), icon: "doc.on.doc", isDark: isDark) {
                                     tab.showSplitDocumentPicker = true
                                 }
                             }
@@ -1164,21 +1164,35 @@ struct DocumentViewSettingsPanel: View {
                     }
                 }
 
-                // 3. Page Reading Theme (RDPDFShaders)
-                settingsSection("阅读主题") {
+                // 3. Page Reading Theme (Follow System / Day / Sepia / Night + Light Sepia option)
+                settingsSection(L10n.tr("阅读主题", "Reading Theme")) {
                     HStack(spacing: 6) {
-                        ForEach([PDFViewTheme.day, .sepia, .night]) { theme in
-                            ThemePreviewTile(theme: theme, isSelected: store.pdfTheme == theme, isDark: isDark) {
+                        ForEach(PDFReadingThemeMode.allCases) { mode in
+                            ThemeModePreviewTile(
+                                mode: mode,
+                                useSepiaInLight: store.useSepiaForLightSystemTheme,
+                                isSelected: store.readingThemeMode == mode,
+                                isDark: isDark
+                            ) {
                                 withAnimation(.easeInOut(duration: 0.16)) {
-                                    store.pdfTheme = theme
+                                    store.readingThemeMode = mode
                                 }
                             }
                         }
                     }
+
+                    Toggle(isOn: $store.useSepiaForLightSystemTheme) {
+                        Text(L10n.tr("浅色时使用纸质替代日间", "Use Sepia in Light Mode"))
+                            .font(.system(size: 11.5))
+                            .foregroundColor(RDColorPalette.labelPrimary(isDark))
+                    }
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                    .padding(.top, 2)
                 }
 
                 // 4. Page Tools (Clear Margins + Rotation)
-                settingsSection("页面") {
+                settingsSection(L10n.tr("页面", "Page")) {
                     Toggle(isOn: Binding(
                         get: { tab.isClearMarginsEnabled },
                         set: { newValue in
@@ -1187,10 +1201,10 @@ struct DocumentViewSettingsPanel: View {
                         }
                     )) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("清除空白边")
+                            Text(L10n.tr("清除空白边", "Clear Margins"))
                                 .font(.system(size: 12.5))
                                 .foregroundColor(RDColorPalette.labelPrimary(isDark))
-                            Text("识别内容边界并裁切页边距")
+                            Text(L10n.tr("识别内容边界并裁切页边距", "Detect content bounds and crop page margins"))
                                 .font(.system(size: 10.5))
                                 .foregroundColor(RDColorPalette.labelTertiary(isDark))
                         }
@@ -1199,19 +1213,27 @@ struct DocumentViewSettingsPanel: View {
                     .controlSize(.mini)
 
                     HStack(spacing: 6) {
-                        PanelTextButton(title: "向左旋转", icon: "rotate.left", isDark: isDark) {
+                        PanelTextButton(title: L10n.tr("向左旋转", "Rotate Left"), icon: "rotate.left", isDark: isDark) {
                             tab.rotateCurrentPage(clockwise: false)
                         }
-                        PanelTextButton(title: "向右旋转", icon: "rotate.right", isDark: isDark) {
+                        PanelTextButton(title: L10n.tr("向右旋转", "Rotate Right"), icon: "rotate.right", isDark: isDark) {
                             tab.rotateCurrentPage(clockwise: true)
                         }
                     }
                 }
 
                 // 5. App UI Appearance (System / Light / Dark)
-                settingsSection("界面外观") {
+                settingsSection(L10n.tr("界面外观", "App Appearance")) {
                     PanelSegmentedControl(items: AppAppearanceMode.allCases, selection: $store.appearanceMode, isDark: isDark) { mode, _ in
                         Text(mode.shortTitle)
+                            .font(.system(size: 11.5, weight: .medium))
+                    }
+                }
+
+                // 6. Language (System / 简体中文 / English)
+                settingsSection(L10n.tr("语言", "Language")) {
+                    PanelSegmentedControl(items: AppLanguage.allCases, selection: $store.appLanguage, isDark: isDark) { lang, _ in
+                        Text(lang.shortTitle)
                             .font(.system(size: 11.5, weight: .medium))
                     }
                 }
@@ -1268,36 +1290,75 @@ struct OptionTile: View {
     }
 }
 
-struct ThemePreviewTile: View {
-    let theme: PDFViewTheme
+struct ThemeModePreviewTile: View {
+    let mode: PDFReadingThemeMode
+    let useSepiaInLight: Bool
     let isSelected: Bool
     let isDark: Bool
     let action: () -> Void
 
     var body: some View {
+        let previewTheme = mode.resolvedTheme(isDark: isDark, useSepiaInLight: useSepiaInLight)
+        let lightPreviewTheme: PDFViewTheme = useSepiaInLight ? .sepia : .day
+
         Button(action: action) {
             VStack(spacing: 6) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(theme.documentBackgroundColor(isDarkUI: isDark))
-                    MiniPagePreview(theme: theme)
-                        .frame(width: 26, height: 34)
+                    if mode == .system {
+                        HStack(spacing: 0) {
+                            lightPreviewTheme.documentBackgroundColor(isDarkUI: false)
+                            PDFViewTheme.night.documentBackgroundColor(isDarkUI: true)
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+
+                        SplitMiniPagePreview(leftTheme: lightPreviewTheme, rightTheme: .night)
+                            .frame(width: 24, height: 32)
+                    } else {
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(previewTheme.documentBackgroundColor(isDarkUI: isDark))
+                        MiniPagePreview(theme: previewTheme)
+                            .frame(width: 24, height: 32)
+                    }
                 }
-                .frame(height: 48)
+                .frame(height: 46)
                 .overlay(
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
                         .stroke(isSelected ? RDColorPalette.accentBlue : RDColorPalette.panelSeparator(isDark), lineWidth: isSelected ? 2 : 1)
                 )
 
-                Text(theme.title)
-                    .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                Text(mode.shortTitle)
+                    .font(.system(size: 10.5, weight: isSelected ? .semibold : .regular))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
                     .foregroundColor(isSelected ? RDColorPalette.accentBlue : RDColorPalette.labelSecondary(isDark))
             }
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("阅读主题：\(theme.title)")
+        .help("\(L10n.tr("阅读主题", "Reading Theme")): \(mode.title)")
+    }
+}
+
+struct SplitMiniPagePreview: View {
+    let leftTheme: PDFViewTheme
+    let rightTheme: PDFViewTheme
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                MiniPagePreview(theme: leftTheme)
+                    .mask(alignment: .leading) {
+                        Rectangle()
+                            .frame(width: geo.size.width / 2)
+                    }
+                MiniPagePreview(theme: rightTheme)
+                    .mask(alignment: .trailing) {
+                        Rectangle()
+                            .frame(width: geo.size.width / 2)
+                    }
+            }
+        }
     }
 }
 

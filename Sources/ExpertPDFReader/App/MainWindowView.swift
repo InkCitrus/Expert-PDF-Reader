@@ -148,8 +148,8 @@ struct TopTabBarView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("主页")
-        .accessibilityLabel(Text("主页"))
+        .help(L10n.tr("主页", "Home"))
+        .accessibilityLabel(Text(L10n.tr("主页", "Home")))
         .accessibilityAddTraits(isHomeSelected ? .isSelected : [])
         .onHover { hovering in
             if hovering {
@@ -178,8 +178,8 @@ struct TopTabBarView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("打开 PDF 文档 (⌘O)")
-        .accessibilityLabel(Text("打开 PDF 文档"))
+        .help(L10n.tr("打开 PDF 文档 (⌘O)", "Open PDF Document (⌘O)"))
+        .accessibilityLabel(Text(L10n.tr("打开 PDF 文档", "Open PDF Document")))
         .onHover { isNewTabHovered = $0 }
     }
 
@@ -225,8 +225,8 @@ struct DocumentTabItemView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("关闭标签 (⌘W)")
-            .accessibilityLabel(Text("关闭标签 \(state.title)"))
+            .help(L10n.tr("关闭标签 (⌘W)", "Close Tab (⌘W)"))
+            .accessibilityLabel(Text("\(L10n.tr("关闭标签", "Close Tab")) \(state.title)"))
             .onHover { isCloseHovered = $0 }
             .opacity(isSelected || isHovered ? 1 : 0)
             .allowsHitTesting(isSelected || isHovered)
@@ -245,10 +245,10 @@ struct DocumentTabItemView: View {
         }
         .help(state.documentID.url.path)
         .contextMenu {
-            Button("关闭标签") { store.closeTab(id: state.id) }
-            Button("关闭其他标签") { store.closeOtherTabs(keeping: state.id) }
+            Button(L10n.tr("关闭标签", "Close Tab")) { store.closeTab(id: state.id) }
+            Button(L10n.tr("关闭其他标签", "Close Other Tabs")) { store.closeOtherTabs(keeping: state.id) }
             Divider()
-            Button("在 Finder 中显示") { store.showInFinder(id: state.documentID) }
+            Button(L10n.tr("在 Finder 中显示", "Show in Finder")) { store.showInFinder(id: state.documentID) }
         }
     }
 }

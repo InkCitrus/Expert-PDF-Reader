@@ -81,9 +81,9 @@ public enum HomeTabPage: String, CaseIterable, Identifiable {
 
     public var title: String {
         switch self {
-        case .home:      return "主页"
-        case .recents:   return "最近打开"
-        case .favorites: return "收藏夹"
+        case .home:      return L10n.tr("主页", "Home")
+        case .recents:   return L10n.tr("最近打开", "Recents")
+        case .favorites: return L10n.tr("收藏夹", "Favorites")
         }
     }
 
@@ -105,17 +105,17 @@ public enum ReaderLayoutMode: String, CaseIterable, Identifiable, Codable {
 
     public var title: String {
         switch self {
-        case .singlePage:    return "单页"
-        case .twoPages:      return "双页"
-        case .twoPagesCover: return "双页（首屏单页显示）"
+        case .singlePage:    return L10n.tr("单页", "Single Page")
+        case .twoPages:      return L10n.tr("双页", "Two Pages")
+        case .twoPagesCover: return L10n.tr("双页（首屏单页显示）", "Two Pages (Single Cover)")
         }
     }
 
     public var shortTitle: String {
         switch self {
-        case .singlePage:    return "单页"
-        case .twoPages:      return "双页"
-        case .twoPagesCover: return "双页封面"
+        case .singlePage:    return L10n.tr("单页", "Single")
+        case .twoPages:      return L10n.tr("双页", "Two Pages")
+        case .twoPagesCover: return L10n.tr("双页封面", "Cover")
         }
     }
 
@@ -137,17 +137,17 @@ public enum ReaderSplitMode: String, CaseIterable, Identifiable, Codable {
 
     public var title: String {
         switch self {
-        case .disabled:   return "禁用分屏视图"
-        case .vertical:   return "垂直分屏（左右）"
-        case .horizontal: return "水平分屏（上下）"
+        case .disabled:   return L10n.tr("禁用分屏视图", "Disable Split View")
+        case .vertical:   return L10n.tr("垂直分屏（左右）", "Vertical Split (Left/Right)")
+        case .horizontal: return L10n.tr("水平分屏（上下）", "Horizontal Split (Top/Bottom)")
         }
     }
 
     public var shortTitle: String {
         switch self {
-        case .disabled:   return "不分屏"
-        case .vertical:   return "左右"
-        case .horizontal: return "上下"
+        case .disabled:   return L10n.tr("不分屏", "Off")
+        case .vertical:   return L10n.tr("左右", "Vertical")
+        case .horizontal: return L10n.tr("上下", "Horizontal")
         }
     }
 
@@ -175,9 +175,9 @@ public enum ReaderSidebarTab: String, CaseIterable, Identifiable {
 
     public var title: String {
         switch self {
-        case .thumbnails: return "缩略图"
-        case .outline:    return "大纲"
-        case .bookmarks:  return "书签"
+        case .thumbnails: return L10n.tr("缩略图", "Thumbnails")
+        case .outline:    return L10n.tr("大纲", "Outline")
+        case .bookmarks:  return L10n.tr("书签", "Bookmarks")
         }
     }
 
@@ -515,7 +515,7 @@ public enum AppTab: Identifiable, Equatable {
 
     public var title: String {
         switch self {
-        case .home:                return "主页"
+        case .home:                return L10n.tr("主页", "Home")
         case .document(let state): return state.title
         }
     }
@@ -585,17 +585,53 @@ public final class PDFThumbnailCache: ObservableObject {
 
 @MainActor
 public final class AppStore: ObservableObject {
-    // Global Theme & Appearance
-    @Published public var pdfTheme: PDFViewTheme {
+    // Global Reading Theme Mode (Follow System / Day / Sepia / Night)
+    @Published public var readingThemeMode: PDFReadingThemeMode {
         didSet {
-            UserDefaults.standard.set(pdfTheme.rawValue, forKey: "openPDFExpert.pdfTheme")
+            UserDefaults.standard.set(readingThemeMode.rawValue, forKey: "expertPDFReader.readingThemeMode")
+        }
+    }
+
+    /// When `readingThemeMode == .system`, optionally use `.sepia` instead of `.day` in Light mode.
+    @Published public var useSepiaForLightSystemTheme: Bool {
+        didSet {
+            UserDefaults.standard.set(useSepiaForLightSystemTheme, forKey: "expertPDFReader.useSepiaForLightSystemTheme")
+        }
+    }
+
+    /// Resolves the concrete GPU `PDFViewTheme` (`day`, `sepia`, or `night`) for the given UI appearance.
+    public func resolvedPDFTheme(isDark: Bool) -> PDFViewTheme {
+        readingThemeMode.resolvedTheme(isDark: isDark, useSepiaInLight: useSepiaForLightSystemTheme)
+    }
+
+    /// Convenience accessor / setter for concrete `PDFViewTheme`
+    public var pdfTheme: PDFViewTheme {
+        get {
+            let isDark = (NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
+            return resolvedPDFTheme(isDark: isDark)
+        }
+        set {
+            switch newValue {
+            case .day:   readingThemeMode = .day
+            case .sepia: readingThemeMode = .sepia
+            case .night: readingThemeMode = .night
+            }
         }
     }
 
     @Published public var appearanceMode: AppAppearanceMode {
         didSet {
+            UserDefaults.standard.set(appearanceMode.rawValue, forKey: "expertPDFReader.appearanceMode")
             UserDefaults.standard.set(appearanceMode.rawValue, forKey: "openPDFExpert.appearanceMode")
             applyAppAppearance()
+        }
+    }
+
+    @Published public var appLanguage: AppLanguage {
+        didSet {
+            L10n.currentLanguage = appLanguage
+            UserDefaults.standard.set(appLanguage.rawValue, forKey: "expertPDFReader.appLanguage")
+            handleLocaleChange()
         }
     }
 
@@ -621,13 +657,38 @@ public final class AppStore: ObservableObject {
     }
 
     public init() {
-        let savedThemeRaw = UserDefaults.standard.integer(forKey: "openPDFExpert.pdfTheme")
-        self.pdfTheme = PDFViewTheme(rawValue: savedThemeRaw) ?? .day
+        let defaults = UserDefaults.standard
 
-        let savedAppRaw = UserDefaults.standard.string(forKey: "openPDFExpert.appearanceMode") ?? AppAppearanceMode.system.rawValue
+        let savedLangRaw = defaults.string(forKey: "expertPDFReader.appLanguage")
+            ?? defaults.string(forKey: "openPDFExpert.appLanguage")
+            ?? AppLanguage.system.rawValue
+        let lang = AppLanguage(rawValue: savedLangRaw) ?? .system
+        self.appLanguage = lang
+        L10n.currentLanguage = lang
+
+        if let savedModeRaw = defaults.string(forKey: "expertPDFReader.readingThemeMode"),
+           let mode = PDFReadingThemeMode(rawValue: savedModeRaw) {
+            self.readingThemeMode = mode
+        } else if defaults.object(forKey: "openPDFExpert.pdfTheme") != nil {
+            let legacyRaw = defaults.integer(forKey: "openPDFExpert.pdfTheme")
+            switch PDFViewTheme(rawValue: legacyRaw) ?? .day {
+            case .day:   self.readingThemeMode = .day
+            case .sepia: self.readingThemeMode = .sepia
+            case .night: self.readingThemeMode = .night
+            }
+        } else {
+            self.readingThemeMode = .system
+        }
+
+        self.useSepiaForLightSystemTheme = defaults.bool(forKey: "expertPDFReader.useSepiaForLightSystemTheme")
+
+        let savedAppRaw = defaults.string(forKey: "expertPDFReader.appearanceMode")
+            ?? defaults.string(forKey: "openPDFExpert.appearanceMode")
+            ?? AppAppearanceMode.system.rawValue
         self.appearanceMode = AppAppearanceMode(rawValue: savedAppRaw) ?? .system
 
         let formatter = DateFormatter()
+        formatter.locale = lang.locale
         formatter.dateStyle = .short
         formatter.timeStyle = .short
         self.dateFormatter = formatter
@@ -665,6 +726,7 @@ public final class AppStore: ObservableObject {
 
     private func handleLocaleChange() {
         let newFormatter = DateFormatter()
+        newFormatter.locale = appLanguage.locale
         newFormatter.dateStyle = .short
         newFormatter.timeStyle = .short
         self.dateFormatter = newFormatter
@@ -720,7 +782,7 @@ public final class AppStore: ObservableObject {
 
     public func openFilePicker() {
         let panel = NSOpenPanel()
-        panel.title = "打开 PDF 文档"
+        panel.title = L10n.tr("打开 PDF 文档", "Open PDF Document")
         panel.allowedContentTypes = [.pdf]
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
@@ -863,7 +925,7 @@ public final class AppStore: ObservableObject {
         if let existingIdx = list.firstIndex(where: { $0.pageIndex == pageIndex }) {
             list.remove(at: existingIdx)
         } else {
-            let label = defaultTitle ?? "第 \(pageIndex + 1) 页"
+            let label = defaultTitle ?? L10n.defaultBookmarkTitle(pageNumber: pageIndex + 1)
             list.append(BookmarkItem(pageIndex: pageIndex, title: label))
             list.sort(by: { $0.pageIndex < $1.pageIndex })
         }

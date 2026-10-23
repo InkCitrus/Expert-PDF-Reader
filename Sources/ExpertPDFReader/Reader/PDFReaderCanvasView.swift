@@ -4,10 +4,12 @@ import QuartzCore
 import SwiftUI
 
 /// Replicates `RDPDFDocumentView` from `RDPDFKit.framework`:
-/// - Applies exact theme background color (`#DCDCDE`/`#131314` Day, `#E5DECF` Sepia, `#202223` Night).
-/// - Attaches GPU `CIFilter` matching `sepiaTexturingModeFragmentShader` and `nightTexturingModeFragmentShader`
-///   to each `PDFPageLayer`'s tile container (`sublayers[2].sublayers[0]`) and sets the paper layer (`sublayers[3]`)
-///   to `#FFFFFF` / `#F5EFDC` / `#000000` while keeping drop shadows (`sublayers[0..1]`) and text selection (`sublayers[2].sublayers[1]`) untouched.
+/// - Applies exact theme background color (`#DCDCDE`/`#131314` Day, `#E5DECF` Sepia, `#202223` Night) on the root `ThemedPDFView` layer.
+/// - Attaches the GPU `CIFilter` (`sepiaTexturingModeFragmentShader` / `nightTexturingModeFragmentShader` color matrices)
+///   to `PDFScrollView.layer` (**above** `NSClipView.layer`'s magnification transform) while keeping `PDFScrollView`'s
+///   background transparent (`alpha = 0`). This guarantees that `PDFPageLayerTile` bitmaps (`contentsScale = backingScale * magnification`)
+///   are never offscreen-downsampled before `NSClipView` magnification, completely eliminating PDF blurriness when switching themes or layouts.
+/// - Supports Left (`←`) and Right (`→`) arrow key page navigation.
 public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
     public let pdfDocument: PDFDocument
     @Binding public var currentPageIndex: Int
@@ -21,6 +23,7 @@ public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
     public let pageJumpToken: Int
     public let zoomCommandToken: Int
     public let pendingZoomAction: DocumentTabState.ZoomAction?
+    public let onStepPage: ((Int) -> Void)?
 
     public init(
         pdfDocument: PDFDocument,
@@ -34,7 +37,8 @@ public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
         selectedMatchIndex: Int = 0,
         pageJumpToken: Int = 0,
         zoomCommandToken: Int = 0,
-        pendingZoomAction: DocumentTabState.ZoomAction? = nil
+        pendingZoomAction: DocumentTabState.ZoomAction? = nil,
+        onStepPage: ((Int) -> Void)? = nil
     ) {
         self.pdfDocument = pdfDocument
         self._currentPageIndex = currentPageIndex
@@ -48,6 +52,7 @@ public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
         self.pageJumpToken = pageJumpToken
         self.zoomCommandToken = zoomCommandToken
         self.pendingZoomAction = pendingZoomAction
+        self.onStepPage = onStepPage
     }
 
     public func makeCoordinator() -> Coordinator {
@@ -62,6 +67,7 @@ public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
         pdfView.displaysPageBreaks = true
         pdfView.pageBreakMargins = NSEdgeInsets(top: 10, left: 12, bottom: 10, right: 12)
         pdfView.interpolationQuality = .high
+        pdfView.backgroundColor = .clear
         pdfView.document = pdfDocument
 
         context.coordinator.setupNotifications(for: pdfView)
@@ -81,7 +87,7 @@ public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
     }
 
     private func applyConfiguration(to pdfView: PDFView, coordinator: Coordinator) {
-        // 1. Display Layout Mode
+        // 1. Display Layout Mode & Display Box (Clear Margins)
         let targetDisplayMode: PDFDisplayMode
         let targetDisplaysAsBook: Bool
         switch layoutMode {
@@ -95,31 +101,48 @@ public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
             targetDisplayMode = .twoUpContinuous
             targetDisplaysAsBook = true
         }
-        if pdfView.displayMode != targetDisplayMode {
-            pdfView.displayMode = targetDisplayMode
-        }
-        if pdfView.displaysAsBook != targetDisplaysAsBook {
-            pdfView.displaysAsBook = targetDisplaysAsBook
-        }
-
-        // 2. Display Box (Clear Margins)
         let targetBox: PDFDisplayBox = isClearMarginsEnabled ? .cropBox : .mediaBox
-        if pdfView.displayBox != targetBox {
-            pdfView.displayBox = targetBox
+
+        let layoutChanged = (pdfView.displayMode != targetDisplayMode)
+            || (pdfView.displaysAsBook != targetDisplaysAsBook)
+            || (pdfView.displayBox != targetBox)
+
+        if layoutChanged {
+            let wasAutoScaling = pdfView.autoScales
+            let savedPage = pdfView.currentPage
+            if pdfView.displayMode != targetDisplayMode {
+                pdfView.displayMode = targetDisplayMode
+            }
+            if pdfView.displaysAsBook != targetDisplaysAsBook {
+                pdfView.displaysAsBook = targetDisplaysAsBook
+            }
+            if pdfView.displayBox != targetBox {
+                pdfView.displayBox = targetBox
+            }
             pdfView.layoutDocumentView()
+            if wasAutoScaling {
+                pdfView.autoScales = true
+            }
+            if let savedPage, pdfView.currentPage !== savedPage {
+                pdfView.go(to: savedPage)
+            }
+            pdfView.needsDisplay = true
+            DispatchQueue.main.async {
+                if abs(pdfView.scaleFactor - self.zoomScale) > 0.005 {
+                    self.zoomScale = pdfView.scaleFactor
+                }
+            }
         }
 
-        // 3. Theme Background & Page Layer Shaders
-        let bgColor = pdfTheme.documentBackgroundNSColor(isDarkUI: isDarkUI)
-        if pdfView.backgroundColor != bgColor {
-            pdfView.backgroundColor = bgColor
-        }
+        // 2. Theme Background & Viewport Shader Filtering
         if let themed = pdfView as? ThemedPDFView {
+            themed.onStepPage = onStepPage
             themed.currentTheme = pdfTheme
-            themed.applyThemeToPageLayers()
+            themed.isDarkUI = isDarkUI
+            themed.applyThemeLayers()
         }
 
-        // 4. Page Navigation Jump
+        // 3. Page Navigation Jump
         if coordinator.lastPageJumpToken != pageJumpToken {
             coordinator.lastPageJumpToken = pageJumpToken
             if let targetPage = pdfDocument.page(at: currentPageIndex),
@@ -135,7 +158,7 @@ public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
             }
         }
 
-        // 5. Imperative Zoom Commands
+        // 4. Imperative Zoom Commands
         if coordinator.lastZoomCommandToken != zoomCommandToken {
             coordinator.lastZoomCommandToken = zoomCommandToken
             if let action = pendingZoomAction {
@@ -172,17 +195,26 @@ public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
             }
         }
 
-        // 6. Search Highlighted Selections
+        // 5. Search Highlighted Selections
         if searchMatches.isEmpty {
             if pdfView.highlightedSelections != nil {
                 pdfView.highlightedSelections = nil
             }
         } else {
+            let isNight = (pdfTheme == .night)
             let selections = searchMatches.enumerated().map { idx, item -> PDFSelection in
                 let sel = item.selection.copy() as! PDFSelection
-                sel.color = (idx == selectedMatchIndex)
-                    ? NSColor.systemOrange.withAlphaComponent(0.65)
-                    : NSColor.systemYellow.withAlphaComponent(0.42)
+                if isNight {
+                    // Since scrollView.layer applies nightFilter (v = 0.75 - 0.25*(R+G+B)),
+                    // a dark selection color inverts into a bright, crisp highlight on dark pages.
+                    sel.color = (idx == selectedMatchIndex)
+                        ? NSColor(calibratedWhite: 0.08, alpha: 0.65)
+                        : NSColor(calibratedWhite: 0.22, alpha: 0.45)
+                } else {
+                    sel.color = (idx == selectedMatchIndex)
+                        ? NSColor.systemOrange.withAlphaComponent(0.65)
+                        : NSColor.systemYellow.withAlphaComponent(0.42)
+                }
                 return sel
             }
             pdfView.highlightedSelections = selections
@@ -204,6 +236,7 @@ public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
         var lastZoomCommandToken: Int = -1
         var lastHighlightedMatchIndex: Int = -1
         private var observers: [NSObjectProtocol] = []
+        nonisolated(unsafe) private var keyMonitor: Any?
 
         init(parent: RDPDFDocumentViewWrapper) {
             self.parent = parent
@@ -212,6 +245,9 @@ public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
         deinit {
             for obs in observers {
                 NotificationCenter.default.removeObserver(obs)
+            }
+            if let keyMonitor {
+                NSEvent.removeMonitor(keyMonitor)
             }
         }
 
@@ -226,7 +262,7 @@ public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
                 if idx != self.parent.currentPageIndex {
                     self.parent.currentPageIndex = idx
                 }
-                (pdfView as? ThemedPDFView)?.applyThemeToPageLayers()
+                (pdfView as? ThemedPDFView)?.applyThemeLayers()
             }
 
             let scaleObs = nc.addObserver(forName: .PDFViewScaleChanged, object: pdfView, queue: .main) { [weak self, weak pdfView] _ in
@@ -234,7 +270,7 @@ public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
                 if abs(pdfView.scaleFactor - self.parent.zoomScale) > 0.005 {
                     self.parent.zoomScale = pdfView.scaleFactor
                 }
-                (pdfView as? ThemedPDFView)?.applyThemeToPageLayers()
+                (pdfView as? ThemedPDFView)?.applyThemeLayers()
             }
 
             observers.append(contentsOf: [pageObs, scaleObs])
@@ -246,55 +282,143 @@ public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
                     object: scrollView.contentView,
                     queue: .main
                 ) { [weak pdfView] _ in
-                    (pdfView as? ThemedPDFView)?.applyThemeToPageLayers()
+                    (pdfView as? ThemedPDFView)?.applyThemeLayers()
                 }
                 observers.append(scrollObs)
+            }
+
+            // Local keyDown monitor for Left (←, 123) and Right (→, 124) arrow keys when onStepPage is provided
+            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak pdfView] event in
+                guard let self = self,
+                      let stepHandler = self.parent.onStepPage,
+                      let pdfView = pdfView,
+                      let window = pdfView.window,
+                      event.window === window else {
+                    return event
+                }
+                // Do not intercept arrow keys when typing inside any text field / search field
+                if window.firstResponder is NSText {
+                    return event
+                }
+                // Only handle unmodified Left / Right arrow keys (ignoring .numericPad / .function)
+                let disallowedModifiers: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
+                guard event.modifierFlags.intersection(disallowedModifiers).isEmpty else {
+                    return event
+                }
+                switch event.keyCode {
+                case 123: // Left Arrow (←) -> Previous Page
+                    stepHandler(-1)
+                    return nil
+                case 124: // Right Arrow (→) -> Next Page
+                    stepHandler(1)
+                    return nil
+                default:
+                    return event
+                }
             }
         }
     }
 }
 
-// MARK: - ThemedPDFView (Applies GPU Shaders to PDFPageLayer Tile & Paper Sublayers)
+// MARK: - ThemedPDFView (Sharp Retina Viewport Shader Filtering + Arrow Key Navigation)
 
 final class ThemedPDFView: PDFView {
     var currentTheme: PDFViewTheme = .day
+    var isDarkUI: Bool = false
+    var onStepPage: ((Int) -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        let disallowedModifiers: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
+        if event.modifierFlags.intersection(disallowedModifiers).isEmpty,
+           let onStepPage {
+            if event.keyCode == 123 {
+                onStepPage(-1)
+                return
+            } else if event.keyCode == 124 {
+                onStepPage(1)
+                return
+            }
+        }
+        super.keyDown(with: event)
+    }
 
     override func layout() {
         super.layout()
-        applyThemeToPageLayers()
+        applyThemeLayers()
     }
 
-    func applyThemeToPageLayers() {
-        guard let docView = self.documentView else { return }
-        docView.wantsLayer = true
-        docView.layerUsesCoreImageFilters = true
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyThemeLayers()
+    }
 
+    func applyThemeLayers() {
+        self.wantsLayer = true
+        self.layerUsesCoreImageFilters = true
+
+        // 1. Paint the exact canvas background on ThemedPDFView's own backing layer (outside PDFScrollView)
+        if self.backgroundColor != .clear {
+            self.backgroundColor = .clear
+        }
+        let bgCGColor = currentTheme.documentBackgroundNSColor(isDarkUI: isDarkUI).cgColor
+        self.layer?.backgroundColor = bgCGColor
+
+        let backingScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
         let filters = MetalShaderRenderer.shared.pageLayerFilters(for: currentTheme)
-        let paperCGColor = currentTheme.pagePaperNSColor.cgColor
 
+        // 2. Attach the theme CIFilter to PDFScrollView's layer (which sits ABOVE NSClipView's magnification
+        //    transform). Because PDFScrollView has identity transform and full Retina contentsScale,
+        //    CoreAnimation composites all PDFPageLayerTile IOSurfaces at 100% native zoomed resolution
+        //    before running the shader on the viewport — zero intermediate 1x downsampling or blur!
+        if let scrollView = self.subviews.compactMap({ $0 as? NSScrollView }).first {
+            scrollView.wantsLayer = true
+            scrollView.layerUsesCoreImageFilters = true
+            if scrollView.drawsBackground {
+                scrollView.drawsBackground = false
+            }
+            for sub in scrollView.subviews where String(describing: type(of: sub)).contains("Background") {
+                if !sub.isHidden {
+                    sub.isHidden = true
+                }
+            }
+            if let svLayer = scrollView.layer {
+                svLayer.contentsScale = backingScale
+                svLayer.rasterizationScale = backingScale
+                svLayer.backgroundColor = NSColor.clear.cgColor
+                let hadFilters = !(svLayer.filters?.isEmpty ?? true)
+                let wantsFilters = !filters.isEmpty
+                if wantsFilters || hadFilters {
+                    svLayer.filters = filters
+                }
+            }
+        }
+
+        // 3. Ensure PDFPageLayer sublayers have no sub-clipView filters (which would force 1x rasterization)
+        //    and hide drop shadows in Night mode so they aren't inverted into a light halo.
+        guard let docView = self.documentView else { return }
+        let isNight = (currentTheme == .night)
         for pageView in docView.subviews {
-            pageView.wantsLayer = true
-            pageView.layerUsesCoreImageFilters = true
             guard let pageLayer = pageView.layer else { continue }
-
-            // Inspect PDFPageLayer structure discovered during reverse engineering:
-            // sublayers[0..1] = drop shadows (shadowOpacity 0.04, 0.08) -> keep untouched!
-            // sublayers[2] = content container (sublayers[0] = PDFPageLayerTile container, sublayers[1] = PDFPageLayerSelectionEffect)
-            // sublayers[3] = page paper background layer (bounds = page rect)
+            if pageLayer.filters != nil {
+                pageLayer.filters = nil
+            }
             if let sublayers = pageLayer.sublayers, sublayers.count >= 4 {
+                if sublayers[0].isHidden != isNight {
+                    sublayers[0].isHidden = isNight
+                }
+                if sublayers[1].isHidden != isNight {
+                    sublayers[1].isHidden = isNight
+                }
                 let contentContainer = sublayers[2]
-                if let contentChildren = contentContainer.sublayers, !contentChildren.isEmpty {
-                    let tilesContainer = contentChildren[0]
-                    tilesContainer.filters = filters
-                } else {
-                    contentContainer.filters = filters
+                if contentContainer.filters != nil {
+                    contentContainer.filters = nil
+                }
+                if let tilesContainer = contentContainer.sublayers?.first,
+                   tilesContainer.filters != nil {
+                    tilesContainer.filters = nil
                 }
                 let paperLayer = sublayers[3]
-                paperLayer.backgroundColor = paperCGColor
-                pageLayer.filters = nil
-            } else {
-                // Fallback if PDFPageLayer sublayers haven't populated yet
-                pageLayer.filters = filters
+                paperLayer.backgroundColor = NSColor.white.cgColor
             }
         }
     }

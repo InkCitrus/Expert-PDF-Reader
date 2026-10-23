@@ -1,5 +1,7 @@
 # Expert PDF Reader
 
+**English** · [简体中文](docs/README.zh-CN.md) · [繁體中文](docs/README.zh-TW.md) · [日本語](docs/README.ja.md) · [한국어](docs/README.ko.md)
+
 A native macOS PDF reader built for reading: tabs, Split View, and Day / Sepia / Night page themes rendered on the GPU. The interface is inspired by PDF Expert 3, without editing, annotation or subscriptions.
 
 ---

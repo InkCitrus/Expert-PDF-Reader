@@ -15,8 +15,9 @@ mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
 
 rm -f "$APP_BUNDLE/Contents/MacOS/OpenPDFExpert"
 cp Sources/ExpertPDFReader/Resources/RDPDFShaders.metallib "$APP_BUNDLE/Contents/Resources/RDPDFShaders.metallib"
-cp -R Sources/ExpertPDFReader/Resources/en.lproj "$APP_BUNDLE/Contents/Resources/"
-cp -R Sources/ExpertPDFReader/Resources/zh-Hans.lproj "$APP_BUNDLE/Contents/Resources/"
+for lproj in Sources/ExpertPDFReader/Resources/*.lproj; do
+    cp -R "$lproj" "$APP_BUNDLE/Contents/Resources/"
+done
 # Original app icon (regenerate with: swift scripts/make_app_icon.swift)
 cp Assets/AppIcon.icns "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 

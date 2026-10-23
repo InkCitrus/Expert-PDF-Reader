@@ -1230,12 +1230,46 @@ struct DocumentViewSettingsPanel: View {
                     }
                 }
 
-                // 6. Language (System / 简体中文 / English)
+                // 6. Language (Follow System + 12 Languages)
                 settingsSection(L10n.tr("语言", "Language")) {
-                    PanelSegmentedControl(items: AppLanguage.allCases, selection: $store.appLanguage, isDark: isDark) { lang, _ in
-                        Text(lang.shortTitle)
-                            .font(.system(size: 11.5, weight: .medium))
+                    Menu {
+                        ForEach(AppLanguage.allCases) { lang in
+                            Button {
+                                store.appLanguage = lang
+                            } label: {
+                                HStack {
+                                    Text(lang.title)
+                                    if store.appLanguage == lang {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "globe")
+                                .font(.system(size: 11.5, weight: .medium))
+                                .foregroundColor(RDColorPalette.labelSecondary(isDark))
+                            Text(store.appLanguage.title)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(RDColorPalette.labelPrimary(isDark))
+                            Spacer()
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 9.5, weight: .semibold))
+                                .foregroundColor(RDColorPalette.labelTertiary(isDark))
+                        }
+                        .padding(.horizontal, 10)
+                        .frame(height: 28)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(RDColorPalette.panelListBackground(isDark))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .stroke(RDColorPalette.panelSeparator(isDark), lineWidth: 1)
+                        )
                     }
+                    .menuStyle(.borderlessButton)
                 }
             }
             .padding(14)

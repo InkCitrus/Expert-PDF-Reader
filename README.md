@@ -8,7 +8,7 @@ Retains only the core **PDF reading & theme switching** experience (no editing, 
 
 ## ✨ Features
 
-- **1:1 GPU Page Reading Themes (`RDPDFShaders.metallib`)**
+- **1:1 GPU Page Reading Themes (Metal + Core Image color matrices)**
   - **Follow System (跟随系统)**: Automatically switches between Light and Dark reading themes to match the system/app appearance, with an optional **"Use Sepia in Light Mode (浅色时使用纸质替代日间)"** toggle.
   - **Day (日间)**: Crisp original colors (`#FFFFFF` paper, `#DCDCDE` / `#131314` canvas backdrop).
   - **Sepia (纸质)**: Exact affine color matrix from `sepiaTexturingModeFragmentShader` (`#F5EFDC` warm cream paper, `#3F2A18` espresso ink, `#E5DECF` canvas backdrop).
@@ -36,11 +36,33 @@ Retains only the core **PDF reading & theme switching** experience (no editing, 
 
 ---
 
-## 🛠 Build & Run
+## 📦 Install
+
+Download `Expert-PDF-Reader-<version>.dmg` from [Releases](https://github.com/InkCitrus/Expert-PDF-Reader/releases), open it and drag **Expert PDF Reader** into **Applications**. Requires macOS 14 or later (Apple Silicon or Intel).
+
+Release builds are not notarized by Apple yet, so macOS blocks the first launch. Open **System Settings › Privacy & Security** and click **Open Anyway**, or run:
 
 ```zsh
-./build.sh && open "Expert PDF Reader.app"
+xattr -dr com.apple.quarantine "/Applications/Expert PDF Reader.app"
 ```
+
+---
+
+## 🛠 Build & Run
+
+Requires the Xcode Command Line Tools (`xcode-select --install`).
+
+```zsh
+./build.sh && open "build/Expert PDF Reader.app"
+```
+
+Build a universal (Apple Silicon + Intel) app and package it as a `.dmg`:
+
+```zsh
+ARCHS="arm64 x86_64" ./build.sh && ./scripts/make_dmg.sh
+```
+
+Pushing a `v*` tag (e.g. `git tag v0.1.0 && git push origin v0.1.0`) runs `.github/workflows/release.yml`, which builds the `.dmg` and attaches it to a GitHub Release. Every push also builds a `.dmg` as a CI artifact.
 
 Regenerate the app icon (`Assets/AppIcon.icns` + `Assets/AppIcon.png`) after editing its design:
 

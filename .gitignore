@@ -8,3 +8,4 @@ DerivedData/
 Expert PDF Reader.app/Contents/MacOS/ExpertPDFReader
 Expert PDF Reader.app/Contents/_CodeSignature/
 OpenPDFExpert.app/
+build/

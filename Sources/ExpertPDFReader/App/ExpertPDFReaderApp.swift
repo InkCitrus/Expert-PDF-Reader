@@ -2,7 +2,13 @@ import AppKit
 import SwiftUI
 
 public final class ExpertPDFReaderAppDelegate: NSObject, NSApplicationDelegate {
-    var store: AppStore?
+    var store: AppStore? {
+        didSet { openPendingURLs() }
+    }
+
+    /// Files handed to the app before the window has set `store` (e.g. double-clicking a PDF in Finder
+    /// while the app is not running); opened as soon as `store` is available.
+    private var pendingURLs: [URL] = []
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -14,16 +20,23 @@ public final class ExpertPDFReaderAppDelegate: NSObject, NSApplicationDelegate {
             let url = URL(fileURLWithPath: arg)
             if url.pathExtension.lowercased() == "pdf",
                FileManager.default.fileExists(atPath: url.path) {
-                Task { @MainActor in
-                    self.store?.openDocument(at: url)
-                }
+                pendingURLs.append(url)
             }
         }
+        openPendingURLs()
     }
 
     public func application(_ application: NSApplication, open urls: [URL]) {
+        pendingURLs.append(contentsOf: urls)
+        openPendingURLs()
+    }
+
+    private func openPendingURLs() {
+        guard let store, !pendingURLs.isEmpty else { return }
+        let urls = pendingURLs
+        pendingURLs.removeAll()
         Task { @MainActor in
-            self.store?.openDocuments(at: urls)
+            store.openDocuments(at: urls)
         }
     }
 }

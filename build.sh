@@ -1,47 +1,66 @@
 #!/bin/zsh
+# Builds "build/Expert PDF Reader.app".
+#
+#   ARCHS="arm64 x86_64"   architectures to compile (default: this Mac's); more than one gives a universal binary
+#   VERSION=1.2.3          CFBundleShortVersionString (default: the one in Support/Info.plist)
+#   BUILD_NUMBER=42        CFBundleVersion
+#   CODESIGN_IDENTITY=...  "Developer ID Application: …" for distribution (default: ad-hoc "-")
+#   SDK_PATH=...           macOS SDK to build against (default: xcrun's)
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
-SDK_PATH="/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk"
-if [[ ! -d "$SDK_PATH" ]]; then
-    SDK_PATH="$(xcrun --show-sdk-path)"
+APP_NAME="Expert PDF Reader"
+EXECUTABLE="ExpertPDFReader"
+BUILD_DIR="build"
+APP_BUNDLE="$BUILD_DIR/$APP_NAME.app"
+MODULE_CACHE="$BUILD_DIR/ModuleCache"
+TARGET_ARCHS=(${=ARCHS:-$(uname -m)})
+SDK_PATH="${SDK_PATH:-$(xcrun --sdk macosx --show-sdk-path)}"
+CODESIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
+SOURCES=(Sources/ExpertPDFReader/**/*.swift)
+
+rm -rf "$APP_BUNDLE"
+mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources" "$MODULE_CACHE"
+
+PLIST="$APP_BUNDLE/Contents/Info.plist"
+cp Support/Info.plist "$PLIST"
+if [[ -n "${VERSION:-}" ]]; then
+    /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST"
+fi
+if [[ -n "${BUILD_NUMBER:-}" ]]; then
+    /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$PLIST"
 fi
 
-APP_BUNDLE="Expert PDF Reader.app"
-MODULE_CACHE="/tmp/expert_pdf_reader_module_cache"
-mkdir -p "$MODULE_CACHE"
-mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
-
-rm -f "$APP_BUNDLE/Contents/MacOS/OpenPDFExpert"
-cp Sources/ExpertPDFReader/Resources/RDPDFShaders.metallib "$APP_BUNDLE/Contents/Resources/RDPDFShaders.metallib"
-cp -R Sources/ExpertPDFReader/Resources/en.lproj "$APP_BUNDLE/Contents/Resources/"
-cp -R Sources/ExpertPDFReader/Resources/zh-Hans.lproj "$APP_BUNDLE/Contents/Resources/"
+# The page-theme Metal shaders are compiled at runtime from the source in MetalShaderRenderer.swift,
+# so no .metallib is bundled.
+cp -R Sources/ExpertPDFReader/Resources/en.lproj Sources/ExpertPDFReader/Resources/zh-Hans.lproj "$APP_BUNDLE/Contents/Resources/"
 # Original app icon (regenerate with: swift scripts/make_app_icon.swift)
 cp Assets/AppIcon.icns "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 
-echo "Compiling $APP_BUNDLE using SDK: $SDK_PATH ..."
-SDKROOT="$SDK_PATH" CLANG_MODULE_CACHE_PATH="$MODULE_CACHE" swiftc \
-    -sdk "$SDK_PATH" \
-    -target arm64-apple-macos14.0 \
-    -module-cache-path "$MODULE_CACHE" \
-    -O \
-    -parse-as-library \
-    Sources/ExpertPDFReader/Localization/L10n.swift \
-    Sources/ExpertPDFReader/DesignLibrary/RDDesignLibrary.swift \
-    Sources/ExpertPDFReader/Shaders/MetalShaderRenderer.swift \
-    Sources/ExpertPDFReader/Models/SamplePDFGenerator.swift \
-    Sources/ExpertPDFReader/Models/AppStore.swift \
-    Sources/ExpertPDFReader/HomeTab/HomeTabView.swift \
-    Sources/ExpertPDFReader/Reader/PDFReaderCanvasView.swift \
-    Sources/ExpertPDFReader/Reader/ReaderSidebarsAndToolbars.swift \
-    Sources/ExpertPDFReader/Reader/ReaderOverlays.swift \
-    Sources/ExpertPDFReader/Reader/PDFReaderView.swift \
-    Sources/ExpertPDFReader/App/WindowChrome.swift \
-    Sources/ExpertPDFReader/App/MainWindowView.swift \
-    Sources/ExpertPDFReader/App/SettingsView.swift \
-    Sources/ExpertPDFReader/App/ExpertPDFReaderApp.swift \
-    -o "$APP_BUNDLE/Contents/MacOS/ExpertPDFReader"
+BINARIES=()
+for arch in $TARGET_ARCHS; do
+    echo "Compiling $APP_NAME for $arch using SDK: $SDK_PATH ..."
+    mkdir -p "$BUILD_DIR/$arch"
+    SDKROOT="$SDK_PATH" CLANG_MODULE_CACHE_PATH="$MODULE_CACHE" swiftc \
+        -sdk "$SDK_PATH" \
+        -target "$arch-apple-macos14.0" \
+        -module-name "$EXECUTABLE" \
+        -module-cache-path "$MODULE_CACHE" \
+        -O \
+        -parse-as-library \
+        "${SOURCES[@]}" \
+        -o "$BUILD_DIR/$arch/$EXECUTABLE"
+    BINARIES+=("$BUILD_DIR/$arch/$EXECUTABLE")
+done
+lipo -create "${BINARIES[@]}" -output "$APP_BUNDLE/Contents/MacOS/$EXECUTABLE"
 
-codesign --force --deep --sign - "$APP_BUNDLE" 2>/dev/null || true
-echo "✅ Built $APP_BUNDLE successfully!"
+# Extended attributes (Finder info, quarantine) make codesign refuse the bundle.
+xattr -cr "$APP_BUNDLE"
+if [[ "$CODESIGN_IDENTITY" == "-" ]]; then
+    codesign --force --sign - "$APP_BUNDLE"
+else
+    codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$APP_BUNDLE"
+fi
+
+echo "✅ Built $APP_BUNDLE ($(lipo -archs "$APP_BUNDLE/Contents/MacOS/$EXECUTABLE"))"

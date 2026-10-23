@@ -116,6 +116,10 @@ In `ThemedPDFView` (`PDFReaderCanvasView.swift`), we attach the `CIColorMatrix` 
 ```text
 open_pdf_expert/
 ├── Package.swift
+├── Assets/
+│   └── AppIcon.icns / AppIcon.png         # Original tri-theme app icon (generated)
+├── scripts/
+│   └── make_app_icon.swift                # Draws the icon with SwiftUI ImageRenderer + iconutil
 ├── docs/
 │   └── REA_ANALYSIS.md
 └── Sources/OpenPDFExpert/
@@ -133,9 +137,12 @@ open_pdf_expert/
     │   └── HomeTabView.swift              # HomeTabRootView, Sidebar (216pt), DropCard, DocumentCards
     ├── Reader/
     │   ├── PDFReaderCanvasView.swift      # RDPDFDocumentViewWrapper & ThemedPDFView
-    │   ├── ReaderSidebarsAndToolbars.swift# Toolbar, DisplaySettingsPopover, Thumbnails/Outline/Bookmarks
+    │   ├── ReaderSidebarsAndToolbars.swift# Toolbar, left dock (Thumbnails/Outline/Bookmarks, View Settings)
+    │   ├── ReaderOverlays.swift           # Search results dock, page counter, Page Overview grid
     │   └── PDFReaderView.swift            # Full reader + Vertical/Horizontal Split View comparison
     └── App/
-        ├── MainWindowView.swift           # Multi-tab bar (HomeTabButtonView + Document Tabs)
+        ├── WindowChrome.swift             # Hidden title bar, traffic lights centered on the 40pt tab strip
+        ├── MainWindowView.swift           # Unified tab strip (HomeTabButtonView + Document Tabs)
+        ├── SettingsView.swift             # Settings scene (⌘,): appearance + reading theme
         └── OpenPDFExpertApp.swift         # App entry point + MainMenu keyboard shortcuts
 ```

@@ -46,11 +46,15 @@ public struct OpenPDFExpertApp: App {
                     store.openDocument(at: url)
                 }
         }
-        .windowStyle(.titleBar)
-        .windowToolbarStyle(.unifiedCompact(showsTitle: false))
+        // Title bar is drawn by MainWindowView's unified tab strip (WindowChromeConfigurator)
+        .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1180, height: 780)
         .commands {
             PDFExpertMenuCommands(store: store)
+        }
+
+        Settings {
+            SettingsView(store: store)
         }
     }
 }
@@ -84,30 +88,43 @@ struct PDFExpertMenuCommands: Commands {
         // View Menu (显示) — Exact structure from MainMenu.strings
         CommandMenu("视图") {
             Button(store.activeDocumentTab?.isLeftSidebarVisible == true ? "隐藏左边面板" : "显示左边面板") {
-                store.activeDocumentTab?.isLeftSidebarVisible.toggle()
+                guard let tab = store.activeDocumentTab else { return }
+                if tab.isLeftSidebarVisible {
+                    tab.isLeftSidebarVisible = false
+                } else {
+                    tab.toggleLeftPanel(.documentSummary)
+                }
             }
             .keyboardShortcut("b", modifiers: [.command])
             .disabled(store.activeDocumentTab == nil)
 
+            Button(store.activeDocumentTab?.isPageOverviewVisible == true ? "关闭页面概览" : "页面概览") {
+                store.activeDocumentTab?.isPageOverviewVisible.toggle()
+            }
+            .keyboardShortcut("1", modifiers: [.control, .command])
+            .disabled(store.activeDocumentTab == nil)
+
             Button("缩略图") {
-                store.activeDocumentTab?.isLeftSidebarVisible = true
-                store.activeDocumentTab?.activeSidebarTab = .thumbnails
+                store.activeDocumentTab?.showSidebarTab(.thumbnails)
             }
             .keyboardShortcut("2", modifiers: [.control, .command])
             .disabled(store.activeDocumentTab == nil)
 
             Button("大纲") {
-                store.activeDocumentTab?.isLeftSidebarVisible = true
-                store.activeDocumentTab?.activeSidebarTab = .outline
+                store.activeDocumentTab?.showSidebarTab(.outline)
             }
             .keyboardShortcut("3", modifiers: [.control, .command])
             .disabled(store.activeDocumentTab == nil)
 
             Button("书签") {
-                store.activeDocumentTab?.isLeftSidebarVisible = true
-                store.activeDocumentTab?.activeSidebarTab = .bookmarks
+                store.activeDocumentTab?.showSidebarTab(.bookmarks)
             }
             .keyboardShortcut("4", modifiers: [.control, .command])
+            .disabled(store.activeDocumentTab == nil)
+
+            Button("显示选项") {
+                store.activeDocumentTab?.toggleLeftPanel(.viewSettings)
+            }
             .disabled(store.activeDocumentTab == nil)
 
             Divider()
@@ -287,7 +304,7 @@ struct PDFExpertMenuCommands: Commands {
             Divider()
 
             Button("全文查找...") {
-                store.activeDocumentTab?.isSearchVisible = true
+                store.activeDocumentTab?.beginSearch()
             }
             .keyboardShortcut("f", modifiers: [.command])
             .disabled(store.activeDocumentTab == nil)

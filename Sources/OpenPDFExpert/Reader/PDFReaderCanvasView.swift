@@ -162,6 +162,9 @@ public struct RDPDFDocumentViewWrapper: NSViewRepresentable {
                             pdfView.scaleFactor = max(0.25, min(scaleW, scaleH))
                         }
                     }
+                case .scale(let value):
+                    pdfView.autoScales = false
+                    pdfView.scaleFactor = max(pdfView.minScaleFactor, min(pdfView.maxScaleFactor, value))
                 }
                 DispatchQueue.main.async {
                     self.zoomScale = pdfView.scaleFactor

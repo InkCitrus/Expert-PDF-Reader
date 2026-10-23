@@ -3,19 +3,24 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleDevelopmentRegion</key>
-    <string>zh_CN</string>
+    <string>en</string>
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>en</string>
+        <string>zh-Hans</string>
+    </array>
     <key>CFBundleExecutable</key>
-    <string>OpenPDFExpert</string>
+    <string>ExpertPDFReader</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
-    <string>com.openpdfexpert.reader</string>
+    <string>com.expertpdfreader.app</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>OpenPDFExpert</string>
+    <string>Expert PDF Reader</string>
     <key>CFBundleDisplayName</key>
-    <string>PDF Expert (Reader Edition)</string>
+    <string>Expert PDF Reader</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

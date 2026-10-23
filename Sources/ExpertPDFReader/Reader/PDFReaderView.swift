@@ -46,7 +46,7 @@ public struct PDFReaderView: View {
                 }
             }
         }
-        .background(store.pdfTheme.documentBackgroundColor(isDarkUI: isDark))
+        .background(store.resolvedPDFTheme(isDark: isDark).documentBackgroundColor(isDarkUI: isDark))
     }
 
     // MARK: - Split or Single Canvas Area
@@ -96,13 +96,16 @@ public struct PDFReaderView: View {
             zoomScale: $tab.zoomScale,
             layoutMode: tab.layoutMode,
             isClearMarginsEnabled: tab.isClearMarginsEnabled,
-            pdfTheme: store.pdfTheme,
+            pdfTheme: store.resolvedPDFTheme(isDark: isDark),
             isDarkUI: isDark,
             searchMatches: tab.searchMatches,
             selectedMatchIndex: tab.selectedMatchIndex,
             pageJumpToken: tab.pageJumpToken,
             zoomCommandToken: tab.zoomCommandToken,
-            pendingZoomAction: tab.pendingZoomAction
+            pendingZoomAction: tab.pendingZoomAction,
+            onStepPage: { delta in
+                tab.navigateToPage(tab.currentPageIndex + delta)
+            }
         )
         .overlay(alignment: .bottomTrailing) {
             PageIndicatorOverlay(tab: tab)
@@ -147,7 +150,7 @@ public struct PDFReaderView: View {
 
                 Spacer(minLength: 8)
 
-                Toggle("同步滚动", isOn: $tab.syncScrollAndZoom)
+                Toggle(L10n.tr("同步滚动", "Sync Scroll"), isOn: $tab.syncScrollAndZoom)
                     .toggleStyle(.switch)
                     .controlSize(.mini)
                     .font(.system(size: 11))
@@ -155,18 +158,18 @@ public struct PDFReaderView: View {
 
                 ToolbarIconButton(
                     icon: tab.showSplitDocumentPicker ? "doc.text" : "folder",
-                    tooltip: tab.showSplitDocumentPicker ? "返回对比文档" : "选择对比文档",
+                    tooltip: tab.showSplitDocumentPicker ? L10n.tr("返回对比文档", "Back to Document") : L10n.tr("选择对比文档", "Select Document"),
                     isActive: tab.showSplitDocumentPicker,
                     isDark: isDark
                 ) {
                     tab.showSplitDocumentPicker.toggle()
                 }
 
-                ToolbarIconButton(icon: "arrow.left.arrow.right", tooltip: "对调分屏位置", isDark: isDark) {
+                ToolbarIconButton(icon: "arrow.left.arrow.right", tooltip: L10n.tr("对调分屏位置", "Swap Split Position"), isDark: isDark) {
                     tab.isSplitSwapped.toggle()
                 }
 
-                ToolbarIconButton(icon: "xmark", tooltip: "关闭分屏视图", isDark: isDark) {
+                ToolbarIconButton(icon: "xmark", tooltip: L10n.tr("关闭分屏视图", "Close Split View"), isDark: isDark) {
                     withAnimation(.easeInOut(duration: 0.18)) {
                         tab.splitMode = .disabled
                         tab.showSplitDocumentPicker = false
@@ -211,8 +214,15 @@ public struct PDFReaderView: View {
                     ),
                     layoutMode: tab.layoutMode,
                     isClearMarginsEnabled: tab.isClearMarginsEnabled,
-                    pdfTheme: store.pdfTheme,
-                    isDarkUI: isDark
+                    pdfTheme: store.resolvedPDFTheme(isDark: isDark),
+                    isDarkUI: isDark,
+                    onStepPage: { delta in
+                        let clamped = max(0, min(max(0, secDoc.pageCount - 1), tab.secondaryPageIndex + delta))
+                        tab.secondaryPageIndex = clamped
+                        if tab.syncScrollAndZoom && clamped < tab.pageCount {
+                            tab.currentPageIndex = clamped
+                        }
+                    }
                 )
             } else {
                 HomeTabRootView(store: store, isStandaloneSplitPane: true) { chosenURL in

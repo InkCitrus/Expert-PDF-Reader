@@ -82,8 +82,8 @@ public struct HomeTabRootView: View {
     private var homePageSections: some View {
         VStack(alignment: .leading, spacing: 32) {
             pageTitle(
-                isStandaloneSplitPane ? "选择对比文档" : "主页",
-                subtitle: isStandaloneSplitPane ? "点击任一文档，或将 PDF 拖放到下方，在分屏中打开" : nil
+                isStandaloneSplitPane ? L10n.tr("选择对比文档", "Select Document to Compare") : L10n.tr("主页", "Home"),
+                subtitle: isStandaloneSplitPane ? L10n.tr("点击任一文档，或将 PDF 拖放到下方，在分屏中打开", "Click any document or drag a PDF below to open in split view") : nil
             )
 
             // Drop Area Section (HomeSection.dropArea)
@@ -92,12 +92,27 @@ public struct HomeTabRootView: View {
             // Reading Themes (RDPDFShaders) — PDF Expert's "Tools for You" card row
             if !isStandaloneSplitPane {
                 VStack(alignment: .leading, spacing: 14) {
-                    HomeSectionHeader(title: "阅读主题", isDark: isDark)
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(L10n.tr("阅读主题", "Reading Theme"))
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundColor(RDColorPalette.labelPrimary(isDark))
+                        Spacer()
+                        Toggle(L10n.tr("浅色时使用纸质替代日间", "Use Sepia in Light Mode"), isOn: $store.useSepiaForLightSystemTheme)
+                            .toggleStyle(.switch)
+                            .controlSize(.mini)
+                            .font(.system(size: 12))
+                            .foregroundColor(RDColorPalette.labelSecondary(isDark))
+                    }
                     HStack(spacing: 12) {
-                        ForEach([PDFViewTheme.day, .sepia, .night]) { theme in
-                            HomeThemeCard(theme: theme, isSelected: store.pdfTheme == theme, isDark: isDark) {
+                        ForEach(PDFReadingThemeMode.allCases) { mode in
+                            HomeThemeModeCard(
+                                mode: mode,
+                                useSepiaInLight: store.useSepiaForLightSystemTheme,
+                                isSelected: store.readingThemeMode == mode,
+                                isDark: isDark
+                            ) {
                                 withAnimation(.easeInOut(duration: 0.18)) {
-                                    store.pdfTheme = theme
+                                    store.readingThemeMode = mode
                                 }
                             }
                         }
@@ -107,25 +122,25 @@ public struct HomeTabRootView: View {
 
             // Recent Documents
             documentsSection(
-                title: "最近打开",
+                title: L10n.tr("最近打开", "Recents"),
                 items: store.recentDocuments,
                 actions: isStandaloneSplitPane ? [] : [
-                    HomeSectionAction(title: "清除全部") { store.clearAllRecents() },
-                    HomeSectionAction(title: "查看全部") { store.homeCurrentPage = .recents }
+                    HomeSectionAction(title: L10n.tr("清除全部", "Clear All")) { store.clearAllRecents() },
+                    HomeSectionAction(title: L10n.tr("查看全部", "See All")) { store.homeCurrentPage = .recents }
                 ],
                 allowsRemoval: true,
-                emptyText: "打开过的 PDF 会显示在这里，方便随时继续阅读。"
+                emptyText: L10n.tr("打开过的 PDF 会显示在这里，方便随时继续阅读。", "Recently opened PDFs will appear here so you can pick up where you left off.")
             )
 
             // Favorites
             documentsSection(
-                title: "收藏夹",
+                title: L10n.tr("收藏夹", "Favorites"),
                 items: store.favoriteDocuments,
                 actions: isStandaloneSplitPane ? [] : [
-                    HomeSectionAction(title: "查看全部") { store.homeCurrentPage = .favorites }
+                    HomeSectionAction(title: L10n.tr("查看全部", "See All")) { store.homeCurrentPage = .favorites }
                 ],
                 allowsRemoval: false,
-                emptyText: "将鼠标悬停在文档上并点按星标，即可加入收藏夹。"
+                emptyText: L10n.tr("将鼠标悬停在文档上并点按星标，即可加入收藏夹。", "Hover over a document and click the star to add it to Favorites.")
             )
         }
     }
@@ -156,10 +171,10 @@ public struct HomeTabRootView: View {
     private var recentsFullPage: some View {
         VStack(alignment: .leading, spacing: 24) {
             HStack(alignment: .firstTextBaseline) {
-                pageTitle("最近打开")
+                pageTitle(L10n.tr("最近打开", "Recents"))
                 Spacer()
                 if !store.recentDocuments.isEmpty {
-                    HomeLinkButton(title: "清除全部") {
+                    HomeLinkButton(title: L10n.tr("清除全部", "Clear All")) {
                         store.clearAllRecents()
                     }
                 }
@@ -168,9 +183,9 @@ public struct HomeTabRootView: View {
             if store.recentDocuments.isEmpty {
                 HomeEmptyStateView(
                     icon: "clock",
-                    title: "暂无最近打开的 PDF 文档",
-                    subtitle: "打开过的文件会自动显示在这里，方便随时继续阅读。",
-                    actionTitle: "打开文件",
+                    title: L10n.tr("暂无最近打开的 PDF 文档", "No Recent PDF Documents"),
+                    subtitle: L10n.tr("打开过的文件会自动显示在这里，方便随时继续阅读。", "Opened files will appear here automatically so you can continue reading anytime."),
+                    actionTitle: L10n.tr("打开文件", "Open File"),
                     isDark: isDark,
                     action: { store.openFilePicker() }
                 )
@@ -185,10 +200,10 @@ public struct HomeTabRootView: View {
     private var favoritesFullPage: some View {
         VStack(alignment: .leading, spacing: 24) {
             HStack(alignment: .firstTextBaseline) {
-                pageTitle("收藏夹")
+                pageTitle(L10n.tr("收藏夹", "Favorites"))
                 Spacer()
                 if !store.favoriteDocuments.isEmpty {
-                    HomeLinkButton(title: "清空收藏夹") {
+                    HomeLinkButton(title: L10n.tr("清空收藏夹", "Clear Favorites")) {
                         store.clearAllFavorites()
                     }
                 }
@@ -197,9 +212,9 @@ public struct HomeTabRootView: View {
             if store.favoriteDocuments.isEmpty {
                 HomeEmptyStateView(
                     icon: "star",
-                    title: "收藏夹为空",
-                    subtitle: "将鼠标悬停在任意文档上并点按星标，即可将其加入收藏夹。",
-                    actionTitle: "返回主页",
+                    title: L10n.tr("收藏夹为空", "Favorites is Empty"),
+                    subtitle: L10n.tr("将鼠标悬停在任意文档上并点按星标，即可将其加入收藏夹。", "Hover over any document and click the star to add it to Favorites."),
+                    actionTitle: L10n.tr("返回主页", "Back to Home"),
                     isDark: isDark,
                     action: { store.homeCurrentPage = .home }
                 )
@@ -233,7 +248,7 @@ public struct HomeTabRootView: View {
             ForEach(items) { item in
                 DocumentCardView(
                     item: item,
-                    pdfTheme: store.pdfTheme,
+                    pdfTheme: store.resolvedPDFTheme(isDark: isDark),
                     isDark: isDark,
                     onOpen: { openURL(item.url) },
                     onToggleFavorite: { store.toggleFavorite(id: item.documentID) },
@@ -320,19 +335,19 @@ struct HomeTabSidebarView: View {
             Button {
                 store.openFilePicker()
             } label: {
-                HomeSidebarRowLabel(icon: "folder", iconColor: RDColorPalette.labelSecondary(isDark), title: "打开文件…", badge: "⌘O", isSecondary: true, isDark: isDark)
+                HomeSidebarRowLabel(icon: "folder", iconColor: RDColorPalette.labelSecondary(isDark), title: L10n.tr("打开文件…", "Open File…"), badge: "⌘O", isSecondary: true, isDark: isDark)
             }
             .buttonStyle(.plain)
 
             Button {
                 store.openGettingStartedGuide()
             } label: {
-                HomeSidebarRowLabel(icon: "questionmark.circle", iconColor: RDColorPalette.labelSecondary(isDark), title: "阅读指南", isSecondary: true, isDark: isDark)
+                HomeSidebarRowLabel(icon: "questionmark.circle", iconColor: RDColorPalette.labelSecondary(isDark), title: L10n.tr("阅读指南", "Reading Guide"), isSecondary: true, isDark: isDark)
             }
             .buttonStyle(.plain)
 
             SettingsLink {
-                HomeSidebarRowLabel(icon: "gearshape", iconColor: RDColorPalette.labelSecondary(isDark), title: "设置", badge: "⌘,", isSecondary: true, isDark: isDark)
+                HomeSidebarRowLabel(icon: "gearshape", iconColor: RDColorPalette.labelSecondary(isDark), title: L10n.tr("设置", "Settings"), badge: "⌘,", isSecondary: true, isDark: isDark)
             }
             .buttonStyle(.plain)
         }
@@ -480,9 +495,9 @@ struct HomeDropAreaCard: View {
             PDFStackIllustration(isDark: isDark)
                 .frame(width: 104, height: 62)
 
-            HomePrimaryButton(title: "打开文件", action: onOpenFilePicker)
+            HomePrimaryButton(title: L10n.tr("打开文件", "Open File"), action: onOpenFilePicker)
 
-            Text("或将 PDF 文件拖放到此处")
+            Text(L10n.tr("或将 PDF 文件拖放到此处", "or drag and drop PDF files here"))
                 .font(.system(size: 12.5))
                 .foregroundColor(RDColorPalette.accentBlue.opacity(0.85))
         }
@@ -556,10 +571,11 @@ struct PDFStackIllustration: View {
     }
 }
 
-// MARK: - HomeThemeCard (Day / Sepia / Night)
+// MARK: - HomeThemeModeCard (Follow System / Day / Sepia / Night)
 
-struct HomeThemeCard: View {
-    let theme: PDFViewTheme
+struct HomeThemeModeCard: View {
+    let mode: PDFReadingThemeMode
+    let useSepiaInLight: Bool
     let isSelected: Bool
     let isDark: Bool
     let action: () -> Void
@@ -567,21 +583,36 @@ struct HomeThemeCard: View {
     @State private var isHovered = false
 
     var body: some View {
+        let previewTheme = mode.resolvedTheme(isDark: isDark, useSepiaInLight: useSepiaInLight)
+        let lightPreviewTheme: PDFViewTheme = useSepiaInLight ? .sepia : .day
+
         Button(action: action) {
             VStack(spacing: 10) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(theme.documentBackgroundColor(isDarkUI: isDark))
-                    MiniPagePreview(theme: theme)
-                        .frame(width: 36, height: 46)
+                    if mode == .system {
+                        HStack(spacing: 0) {
+                            lightPreviewTheme.documentBackgroundColor(isDarkUI: false)
+                            PDFViewTheme.night.documentBackgroundColor(isDarkUI: true)
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                        SplitMiniPagePreview(leftTheme: lightPreviewTheme, rightTheme: .night)
+                            .frame(width: 36, height: 46)
+                    } else {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(previewTheme.documentBackgroundColor(isDarkUI: isDark))
+                        MiniPagePreview(theme: previewTheme)
+                            .frame(width: 36, height: 46)
+                    }
                 }
                 .frame(height: 66)
 
                 HStack(spacing: 6) {
-                    Image(systemName: theme.toolbarIconName)
+                    Image(systemName: mode.toolbarIconName)
                         .font(.system(size: 12, weight: .medium))
-                    Text(theme.title)
+                    Text(mode.title)
                         .font(.system(size: 13, weight: .medium))
+                        .lineLimit(1)
                     Spacer(minLength: 0)
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
@@ -605,7 +636,7 @@ struct HomeThemeCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("阅读主题：\(theme.title)")
+        .help("\(L10n.tr("阅读主题", "Reading Theme")): \(mode.title)")
         .onHover { isHovered = $0 }
     }
 }
@@ -645,7 +676,7 @@ struct DocumentCardView: View {
                                 .background(Circle().fill(Color.black.opacity(0.5)))
                         }
                         .buttonStyle(.plain)
-                        .help(item.isFavorite ? "取消收藏" : "添加到收藏")
+                        .help(item.isFavorite ? L10n.tr("取消收藏", "Remove from Favorites") : L10n.tr("添加到收藏", "Add to Favorites"))
                         .padding(5)
                     }
                 }
@@ -660,7 +691,7 @@ struct DocumentCardView: View {
                     .multilineTextAlignment(.center)
                     .truncationMode(.middle)
 
-                Text(item.dateOpenedText.isEmpty ? "\(item.pageCount) 页" : "\(item.pageCount) 页 · \(item.dateOpenedText)")
+                Text(item.dateOpenedText.isEmpty ? L10n.pageCountText(item.pageCount) : "\(L10n.pageCountText(item.pageCount)) · \(item.dateOpenedText)")
                     .font(.system(size: 10.5))
                     .foregroundColor(RDColorPalette.labelTertiary(isDark))
                     .lineLimit(1)
@@ -677,13 +708,13 @@ struct DocumentCardView: View {
         .onTapGesture(perform: onOpen)
         .help(item.url.path)
         .contextMenu {
-            Button("阅读文档") { onOpen() }
-            Button(item.isFavorite ? "取消收藏" : "添加到收藏") { onToggleFavorite() }
+            Button(L10n.tr("阅读文档", "Read Document")) { onOpen() }
+            Button(item.isFavorite ? L10n.tr("取消收藏", "Remove from Favorites") : L10n.tr("添加到收藏", "Add to Favorites")) { onToggleFavorite() }
             Divider()
-            Button("在 Finder 中显示") { onShowInFinder() }
+            Button(L10n.tr("在 Finder 中显示", "Show in Finder")) { onShowInFinder() }
             if let remove = onRemoveRecent {
                 Divider()
-                Button("从最近打开中移除", role: .destructive) { remove() }
+                Button(L10n.tr("从最近打开中移除", "Remove from Recents"), role: .destructive) { remove() }
             }
         }
     }
@@ -733,7 +764,7 @@ struct DropOverlayView: View {
                 Image(systemName: "arrow.down.doc.fill")
                     .font(.system(size: 40))
                     .foregroundColor(RDColorPalette.accentBlue)
-                Text("松开鼠标即可打开 PDF")
+                Text(L10n.tr("松开鼠标即可打开 PDF", "Release to open PDF"))
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(RDColorPalette.labelPrimary(isDark))
             }

@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-public final class OpenPDFExpertAppDelegate: NSObject, NSApplicationDelegate {
+public final class ExpertPDFReaderAppDelegate: NSObject, NSApplicationDelegate {
     var store: AppStore?
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
@@ -29,14 +29,14 @@ public final class OpenPDFExpertAppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @main
-public struct OpenPDFExpertApp: App {
-    @NSApplicationDelegateAdaptor(OpenPDFExpertAppDelegate.self) private var appDelegate
+public struct ExpertPDFReaderApp: App {
+    @NSApplicationDelegateAdaptor(ExpertPDFReaderAppDelegate.self) private var appDelegate
     @StateObject private var store = AppStore()
 
     public init() {}
 
     public var body: some Scene {
-        WindowGroup("PDF Expert (Reader Edition)") {
+        WindowGroup("Expert PDF Reader") {
             MainWindowView(store: store)
                 .onAppear {
                     appDelegate.store = store
@@ -59,7 +59,7 @@ public struct OpenPDFExpertApp: App {
     }
 }
 
-// MARK: - MainMenu Commands (Matching zh-Hans.lproj/MainMenu.strings from PDF Expert.app)
+// MARK: - MainMenu Commands (Localized zh-Hans / en)
 
 struct PDFExpertMenuCommands: Commands {
     @ObservedObject var store: AppStore
@@ -67,27 +67,27 @@ struct PDFExpertMenuCommands: Commands {
     var body: some Commands {
         // File Menu Additions
         CommandGroup(replacing: .newItem) {
-            Button("打开...") {
+            Button(L10n.tr("打开...", "Open...")) {
                 store.openFilePicker()
             }
             .keyboardShortcut("o", modifiers: [.command])
 
-            Button("新建主页标签") {
+            Button(L10n.tr("新建主页标签", "New Home Tab")) {
                 store.openNewHomeTab()
             }
             .keyboardShortcut("t", modifiers: [.command])
 
             Divider()
 
-            Button("关闭标签") {
+            Button(L10n.tr("关闭标签", "Close Tab")) {
                 store.closeCurrentTab()
             }
             .keyboardShortcut("w", modifiers: [.command])
         }
 
-        // View Menu (显示) — Exact structure from MainMenu.strings
-        CommandMenu("视图") {
-            Button(store.activeDocumentTab?.isLeftSidebarVisible == true ? "隐藏左边面板" : "显示左边面板") {
+        // View Menu (视图 / View)
+        CommandMenu(L10n.tr("视图", "View")) {
+            Button(store.activeDocumentTab?.isLeftSidebarVisible == true ? L10n.tr("隐藏左边面板", "Hide Left Panel") : L10n.tr("显示左边面板", "Show Left Panel")) {
                 guard let tab = store.activeDocumentTab else { return }
                 if tab.isLeftSidebarVisible {
                     tab.isLeftSidebarVisible = false
@@ -98,55 +98,59 @@ struct PDFExpertMenuCommands: Commands {
             .keyboardShortcut("b", modifiers: [.command])
             .disabled(store.activeDocumentTab == nil)
 
-            Button(store.activeDocumentTab?.isPageOverviewVisible == true ? "关闭页面概览" : "页面概览") {
+            Button(store.activeDocumentTab?.isPageOverviewVisible == true ? L10n.tr("关闭页面概览", "Close Page Overview") : L10n.tr("页面概览", "Page Overview")) {
                 store.activeDocumentTab?.isPageOverviewVisible.toggle()
             }
             .keyboardShortcut("1", modifiers: [.control, .command])
             .disabled(store.activeDocumentTab == nil)
 
-            Button("缩略图") {
+            Button(L10n.tr("缩略图", "Thumbnails")) {
                 store.activeDocumentTab?.showSidebarTab(.thumbnails)
             }
             .keyboardShortcut("2", modifiers: [.control, .command])
             .disabled(store.activeDocumentTab == nil)
 
-            Button("大纲") {
+            Button(L10n.tr("大纲", "Outline")) {
                 store.activeDocumentTab?.showSidebarTab(.outline)
             }
             .keyboardShortcut("3", modifiers: [.control, .command])
             .disabled(store.activeDocumentTab == nil)
 
-            Button("书签") {
+            Button(L10n.tr("书签", "Bookmarks")) {
                 store.activeDocumentTab?.showSidebarTab(.bookmarks)
             }
             .keyboardShortcut("4", modifiers: [.control, .command])
             .disabled(store.activeDocumentTab == nil)
 
-            Button("显示选项") {
+            Button(L10n.tr("显示选项", "View Settings")) {
                 store.activeDocumentTab?.toggleLeftPanel(.viewSettings)
             }
             .disabled(store.activeDocumentTab == nil)
 
             Divider()
 
-            // Theme Submenu (主题 -> 日间 / 纸质 / 夜间)
-            Menu("主题") {
-                ForEach([PDFViewTheme.day, .sepia, .night]) { theme in
+            // Theme Submenu (主题 -> 跟随系统 / 日间 / 纸质 / 夜间 + 浅色时使用纸质替代日间)
+            Menu(L10n.tr("主题", "Theme")) {
+                ForEach(PDFReadingThemeMode.allCases) { mode in
                     Button {
-                        store.pdfTheme = theme
+                        store.readingThemeMode = mode
                     } label: {
                         HStack {
-                            if store.pdfTheme == theme {
+                            if store.readingThemeMode == mode {
                                 Image(systemName: "checkmark")
                             }
-                            Text(theme.title)
+                            Text(mode.title)
                         }
                     }
                 }
+
+                Divider()
+
+                Toggle(L10n.tr("浅色时使用纸质替代日间", "Use Sepia in Light Mode"), isOn: $store.useSepiaForLightSystemTheme)
             }
 
             // App UI Appearance Submenu
-            Menu("界面外观") {
+            Menu(L10n.tr("界面外观", "Appearance")) {
                 ForEach(AppAppearanceMode.allCases) { mode in
                     Button {
                         store.appearanceMode = mode
@@ -161,28 +165,44 @@ struct PDFExpertMenuCommands: Commands {
                 }
             }
 
+            // Language Submenu
+            Menu(L10n.tr("语言", "Language")) {
+                ForEach(AppLanguage.allCases) { lang in
+                    Button {
+                        store.appLanguage = lang
+                    } label: {
+                        HStack {
+                            if store.appLanguage == lang {
+                                Image(systemName: "checkmark")
+                            }
+                            Text(lang.title)
+                        }
+                    }
+                }
+            }
+
             Divider()
 
             // Page Layout Modes
-            Button("单页") {
+            Button(L10n.tr("单页", "Single Page")) {
                 store.activeDocumentTab?.layoutMode = .singlePage
             }
             .keyboardShortcut("1", modifiers: [.command])
             .disabled(store.activeDocumentTab == nil)
 
-            Button("双页") {
+            Button(L10n.tr("双页", "Two Pages")) {
                 store.activeDocumentTab?.layoutMode = .twoPages
             }
             .keyboardShortcut("2", modifiers: [.command])
             .disabled(store.activeDocumentTab == nil)
 
-            Button("双页（首屏单页显示）") {
+            Button(L10n.tr("双页（首屏单页显示）", "Two Pages (Single Cover)")) {
                 store.activeDocumentTab?.layoutMode = .twoPagesCover
             }
             .keyboardShortcut("3", modifiers: [.command])
             .disabled(store.activeDocumentTab == nil)
 
-            Button(store.activeDocumentTab?.isClearMarginsEnabled == true ? "恢复页面空白边" : "清除空白边") {
+            Button(store.activeDocumentTab?.isClearMarginsEnabled == true ? L10n.tr("恢复页面空白边", "Restore Page Margins") : L10n.tr("清除空白边", "Clear Margins")) {
                 guard let tab = store.activeDocumentTab else { return }
                 tab.isClearMarginsEnabled.toggle()
                 tab.applyClearMarginsIfNeeded()
@@ -192,23 +212,23 @@ struct PDFExpertMenuCommands: Commands {
 
             Divider()
 
-            // Split View Submenu (分屏视图)
-            Menu("分屏视图") {
-                Button("禁用分屏视图") {
+            // Split View Submenu (分屏视图 / Split View)
+            Menu(L10n.tr("分屏视图", "Split View")) {
+                Button(L10n.tr("禁用分屏视图", "Disable Split View")) {
                     store.activeDocumentTab?.splitMode = .disabled
                 }
-                Button("垂直分屏（左右）") {
+                Button(L10n.tr("垂直分屏（左右）", "Vertical Split (Left/Right)")) {
                     store.activeDocumentTab?.splitMode = .vertical
                 }
-                Button("水平分屏（上下）") {
+                Button(L10n.tr("水平分屏（上下）", "Horizontal Split (Top/Bottom)")) {
                     store.activeDocumentTab?.splitMode = .horizontal
                 }
                 Divider()
-                Button("对调位置") {
+                Button(L10n.tr("对调位置", "Swap Panes")) {
                     store.activeDocumentTab?.isSplitSwapped.toggle()
                 }
                 .disabled(store.activeDocumentTab?.splitMode == .disabled)
-                Button(store.activeDocumentTab?.syncScrollAndZoom == true ? "取消同步滚动和缩放" : "同步滚动和缩放") {
+                Button(store.activeDocumentTab?.syncScrollAndZoom == true ? L10n.tr("取消同步滚动和缩放", "Disable Sync Scroll & Zoom") : L10n.tr("同步滚动和缩放", "Sync Scroll & Zoom")) {
                     store.activeDocumentTab?.syncScrollAndZoom.toggle()
                 }
                 .disabled(store.activeDocumentTab?.splitMode == .disabled)
@@ -218,60 +238,60 @@ struct PDFExpertMenuCommands: Commands {
             Divider()
 
             // Zoom Controls
-            Button("放大") {
+            Button(L10n.tr("放大", "Zoom In")) {
                 store.activeDocumentTab?.triggerZoom(.zoomIn)
             }
             .keyboardShortcut("+", modifiers: [.command])
             .disabled(store.activeDocumentTab == nil)
 
-            Button("缩小") {
+            Button(L10n.tr("缩小", "Zoom Out")) {
                 store.activeDocumentTab?.triggerZoom(.zoomOut)
             }
             .keyboardShortcut("-", modifiers: [.command])
             .disabled(store.activeDocumentTab == nil)
 
-            Button("实际大小") {
+            Button(L10n.tr("实际大小", "Actual Size")) {
                 store.activeDocumentTab?.triggerZoom(.actualSize)
             }
             .keyboardShortcut("0", modifiers: [.command])
             .disabled(store.activeDocumentTab == nil)
 
-            Button("缩放至适应宽度") {
+            Button(L10n.tr("缩放至适应宽度", "Zoom to Fit Width")) {
                 store.activeDocumentTab?.triggerZoom(.fitWidth)
             }
             .keyboardShortcut("8", modifiers: [.command])
             .disabled(store.activeDocumentTab == nil)
 
-            Button("缩放至适应页面") {
+            Button(L10n.tr("缩放至适应页面", "Zoom to Fit Page")) {
                 store.activeDocumentTab?.triggerZoom(.fitPage)
             }
             .keyboardShortcut("9", modifiers: [.command])
             .disabled(store.activeDocumentTab == nil)
         }
 
-        // Go Menu (前往)
-        CommandMenu("前往") {
-            Button("上一页") {
+        // Go Menu (前往 / Go)
+        CommandMenu(L10n.tr("前往", "Go")) {
+            Button(L10n.tr("上一页 (←)", "Previous Page (←)")) {
                 guard let tab = store.activeDocumentTab else { return }
                 tab.navigateToPage(tab.currentPageIndex - 1)
             }
             .keyboardShortcut(.upArrow, modifiers: [.option])
             .disabled(store.activeDocumentTab == nil)
 
-            Button("下一页") {
+            Button(L10n.tr("下一页 (→)", "Next Page (→)")) {
                 guard let tab = store.activeDocumentTab else { return }
                 tab.navigateToPage(tab.currentPageIndex + 1)
             }
             .keyboardShortcut(.downArrow, modifiers: [.option])
             .disabled(store.activeDocumentTab == nil)
 
-            Button("第一页") {
+            Button(L10n.tr("第一页", "First Page")) {
                 store.activeDocumentTab?.navigateToPage(0)
             }
             .keyboardShortcut(.home, modifiers: [])
             .disabled(store.activeDocumentTab == nil)
 
-            Button("最后一页") {
+            Button(L10n.tr("最后一页", "Last Page")) {
                 guard let tab = store.activeDocumentTab else { return }
                 tab.navigateToPage(max(0, tab.pageCount - 1))
             }
@@ -280,13 +300,13 @@ struct PDFExpertMenuCommands: Commands {
 
             Divider()
 
-            Button("返回") {
+            Button(L10n.tr("返回", "Back")) {
                 store.activeDocumentTab?.goBack()
             }
             .keyboardShortcut("[", modifiers: [.command])
             .disabled(store.activeDocumentTab?.canGoBack != true)
 
-            Button("前进") {
+            Button(L10n.tr("前进", "Forward")) {
                 store.activeDocumentTab?.goForward()
             }
             .keyboardShortcut("]", modifiers: [.command])
@@ -294,7 +314,7 @@ struct PDFExpertMenuCommands: Commands {
 
             Divider()
 
-            Button("为当前页添加/移除书签") {
+            Button(L10n.tr("为当前页添加/移除书签", "Toggle Bookmark for Current Page")) {
                 guard let tab = store.activeDocumentTab else { return }
                 store.toggleBookmark(pageIndex: tab.currentPageIndex, in: tab.documentID)
             }
@@ -303,19 +323,19 @@ struct PDFExpertMenuCommands: Commands {
 
             Divider()
 
-            Button("全文查找...") {
+            Button(L10n.tr("全文查找...", "Find in Document...")) {
                 store.activeDocumentTab?.beginSearch()
             }
             .keyboardShortcut("f", modifiers: [.command])
             .disabled(store.activeDocumentTab == nil)
 
-            Button("查找下一个") {
+            Button(L10n.tr("查找下一个", "Find Next")) {
                 store.activeDocumentTab?.selectNextSearchMatch()
             }
             .keyboardShortcut("g", modifiers: [.command])
             .disabled(store.activeDocumentTab?.searchMatches.isEmpty != false)
 
-            Button("查找上一个") {
+            Button(L10n.tr("查找上一个", "Find Previous")) {
                 store.activeDocumentTab?.selectPreviousSearchMatch()
             }
             .keyboardShortcut("g", modifiers: [.shift, .command])
@@ -323,12 +343,12 @@ struct PDFExpertMenuCommands: Commands {
 
             Divider()
 
-            Button("显示下一标签") {
+            Button(L10n.tr("显示下一标签", "Show Next Tab")) {
                 store.selectNextTab()
             }
             .keyboardShortcut("}", modifiers: [.shift, .command])
 
-            Button("显示上一标签") {
+            Button(L10n.tr("显示上一标签", "Show Previous Tab")) {
                 store.selectPreviousTab()
             }
             .keyboardShortcut("{", modifiers: [.shift, .command])

@@ -97,52 +97,54 @@ Disassembling `RDDesignLibrary.framework` (`0x1b6d0 - 0x1cb20`) and dumping `Ass
 
 ---
 
-### 2.5 Surgical `PDFPageLayer` Sublayer Filtering on macOS
+### 2.5 High-DPI `PDFScrollView` Filtering on macOS (Preserving Retina + Zoom Sharpness)
 
-Inspection of macOS `PDFKit`'s `PDFPageLayer` hierarchy showed 4 sublayers per page:
-- `sublayers[0]` & `sublayers[1]`: Drop shadow layers (`shadowOpacity = 0.04` and `0.08`)
-- `sublayers[2]`: Content container (`sublayers[2].sublayers[0]` = `PDFPageLayerTile` container, `sublayers[2].sublayers[1]` = `PDFPageLayerSelectionEffect`)
-- `sublayers[3]`: White page paper backing layer
+Inspection of macOS `PDFKit`'s layer tree showed that `PDFScrollView`'s `NSClipView.layer` carries `transform = CATransform3DMakeScale(magnification, magnification, 1.0)`. Inside `NSClipView.layer`, `PDFPageLayer` and its `tilesContainer` (`sublayers[2].sublayers[0]`) have `contentsScale = 1.0`, while leaf `PDFPageLayerTile` layers render at `contentsScale = backingScaleFactor * magnification`.
 
-In `ThemedPDFView` (`PDFReaderCanvasView.swift`), we attach the `CIColorMatrix` filter strictly to `sublayers[2].sublayers[0]` and set `sublayers[3].backgroundColor` to `pagePaperNSColor.cgColor`. This ensures:
-1. Page drop shadows remain natural dark shadows (never inverted to glowing white halos in Night mode).
-2. Text selection highlights (`PDFPageLayerSelectionEffect`) keep their true color.
-3. Scrolling and zooming run at 120Hz on the GPU.
+Attaching `CIFilter` to any sublayer *inside* `NSClipView.layer` forces CoreAnimation (`CARenderServer`) to rasterize that subtree into an offscreen texture in `NSClipView`'s un-magnified coordinate space before applying `NSClipView.layer.transform`, causing bilinear blur when zoomed or when switching modes.
+
+In `ThemedPDFView` (`PDFReaderCanvasView.swift`), we attach the `CIColorMatrix` filter to `PDFScrollView.layer` (**above** `NSClipView.layer`'s scale transform, where `transform = identity` and `contentsScale = backingScaleFactor`), keep `scrollView.drawsBackground = false`, and paint `documentBackgroundNSColor` on the root `ThemedPDFView.layer`. This preserves 100% of native `PDFPageLayerTile` Retina + zoom sharpness while keeping exact `#E5DECF` (Sepia) and `#202223` (Night) canvas background colors.
 
 ---
 
 ## 3. Recreate: Clean-Room Project Structure
 
 ```text
-open_pdf_expert/
+Expert-PDF-Reader/
 ├── Package.swift
+├── build.sh
+├── Expert PDF Reader.app/                 # Built macOS application bundle
 ├── Assets/
 │   └── AppIcon.icns / AppIcon.png         # Original tri-theme app icon (generated)
 ├── scripts/
 │   └── make_app_icon.swift                # Draws the icon with SwiftUI ImageRenderer + iconutil
 ├── docs/
 │   └── REA_ANALYSIS.md
-└── Sources/OpenPDFExpert/
+└── Sources/ExpertPDFReader/
     ├── Resources/
-    │   └── RDPDFShaders.metallib          # Extracted Metal shader library
+    │   ├── RDPDFShaders.metallib          # Extracted Metal shader library
+    │   ├── en.lproj/Localizable.strings   # English localization strings
+    │   └── zh-Hans.lproj/Localizable.strings # Simplified Chinese localization strings
+    ├── Localization/
+    │   └── L10n.swift                     # Reactive i18n manager (System / 简体中文 / English)
     ├── Shaders/
     │   ├── RDPDFShaders.metal             # Reconstructed Metal shader source
     │   └── MetalShaderRenderer.swift      # Metal + CoreImage GPU theme pipeline
     ├── DesignLibrary/
-    │   └── RDDesignLibrary.swift          # Exact RDDesignLibrary.ColorPalette & PDFViewTheme
+    │   └── RDDesignLibrary.swift          # Exact RDDesignLibrary.ColorPalette & PDFReadingThemeMode
     ├── Models/
     │   ├── AppStore.swift                 # DocumentID, DocumentsStore, DocumentTabState, AppStore
     │   └── SamplePDFGenerator.swift       # Bilingual 4-page sample PDF with TOC & wide margins
     ├── HomeTab/
     │   └── HomeTabView.swift              # HomeTabRootView, Sidebar (216pt), DropCard, DocumentCards
     ├── Reader/
-    │   ├── PDFReaderCanvasView.swift      # RDPDFDocumentViewWrapper & ThemedPDFView
+    │   ├── PDFReaderCanvasView.swift      # RDPDFDocumentViewWrapper & ThemedPDFView (←/→ navigation)
     │   ├── ReaderSidebarsAndToolbars.swift# Toolbar, left dock (Thumbnails/Outline/Bookmarks, View Settings)
     │   ├── ReaderOverlays.swift           # Search results dock, page counter, Page Overview grid
     │   └── PDFReaderView.swift            # Full reader + Vertical/Horizontal Split View comparison
     └── App/
         ├── WindowChrome.swift             # Hidden title bar, traffic lights centered on the 40pt tab strip
         ├── MainWindowView.swift           # Unified tab strip (HomeTabButtonView + Document Tabs)
-        ├── SettingsView.swift             # Settings scene (⌘,): appearance + reading theme
-        └── OpenPDFExpertApp.swift         # App entry point + MainMenu keyboard shortcuts
+        ├── SettingsView.swift             # Settings scene (⌘,): language + appearance + reading theme
+        └── ExpertPDFReaderApp.swift       # App entry point + localized MainMenu keyboard shortcuts
 ```

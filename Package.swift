@@ -2,22 +2,25 @@
 import PackageDescription
 
 let package = Package(
-    name: "OpenPDFExpert",
+    name: "ExpertPDFReader",
+    defaultLocalization: "en",
     platforms: [
         .macOS(.v14)
     ],
     products: [
-        .executable(name: "OpenPDFExpert", targets: ["OpenPDFExpert"])
+        .executable(name: "ExpertPDFReader", targets: ["ExpertPDFReader"])
     ],
     targets: [
         .executableTarget(
-            name: "OpenPDFExpert",
-            path: "Sources/OpenPDFExpert",
+            name: "ExpertPDFReader",
+            path: "Sources/ExpertPDFReader",
             exclude: [
                 "Shaders/RDPDFShaders.metal"
             ],
             resources: [
-                .copy("Resources/RDPDFShaders.metallib")
+                .copy("Resources/RDPDFShaders.metallib"),
+                .copy("Resources/en.lproj"),
+                .copy("Resources/zh-Hans.lproj")
             ]
         )
     ]

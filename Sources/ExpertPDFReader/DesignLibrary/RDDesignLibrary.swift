@@ -13,9 +13,9 @@ public enum PDFViewTheme: Int, CaseIterable, Identifiable, Codable {
 
     public var title: String {
         switch self {
-        case .day:   return "日间"
-        case .sepia: return "纸质"
-        case .night: return "夜间"
+        case .day:   return L10n.tr("日间", "Day")
+        case .sepia: return L10n.tr("纸质", "Sepia")
+        case .night: return L10n.tr("夜间", "Night")
         }
     }
 
@@ -104,6 +104,58 @@ public enum PDFViewTheme: Int, CaseIterable, Identifiable, Codable {
     }
 }
 
+/// Reading Theme Selection Mode (`system` / `day` / `sepia` / `night`).
+/// When `.system` is active, Light mode uses `.day` (or `.sepia` if `useSepiaInLight` is enabled)
+/// and Dark mode uses `.night`.
+public enum PDFReadingThemeMode: String, CaseIterable, Identifiable, Codable {
+    case system = "system"
+    case day = "day"
+    case sepia = "sepia"
+    case night = "night"
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .system: return L10n.tr("跟随系统", "Follow System")
+        case .day:    return PDFViewTheme.day.title
+        case .sepia:  return PDFViewTheme.sepia.title
+        case .night:  return PDFViewTheme.night.title
+        }
+    }
+
+    public var shortTitle: String {
+        switch self {
+        case .system: return L10n.tr("跟随系统", "Auto")
+        case .day:    return PDFViewTheme.day.title
+        case .sepia:  return PDFViewTheme.sepia.title
+        case .night:  return PDFViewTheme.night.title
+        }
+    }
+
+    public var toolbarIconName: String {
+        switch self {
+        case .system: return "circle.lefthalf.filled"
+        case .day:    return PDFViewTheme.day.toolbarIconName
+        case .sepia:  return PDFViewTheme.sepia.toolbarIconName
+        case .night:  return PDFViewTheme.night.toolbarIconName
+        }
+    }
+
+    public func resolvedTheme(isDark: Bool, useSepiaInLight: Bool) -> PDFViewTheme {
+        switch self {
+        case .system:
+            return isDark ? .night : (useSepiaInLight ? .sepia : .day)
+        case .day:
+            return .day
+        case .sepia:
+            return .sepia
+        case .night:
+            return .night
+        }
+    }
+}
+
 /// App UI Appearance Mode (System / Light / Dark)
 public enum AppAppearanceMode: String, CaseIterable, Identifiable, Codable {
     case system = "system"
@@ -114,17 +166,17 @@ public enum AppAppearanceMode: String, CaseIterable, Identifiable, Codable {
 
     public var title: String {
         switch self {
-        case .system: return "跟随系统"
-        case .light:  return "浅色外观"
-        case .dark:   return "深色外观"
+        case .system: return L10n.tr("跟随系统", "Follow System")
+        case .light:  return L10n.tr("浅色外观", "Light")
+        case .dark:   return L10n.tr("深色外观", "Dark")
         }
     }
 
     public var shortTitle: String {
         switch self {
-        case .system: return "跟随系统"
-        case .light:  return "浅色"
-        case .dark:   return "深色"
+        case .system: return L10n.tr("跟随系统", "Auto")
+        case .light:  return L10n.tr("浅色", "Light")
+        case .dark:   return L10n.tr("深色", "Dark")
         }
     }
 

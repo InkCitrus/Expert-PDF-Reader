@@ -63,7 +63,7 @@ Build a universal (Apple Silicon + Intel) app and package it as a `.dmg`:
 ARCHS="arm64 x86_64" ./build.sh && ./scripts/make_dmg.sh
 ```
 
-To publish a release, either push a `v*` tag (`git tag v0.1.0 && git push origin v0.1.0`), publish a release with a new `v*` tag on GitHub, or run the **Release** workflow from the Actions tab with a version number. `.github/workflows/release.yml` then builds the `.dmg` and attaches it to the GitHub Release. Every push also builds a `.dmg` as a CI artifact.
+To publish a release, either push a `v*` tag (`git tag v0.1.0 && git push origin v0.1.0`), publish a release with a new `v*` tag on GitHub, or run the **Release** workflow from the Actions tab with a version number. `.github/workflows/release.yml` then builds the `.dmg` and attaches it to the GitHub Release. CI also builds a `.dmg` for every pull request and every push to `main`, and keeps it as an artifact.
 
 Regenerate the app icon (`Assets/AppIcon.icns` + `Assets/AppIcon.png`) after editing its design:
 

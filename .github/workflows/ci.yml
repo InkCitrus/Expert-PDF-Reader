@@ -1,8 +1,9 @@
 name: CI
 
+# Every pull request gets exactly one "build" check, so it can be made a required status check for main.
 on:
   push:
-    branches: ['**']
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -15,8 +16,6 @@ concurrency:
 
 jobs:
   build:
-    # Branches of this repository are already built by the push event; only build pull requests from forks here.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: macos-26
     timeout-minutes: 30
     steps:

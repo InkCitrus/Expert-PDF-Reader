@@ -63,7 +63,7 @@ Xcode Command Line Tools（`xcode-select --install`）が必要です。リポ�
 ARCHS="arm64 x86_64" ./build.sh && ./scripts/make_dmg.sh
 ```
 
-リリースを公開するには、`v*` タグをプッシュする（`git tag v0.1.0 && git push origin v0.1.0`）、GitHub で新しい `v*` タグを付けてリリースを公開する、Actions タブからバージョン番号を指定して **Release** ワークフローを実行する、のいずれかを行います。その後 `.github/workflows/release.yml` が `.dmg` をビルドし、GitHub Release に添付します。また、プッシュのたびに CI の成果物として `.dmg` がビルドされます。
+リリースを公開するには、`v*` タグをプッシュする（`git tag v0.1.0 && git push origin v0.1.0`）、GitHub で新しい `v*` タグを付けてリリースを公開する、Actions タブからバージョン番号を指定して **Release** ワークフローを実行する、のいずれかを行います。その後 `.github/workflows/release.yml` が `.dmg` をビルドし、GitHub Release に添付します。また、プルリクエストごと、および `main` へのプッシュごとに、CI が `.dmg` をビルドして成果物として保存します。
 
 アイコンのデザインを変更したら、アプリアイコン（`Assets/AppIcon.icns` + `Assets/AppIcon.png`）を再生成します：
 

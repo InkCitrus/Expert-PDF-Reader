@@ -63,7 +63,7 @@ xattr -dr com.apple.quarantine "/Applications/Expert PDF Reader.app"
 ARCHS="arm64 x86_64" ./build.sh && ./scripts/make_dmg.sh
 ```
 
-发布新版本有三种方式：推送一个 `v*` 标签（`git tag v0.1.0 && git push origin v0.1.0`）；在 GitHub 上用新的 `v*` 标签发布 Release；或在 Actions 页面填入版本号，运行 **Release** 工作流。随后 `.github/workflows/release.yml` 会构建 `.dmg` 并附加到对应的 GitHub Release。此外，每次推送都会构建一个 `.dmg` 作为 CI 产物。
+发布新版本有三种方式：推送一个 `v*` 标签（`git tag v0.1.0 && git push origin v0.1.0`）；在 GitHub 上用新的 `v*` 标签发布 Release；或在 Actions 页面填入版本号，运行 **Release** 工作流。随后 `.github/workflows/release.yml` 会构建 `.dmg` 并附加到对应的 GitHub Release。此外，每个 Pull Request 以及每次推送到 `main` 时，CI 都会构建一个 `.dmg` 并保存为产物。
 
 修改图标设计后，重新生成应用图标（`Assets/AppIcon.icns` + `Assets/AppIcon.png`）：
 

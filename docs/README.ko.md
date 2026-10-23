@@ -63,7 +63,7 @@ Xcode Command Line Tools(`xcode-select --install`)가 필요합니다. 저장소
 ARCHS="arm64 x86_64" ./build.sh && ./scripts/make_dmg.sh
 ```
 
-릴리스를 게시하려면 `v*` 태그를 푸시하거나(`git tag v0.1.0 && git push origin v0.1.0`), GitHub에서 새 `v*` 태그로 릴리스를 게시하거나, Actions 탭에서 버전 번호를 입력해 **Release** 워크플로를 실행합니다. 그러면 `.github/workflows/release.yml`이 `.dmg`를 빌드해 GitHub Release에 첨부합니다. 또한 푸시할 때마다 CI 아티팩트로 `.dmg`가 빌드됩니다.
+릴리스를 게시하려면 `v*` 태그를 푸시하거나(`git tag v0.1.0 && git push origin v0.1.0`), GitHub에서 새 `v*` 태그로 릴리스를 게시하거나, Actions 탭에서 버전 번호를 입력해 **Release** 워크플로를 실행합니다. 그러면 `.github/workflows/release.yml`이 `.dmg`를 빌드해 GitHub Release에 첨부합니다. 또한 풀 리퀘스트마다, 그리고 `main`에 푸시할 때마다 CI가 `.dmg`를 빌드해 아티팩트로 보관합니다.
 
 아이콘 디자인을 수정한 뒤에는 앱 아이콘(`Assets/AppIcon.icns` + `Assets/AppIcon.png`)을 다시 생성합니다.
 

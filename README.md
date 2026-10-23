@@ -31,7 +31,11 @@ Retains only the core **PDF reading & theme switching** experience (no editing, 
   - **Left / Right Arrow Key Page Navigation (`←` / `→`)**: Quickly step to the previous or next page from anywhere in the reader.
   - **Clear Margins (智能清除空白边, `⇧⌘M`)**: Automatically detects ink bounding boxes and crops page margins.
   - **Left Sidebar (`⌘B`)**: Page Thumbnails (rendered with active GPU theme), hierarchical Table of Contents (`PDFOutline`), and Bookmarks (`⌘D`).
-  - **Full-Text Search (`⌘F`)**: Instant keyword highlighting; results listed per page with highlighted context snippets.
+  - **Full-Text Search (`⌘F`)**: Runs in the background and lists results per page as they are found, with highlighted context snippets.
+  - **Picks up where you left off**: every document reopens at its last page, zoom and layout, and the tabs of the last session are restored on launch.
+  - **Password-protected PDFs** prompt for their password; files that can't be opened say why.
+  - Drop PDFs anywhere on the window (Home, a document or the tab strip) or on the Dock icon; `⌘=` zooms in as well as `⌘+`.
+- **Fast Home Tab**: Recents keep up to 50 documents, cover thumbnails load in the background and are cached on disk, and moved or renamed files stay in Recents / Favorites (with their bookmarks and reading position).
 - **Original App Icon**: a dog-eared page shifting diagonally through Day → Sepia → Night, drawn in code by `scripts/make_app_icon.swift`.
 
 ---

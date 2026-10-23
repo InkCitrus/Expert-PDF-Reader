@@ -5,6 +5,13 @@ import PDFKit
 /// complete with hierarchical `PDFOutline` (Table of Contents), vector diagrams, color swatches,
 /// academic two-column layout, and wide margins for testing Clear Margins, Split View, and Shaders.
 public enum SamplePDFGenerator {
+    /// Where the guide was kept before the app was renamed; ignored when loading Recents and Favorites.
+    public static var legacySampleURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("OpenPDFExpert", isDirectory: true)
+            .appendingPathComponent("PDF Expert 阅读指南 (Getting Started).pdf")
+    }
+
     public static func ensureSamplePDFExists() -> URL {
         let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             .appendingPathComponent("ExpertPDFReader", isDirectory: true)

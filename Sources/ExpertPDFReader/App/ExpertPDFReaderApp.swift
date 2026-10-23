@@ -9,10 +9,25 @@ public final class ExpertPDFReaderAppDelegate: NSObject, NSApplicationDelegate {
     /// Files handed to the app before the window has set `store` (e.g. double-clicking a PDF in Finder
     /// while the app is not running); opened as soon as `store` is available.
     private var pendingURLs: [URL] = []
+    private var zoomKeyMonitor: Any?
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+
+        // ⌘= zooms in like the menu's ⌘+, which needs Shift on many keyboard layouts
+        zoomKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+                  event.charactersIgnoringModifiers == "=" else {
+                return event
+            }
+            let handled = MainActor.assumeIsolated { () -> Bool in
+                guard let tab = self?.store?.activeDocumentTab else { return false }
+                tab.triggerZoom(.zoomIn)
+                return true
+            }
+            return handled ? nil : event
+        }
 
         // Open any PDF file paths passed via command-line arguments
         let args = Array(CommandLine.arguments.dropFirst())
@@ -24,6 +39,12 @@ public final class ExpertPDFReaderAppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         openPendingURLs()
+    }
+
+    public func applicationWillTerminate(_ notification: Notification) {
+        MainActor.assumeIsolated {
+            store?.saveSession()
+        }
     }
 
     public func application(_ application: NSApplication, open urls: [URL]) {

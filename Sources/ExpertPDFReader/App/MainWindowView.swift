@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Replicates `MainWindowController` + `TabsViewController` + `HomeTabButtonView` from `PDFExpert`:
 /// one unified `40pt` title bar hosting the traffic lights, the pinned Home tab and the document tabs.
@@ -9,6 +10,7 @@ public struct MainWindowView: View {
     @ObservedObject var store: AppStore
     @Environment(\.colorScheme) private var colorScheme
     @State private var chromeMetrics = WindowChromeMetrics()
+    @State private var isDropTargeted = false
     private var isDark: Bool { colorScheme == .dark }
 
     public static let tabStripHeight: CGFloat = 40
@@ -38,6 +40,20 @@ public struct MainWindowView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay {
+                // PDFs dropped onto a document tab or the tab strip (the Home tab shows its own drop area)
+                if isDropTargeted && store.activeDocumentTab != nil {
+                    DropOverlayView(isDark: isDark)
+                        .padding(14)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
+            }
+        }
+        .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
+            PDFFileDrop.open(providers) { url in
+                store.openDocument(at: url)
+            }
         }
         .frame(minWidth: 600, minHeight: 520)
         .background(RDColorPalette.homeContentBackground(isDark))

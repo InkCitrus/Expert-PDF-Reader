@@ -281,19 +281,28 @@ public struct HomeTabRootView: View {
     }
 
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
+        PDFFileDrop.open(providers) { url in
+            openURL(url)
+        }
+    }
+}
+
+// MARK: - PDFFileDrop (shared by the Home tab and the main window)
+
+enum PDFFileDrop {
+    /// Hands every dropped PDF file to `open` on the main actor; returns whether the drop carried file URLs.
+    static func open(_ providers: [NSItemProvider], with open: @escaping @MainActor (URL) -> Void) -> Bool {
         var handled = false
-        for provider in providers {
-            if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-                handled = true
-                provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { data, _ in
-                    guard let data = data as? Data,
-                          let url = URL(dataRepresentation: data, relativeTo: nil),
-                          url.pathExtension.lowercased() == "pdf" else {
-                        return
-                    }
-                    Task { @MainActor in
-                        openURL(url)
-                    }
+        for provider in providers where provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            handled = true
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { data, _ in
+                guard let data = data as? Data,
+                      let url = URL(dataRepresentation: data, relativeTo: nil),
+                      url.pathExtension.lowercased() == "pdf" else {
+                    return
+                }
+                Task { @MainActor in
+                    open(url)
                 }
             }
         }
@@ -654,6 +663,12 @@ struct DocumentCardView: View {
 
     @State private var isHovered = false
 
+    /// The page count is read in the background and stays `0` until then
+    private var subtitleText: String {
+        let parts = [item.pageCount > 0 ? L10n.pageCountText(item.pageCount) : "", item.dateOpenedText]
+        return parts.filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
     var body: some View {
         VStack(spacing: 8) {
             Image(nsImage: PDFThumbnailCache.shared.themedCover(for: item, theme: pdfTheme))
@@ -691,7 +706,7 @@ struct DocumentCardView: View {
                     .multilineTextAlignment(.center)
                     .truncationMode(.middle)
 
-                Text(item.dateOpenedText.isEmpty ? L10n.pageCountText(item.pageCount) : "\(L10n.pageCountText(item.pageCount)) · \(item.dateOpenedText)")
+                Text(subtitleText)
                     .font(.system(size: 10.5))
                     .foregroundColor(RDColorPalette.labelTertiary(isDark))
                     .lineLimit(1)

@@ -11,7 +11,7 @@ A native macOS PDF reader built for reading: tabs, Split View, and Day / Sepia /
 - **Reading Themes**
   - **Day (日间)**: original colors on a `#DCDCDE` / `#131314` canvas.
   - **Sepia (纸质)**: warm `#F5EFDC` paper, `#3F2A18` ink, `#E5DECF` canvas.
-  - **Night (夜间)**: soft inversion ($v = 0.75 - 0.25(R+G+B)$): `#000000` paper and `#BFBFBF` ink to avoid glare in the dark, `#202223` canvas.
+  - **Night (夜间)**: soft inversion ($`v = 0.75 - 0.25(R+G+B)`$): `#000000` paper and `#BFBFBF` ink to avoid glare in the dark, `#202223` canvas.
   - **Follow System (跟随系统)** switches between Day and Night with the system appearance, optionally using Sepia instead of Day.
   - Pages stay sharp at every zoom level: the color matrix is applied above `NSClipView`'s magnification, so PDFKit's tiles render at full Retina resolution.
 - **12 Languages**: **简体中文**, **繁體中文**, **English**, **日本語**, **한국어**, **Français**, **Deutsch**, **Español**, **Italiano**, **Português**, **Русский** and **Українська**, or Follow System; switchable live from Settings (`⌘,`), the View menu or the View Settings panel. The built-in Reading Guide PDF is localized too.

@@ -21,7 +21,7 @@ public enum SamplePDFGenerator {
         public let pages: [(title: String, subtitle: String, sections: [(heading: String, body: String)])]
     }
 
-    public static let guideDirectoryName = "Guides_v3"
+    public static let guideDirectoryName = "Guides_v4"
 
     public static func supportDirectory() -> URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -220,12 +220,8 @@ public enum SamplePDFGenerator {
                 // Page 3: Sidebar & Navigation Quick-Access Keycap Grid
                 _ = drawShortcutGridCard(title: guide.navGridTitle, items: guide.navGridItems, x: marginX, y: y, width: contentW, brandBlue: brandBlue, inkPrimary: inkPrimary, inkSecondary: inkSecondary, cardFill: cardFill, cardStroke: cardStroke)
             } else if index == 3 {
-                // Page 4: Essential Keyboard Shortcuts 2-Column Keycap Table + Swatch Strip
-                y = drawShortcutGridCard(title: guide.shortcutsTitle, items: guide.shortcuts, x: marginX, y: y, width: contentW, brandBlue: brandBlue, inkPrimary: inkPrimary, inkSecondary: inkSecondary, cardFill: cardFill, cardStroke: cardStroke)
-                y += 10
-                if y + 72 < 718 {
-                    _ = drawColorSwatchCard(guide: guide, x: marginX, y: y, width: contentW, inkSecondary: inkSecondary, cardFill: cardFill, cardStroke: cardStroke)
-                }
+                // Page 4: Essential Keyboard Shortcuts 2-Column Keycap Table
+                _ = drawShortcutGridCard(title: guide.shortcutsTitle, items: guide.shortcuts, x: marginX, y: y, width: contentW, brandBlue: brandBlue, inkPrimary: inkPrimary, inkSecondary: inkSecondary, cardFill: cardFill, cardStroke: cardStroke)
             }
 
             // 8. Editorial Footer

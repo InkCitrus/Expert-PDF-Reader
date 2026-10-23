@@ -4,100 +4,90 @@ import SwiftUI
 
 // MARK: - Top Reader Toolbar (RDToolbarView / MainToolbarDelegateImplementation)
 
+/// PDF Expert 3 toolbar layout: dock toggles + zoom on the left, reading tools in the middle,
+/// share / bookmark / search on the right. Colors follow the app appearance instead of PDF Expert's fixed graphite.
 public struct ReaderToolbarView: View {
     @ObservedObject var store: AppStore
     @ObservedObject var tab: DocumentTabState
 
-    @State private var showDisplaySettingsPopover = false
-    @State private var showGoToPagePopover = false
-    @State private var goToPageInput: String = ""
-    @State private var showSearchResultsPopover = false
+    @State private var zoomAnchor = NSViewAnchor()
+    @State private var shareAnchor = NSViewAnchor()
+    @FocusState private var isSearchFieldFocused: Bool
 
     @Environment(\.colorScheme) private var colorScheme
     private var isDark: Bool { colorScheme == .dark }
 
+    public static let height: CGFloat = 40
+
     public var body: some View {
-        HStack(spacing: 10) {
-            // Left Group: Sidebar Toggle + History + Page Stepper + Rotate
-            HStack(spacing: 6) {
-                ToolbarIconButton(
-                    icon: "sidebar.leading",
-                    tooltip: tab.isLeftSidebarVisible ? "隐藏左边面板 (⌘B)" : "显示左边面板 (⌘B)",
-                    isActive: tab.isLeftSidebarVisible,
-                    isDark: isDark
-                ) {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        tab.isLeftSidebarVisible.toggle()
-                    }
+        HStack(spacing: 2) {
+            // Left Group: Document Summary / Page Overview / View Settings + Zoom (PDFZoomToolbarItemView)
+            ToolbarIconButton(
+                icon: "sidebar.left",
+                tooltip: "文档概要：缩略图、大纲与书签 (⌘B)",
+                isActive: tab.isLeftSidebarVisible && tab.leftPanel == .documentSummary,
+                isDark: isDark
+            ) {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    tab.toggleLeftPanel(.documentSummary)
                 }
+            }
 
-                Divider()
-                    .frame(height: 18)
-
-                // Back / Forward History
-                ToolbarIconButton(
-                    icon: "chevron.backward",
-                    tooltip: "返回上一浏览位置 (⌘[)",
-                    isDisabled: !tab.canGoBack,
-                    isDark: isDark
-                ) {
-                    tab.goBack()
+            ToolbarIconButton(
+                icon: "square.grid.2x2",
+                tooltip: "页面概览 (⌃⌘1)",
+                isActive: tab.isPageOverviewVisible,
+                isDark: isDark
+            ) {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    tab.isPageOverviewVisible.toggle()
                 }
+            }
 
-                ToolbarIconButton(
-                    icon: "chevron.forward",
-                    tooltip: "前往下一浏览位置 (⌘])",
-                    isDisabled: !tab.canGoForward,
-                    isDark: isDark
-                ) {
-                    tab.goForward()
+            ToolbarIconButton(
+                icon: "book",
+                tooltip: "显示选项：页面布局、分屏与阅读主题",
+                isActive: tab.isLeftSidebarVisible && tab.leftPanel == .viewSettings,
+                isDark: isDark
+            ) {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    tab.toggleLeftPanel(.viewSettings)
                 }
+            }
 
-                // Page Number Indicator & Jump Popover
-                Button {
-                    goToPageInput = "\(tab.currentPageIndex + 1)"
-                    showGoToPagePopover = true
-                } label: {
-                    HStack(spacing: 4) {
-                        Text("\(tab.currentPageIndex + 1)")
-                            .fontWeight(.semibold)
-                            .foregroundColor(RDColorPalette.labelPrimary(isDark))
-                        Text("/")
-                            .foregroundColor(RDColorPalette.labelTertiary(isDark))
-                        Text("\(tab.pageCount)")
-                            .foregroundColor(RDColorPalette.labelSecondary(isDark))
-                    }
-                    .font(.system(size: 12, design: .monospaced))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(RDColorPalette.tertiarySystemBackground(isDark))
-                    )
-                }
-                .buttonStyle(.plain)
-                .help("前往指定页码...")
-                .popover(isPresented: $showGoToPagePopover, arrowEdge: .bottom) {
-                    HStack(spacing: 8) {
-                        Text("前往页码:")
-                            .font(.system(size: 12))
-                        TextField("1-\(tab.pageCount)", text: $goToPageInput)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 64)
-                            .onSubmit {
-                                commitGoToPage()
-                            }
-                        Button("跳转") {
-                            commitGoToPage()
+            zoomControls
+                .padding(.leading, 8)
+
+            Spacer(minLength: 16)
+
+            // Center Group: Day / Sepia / Night (RDPDFShaders) + Page Tools
+            HStack(spacing: 2) {
+                ForEach([PDFViewTheme.day, .sepia, .night]) { theme in
+                    ToolbarIconButton(
+                        icon: theme.toolbarIconName,
+                        tooltip: "阅读主题：\(theme.title)",
+                        isActive: store.pdfTheme == theme,
+                        activeTint: RDColorPalette.accentBlue,
+                        isDark: isDark
+                    ) {
+                        withAnimation(.easeInOut(duration: 0.16)) {
+                            store.pdfTheme = theme
                         }
-                        .buttonStyle(.borderedProminent)
-                        .tint(RDColorPalette.primaryTint)
-                        .controlSize(.small)
                     }
-                    .padding(12)
                 }
 
-                // Rotate Current Page
+                ToolbarDivider(isDark: isDark)
+
+                ToolbarIconButton(
+                    icon: "crop",
+                    tooltip: tab.isClearMarginsEnabled ? "恢复页面空白边 (⇧⌘M)" : "清除空白边 (⇧⌘M)",
+                    isActive: tab.isClearMarginsEnabled,
+                    isDark: isDark
+                ) {
+                    tab.isClearMarginsEnabled.toggle()
+                    tab.applyClearMarginsIfNeeded()
+                }
+
                 ToolbarIconButton(
                     icon: "rotate.left",
                     tooltip: "向左旋转当前页面",
@@ -107,506 +97,361 @@ public struct ReaderToolbarView: View {
                 }
             }
 
-            Spacer()
+            Spacer(minLength: 16)
 
-            // Center Group: Three-Mode Theme Switcher (Day / Sepia / Night) + Display Settings Popover
-            HStack(spacing: 8) {
-                // Direct Day / Sepia / Night Pill Switcher
-                HStack(spacing: 2) {
-                    ForEach([PDFViewTheme.day, .sepia, .night]) { theme in
-                        let isSelected = store.pdfTheme == theme
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.16)) {
-                                store.pdfTheme = theme
-                            }
-                        } label: {
-                            HStack(spacing: 5) {
-                                Circle()
-                                    .fill(theme.pagePaperColor)
-                                    .frame(width: 10, height: 10)
-                                    .overlay(
-                                        Circle().stroke(Color.gray.opacity(0.5), lineWidth: 0.8)
-                                    )
-                                Text(theme.title)
-                                    .font(.system(size: 11.5, weight: isSelected ? .semibold : .regular))
-                                    .foregroundColor(isSelected ? RDColorPalette.labelPrimary(isDark) : RDColorPalette.labelSecondary(isDark))
-                            }
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 4)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .fill(isSelected ? RDColorPalette.primaryTint.opacity(isDark ? 0.25 : 0.16) : Color.clear)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .stroke(isSelected ? RDColorPalette.primaryTint : Color.clear, lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(2)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(RDColorPalette.tertiarySystemBackground(isDark))
-                )
+            // Right Group: Share + Bookmark + Search Field (PDFSearchToolbarItemView)
+            ToolbarIconButton(
+                icon: "square.and.arrow.up",
+                tooltip: "分享",
+                isDark: isDark
+            ) {
+                presentSharingPicker()
+            }
+            .background(ViewAnchorRepresentable(anchor: shareAnchor))
 
-                // Layout Quick Buttons (Single / Two Pages / Clear Margins / Split View)
-                HStack(spacing: 3) {
-                    ForEach(ReaderLayoutMode.allCases) { mode in
-                        ToolbarIconButton(
-                            icon: mode.iconName,
-                            tooltip: mode.title,
-                            isActive: tab.layoutMode == mode,
-                            isDark: isDark
-                        ) {
-                            tab.layoutMode = mode
-                        }
-                    }
-
-                    Divider()
-                        .frame(height: 16)
-                        .padding(.horizontal, 2)
-
-                    ToolbarIconButton(
-                        icon: "crop",
-                        tooltip: "清除空白边 (⇧⌘M)",
-                        isActive: tab.isClearMarginsEnabled,
-                        isDark: isDark
-                    ) {
-                        tab.isClearMarginsEnabled.toggle()
-                        tab.applyClearMarginsIfNeeded()
-                    }
-
-                    ToolbarIconButton(
-                        icon: tab.splitMode == .horizontal ? "rectangle.split.1x2" : "rectangle.split.2x1",
-                        tooltip: "分屏视图",
-                        isActive: tab.splitMode != .disabled,
-                        isDark: isDark
-                    ) {
-                        withAnimation(.easeInOut(duration: 0.18)) {
-                            tab.splitMode = (tab.splitMode == .disabled) ? .vertical : .disabled
-                        }
-                    }
-                }
-                .padding(.horizontal, 4)
-                .padding(.vertical, 2)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(RDColorPalette.tertiarySystemBackground(isDark))
-                )
-
-                // Full Display Settings Popover Button (DocumentDisplaySettingsPanelViewController)
-                Button {
-                    showDisplaySettingsPopover.toggle()
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.system(size: 12, weight: .medium))
-                        Text("视图设置")
-                            .font(.system(size: 11.5, weight: .medium))
-                    }
-                    .foregroundColor(showDisplaySettingsPopover ? RDColorPalette.primaryTint : RDColorPalette.labelPrimary(isDark))
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
-                    .background(
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(RDColorPalette.tertiarySystemBackground(isDark))
-                    )
-                }
-                .buttonStyle(.plain)
-                .popover(isPresented: $showDisplaySettingsPopover, arrowEdge: .bottom) {
-                    DocumentDisplaySettingsPopover(store: store, tab: tab)
-                }
+            let isBookmarked = store.isPageBookmarked(pageIndex: tab.currentPageIndex, in: tab.documentID)
+            ToolbarIconButton(
+                icon: isBookmarked ? "bookmark.fill" : "bookmark",
+                tooltip: isBookmarked ? "移除当前页书签 (⌘D)" : "为当前页添加书签 (⌘D)",
+                isActive: isBookmarked,
+                activeTint: RDColorPalette.systemRed,
+                isDark: isDark
+            ) {
+                store.toggleBookmark(pageIndex: tab.currentPageIndex, in: tab.documentID)
             }
 
-            Spacer()
-
-            // Right Group: Zoom Controls + Bookmark + Search
-            HStack(spacing: 6) {
-                // Zoom Controls (PDFZoomToolbarItemView)
-                HStack(spacing: 2) {
-                    ToolbarIconButton(
-                        icon: "minus.magnifyingglass",
-                        tooltip: "缩小 (⌘-)",
-                        isDark: isDark
-                    ) {
-                        tab.triggerZoom(.zoomOut)
-                    }
-
-                    Menu {
-                        Button("缩放至适应宽度 (⌘8)") { tab.triggerZoom(.fitWidth) }
-                        Button("缩放至适应页面 (⌘9)") { tab.triggerZoom(.fitPage) }
-                        Button("实际大小 100% (⌘0)") { tab.triggerZoom(.actualSize) }
-                    } label: {
-                        Text("\(Int(round(tab.zoomScale * 100)))%")
-                            .font(.system(size: 11.5, weight: .medium, design: .monospaced))
-                            .frame(minWidth: 44)
-                    }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
-
-                    ToolbarIconButton(
-                        icon: "plus.magnifyingglass",
-                        tooltip: "放大 (⌘+)",
-                        isDark: isDark
-                    ) {
-                        tab.triggerZoom(.zoomIn)
-                    }
-                }
-                .padding(.horizontal, 4)
-                .padding(.vertical, 2)
-                .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(RDColorPalette.tertiarySystemBackground(isDark))
-                )
-
-                // Bookmark Current Page Button
-                let isBookmarked = store.isPageBookmarked(pageIndex: tab.currentPageIndex, in: tab.documentID)
-                ToolbarIconButton(
-                    icon: isBookmarked ? "bookmark.fill" : "bookmark",
-                    tooltip: isBookmarked ? "移除当前页书签 (⌘D)" : "添加书签到当前页 (⌘D)",
-                    isActive: isBookmarked,
-                    isDark: isDark
-                ) {
-                    store.toggleBookmark(pageIndex: tab.currentPageIndex, in: tab.documentID)
-                }
-
-                // Expandable Search Bar (PDFSearchToolbarItemView)
-                if tab.isSearchVisible {
-                    HStack(spacing: 5) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 11.5))
-                            .foregroundColor(RDColorPalette.labelTertiary(isDark))
-
-                        TextField("查找文档内容...", text: $tab.searchQuery)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 12))
-                            .frame(width: 135)
-                            .onSubmit {
-                                tab.performSearch()
-                                if !tab.searchMatches.isEmpty {
-                                    showSearchResultsPopover = true
-                                }
-                            }
-                            .onChange(of: tab.searchQuery) { _, _ in
-                                tab.performSearch()
-                            }
-
-                        if !tab.searchMatches.isEmpty {
-                            Button {
-                                showSearchResultsPopover.toggle()
-                            } label: {
-                                Text("\(tab.selectedMatchIndex + 1)/\(tab.searchMatches.count)")
-                                    .font(.system(size: 10.5, weight: .medium, design: .monospaced))
-                                    .foregroundColor(RDColorPalette.primaryTint)
-                            }
-                            .buttonStyle(.plain)
-                            .popover(isPresented: $showSearchResultsPopover, arrowEdge: .bottom) {
-                                SearchResultsListPopover(tab: tab, isDark: isDark)
-                            }
-
-                            Button {
-                                tab.selectPreviousSearchMatch()
-                            } label: {
-                                Image(systemName: "chevron.up")
-                                    .font(.system(size: 10, weight: .semibold))
-                            }
-                            .buttonStyle(.plain)
-
-                            Button {
-                                tab.selectNextSearchMatch()
-                            } label: {
-                                Image(systemName: "chevron.down")
-                                    .font(.system(size: 10, weight: .semibold))
-                            }
-                            .buttonStyle(.plain)
-                        }
-
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                tab.searchQuery = ""
-                                tab.searchMatches = []
-                                tab.isSearchVisible = false
-                            }
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 12))
-                                .foregroundColor(RDColorPalette.labelTertiary(isDark))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(RDColorPalette.tertiarySystemBackground(isDark))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .stroke(RDColorPalette.primaryTint.opacity(0.6), lineWidth: 1)
-                    )
-                } else {
-                    ToolbarIconButton(
-                        icon: "magnifyingglass",
-                        tooltip: "全文查找 (⌘F)",
-                        isDark: isDark
-                    ) {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            tab.isSearchVisible = true
-                        }
-                    }
-                }
-            }
+            searchField
+                .frame(width: 176)
+                .padding(.leading, 6)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 7)
-        .background(RDColorPalette.secondarySystemBackground(isDark))
+        .padding(.horizontal, 8)
+        .frame(height: Self.height)
+        .background(RDColorPalette.toolbarBackground(isDark))
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(RDColorPalette.separator(isDark).opacity(0.55))
+                .fill(RDColorPalette.chromeHairline(isDark))
                 .frame(height: 1)
         }
+        .onChange(of: tab.searchFocusToken) { _, _ in
+            isSearchFieldFocused = true
+        }
     }
 
-    private func commitGoToPage() {
-        if let num = Int(goToPageInput.trimmingCharacters(in: .whitespaces)),
-           num >= 1 && num <= tab.pageCount {
-            tab.navigateToPage(num - 1)
-            showGoToPagePopover = false
+    // MARK: Zoom (percentage pop-up + − / + stepper)
+
+    private var zoomControls: some View {
+        HStack(spacing: 6) {
+            Button {
+                presentZoomMenu()
+            } label: {
+                HStack(spacing: 4) {
+                    Text("\(Int((tab.zoomScale * 100).rounded()))%")
+                        .font(.system(size: 12, weight: .medium))
+                        .monospacedDigit()
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8.5, weight: .semibold))
+                        .foregroundColor(RDColorPalette.labelTertiary(isDark))
+                }
+                .foregroundColor(RDColorPalette.toolbarIcon(isDark))
+                .frame(width: 72, height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(RDColorPalette.toolbarControlFill(isDark))
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(ViewAnchorRepresentable(anchor: zoomAnchor))
+            .help("缩放比例")
+            .accessibilityLabel(Text("缩放比例 \(Int((tab.zoomScale * 100).rounded()))%"))
+
+            HStack(spacing: 0) {
+                ZoomStepButton(icon: "minus", tooltip: "缩小 (⌘-)", isDark: isDark) {
+                    tab.triggerZoom(.zoomOut)
+                }
+                Rectangle()
+                    .fill(RDColorPalette.toolbarIcon(isDark).opacity(0.18))
+                    .frame(width: 1, height: 14)
+                ZoomStepButton(icon: "plus", tooltip: "放大 (⌘+)", isDark: isDark) {
+                    tab.triggerZoom(.zoomIn)
+                }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(RDColorPalette.toolbarControlFill(isDark))
+            )
         }
+    }
+
+    private func presentZoomMenu() {
+        let currentPercent = Int((tab.zoomScale * 100).rounded())
+        var items: [NativeMenuItem] = [
+            .action("缩放至适应宽度", keyEquivalent: "8") { tab.triggerZoom(.fitWidth) },
+            .action("缩放至适应页面", keyEquivalent: "9") { tab.triggerZoom(.fitPage) },
+            .action("实际大小", keyEquivalent: "0") { tab.triggerZoom(.actualSize) },
+            .separator
+        ]
+        for percent in [50, 75, 100, 125, 150, 200, 300, 400] {
+            items.append(.action("\(percent)%", isChecked: percent == currentPercent) {
+                tab.triggerZoom(.scale(CGFloat(percent) / 100))
+            })
+        }
+        NativeMenu.popUp(items, below: zoomAnchor.view)
+    }
+
+    private func presentSharingPicker() {
+        guard let anchorView = shareAnchor.view else { return }
+        let picker = NSSharingServicePicker(items: [tab.documentID.url])
+        picker.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .minY)
+    }
+
+    // MARK: Search Field
+
+    private var searchField: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundColor(RDColorPalette.labelTertiary(isDark))
+
+            TextField("搜索", text: $tab.searchQuery)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12.5))
+                .foregroundColor(RDColorPalette.labelPrimary(isDark))
+                .focused($isSearchFieldFocused)
+                .onSubmit { submitSearch() }
+                .onExitCommand { endSearch() }
+
+            if !tab.searchQuery.isEmpty {
+                Button {
+                    endSearch()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11.5))
+                        .foregroundColor(RDColorPalette.labelTertiary(isDark))
+                }
+                .buttonStyle(.plain)
+                .help("清除搜索")
+            }
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 28)
+        .background(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(RDColorPalette.toolbarControlFill(isDark))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .stroke(RDColorPalette.accentBlue.opacity(isSearchFieldFocused ? 0.75 : 0), lineWidth: 1.5)
+        )
+        .task(id: tab.searchQuery) {
+            // Debounced live search, like PDFTextSearchPanelViewController refreshing while typing
+            let trimmed = tab.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed != tab.lastSearchedQuery else { return }
+            try? await Task.sleep(nanoseconds: 260_000_000)
+            guard !Task.isCancelled else { return }
+            tab.performSearch()
+            if !trimmed.isEmpty {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    tab.isSearchVisible = true
+                }
+            }
+        }
+    }
+
+    private func submitSearch() {
+        let trimmed = tab.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if trimmed == tab.lastSearchedQuery && !tab.searchMatches.isEmpty {
+            tab.selectNextSearchMatch()
+        } else {
+            tab.performSearch()
+        }
+        withAnimation(.easeInOut(duration: 0.18)) {
+            tab.isSearchVisible = true
+        }
+    }
+
+    private func endSearch() {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            tab.endSearch()
+        }
+        isSearchFieldFocused = false
     }
 }
 
-// MARK: - DocumentDisplaySettingsPopover (DocumentDisplaySettingsPanelViewController)
+// MARK: - Toolbar Controls
 
-struct DocumentDisplaySettingsPopover: View {
-    @ObservedObject var store: AppStore
-    @ObservedObject var tab: DocumentTabState
-    @Environment(\.colorScheme) private var colorScheme
-    private var isDark: Bool { colorScheme == .dark }
+struct ToolbarIconButton: View {
+    let icon: String
+    let tooltip: String
+    var isActive: Bool = false
+    var isDisabled: Bool = false
+    var activeTint: Color?
+    let isDark: Bool
+    let action: () -> Void
+
+    @State private var isHovered = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // 1. Page Reading Theme (Day / Sepia / Night)
-            VStack(alignment: .leading, spacing: 8) {
-                Text("页面阅读主题 (RDPDFShaders)")
-                    .font(.system(size: 11.5, weight: .semibold))
-                    .foregroundColor(RDColorPalette.labelSecondary(isDark))
-
-                HStack(spacing: 10) {
-                    ForEach([PDFViewTheme.day, .sepia, .night]) { theme in
-                        let isSelected = store.pdfTheme == theme
-                        Button {
-                            store.pdfTheme = theme
-                        } label: {
-                            VStack(spacing: 6) {
-                                ZStack {
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .fill(theme.pagePaperColor)
-                                        .frame(width: 78, height: 50)
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                                .stroke(isSelected ? RDColorPalette.primaryTint : Color.gray.opacity(0.35), lineWidth: isSelected ? 2 : 1)
-                                        )
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        RoundedRectangle(cornerRadius: 1.5)
-                                            .fill(theme.pageInkColor)
-                                            .frame(width: 44, height: 4)
-                                        RoundedRectangle(cornerRadius: 1.5)
-                                            .fill(theme.pageInkColor.opacity(0.75))
-                                            .frame(width: 52, height: 3)
-                                        RoundedRectangle(cornerRadius: 1.5)
-                                            .fill(theme.pageInkColor.opacity(0.55))
-                                            .frame(width: 36, height: 3)
-                                    }
-                                }
-                                Text(theme.title)
-                                    .font(.system(size: 11.5, weight: isSelected ? .semibold : .regular))
-                                    .foregroundColor(isSelected ? RDColorPalette.primaryTint : RDColorPalette.labelPrimary(isDark))
-                            }
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-
-            Divider()
-
-            // 2. App UI Appearance (System / Light / Dark)
-            VStack(alignment: .leading, spacing: 8) {
-                Text("应用界面外观")
-                    .font(.system(size: 11.5, weight: .semibold))
-                    .foregroundColor(RDColorPalette.labelSecondary(isDark))
-
-                Picker("", selection: $store.appearanceMode) {
-                    ForEach(AppAppearanceMode.allCases) { mode in
-                        Label(mode.title, systemImage: mode.iconName).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-            }
-
-            Divider()
-
-            // 3. Page Layout Mode (Single / Two Pages / Cover)
-            VStack(alignment: .leading, spacing: 8) {
-                Text("页面排列方式")
-                    .font(.system(size: 11.5, weight: .semibold))
-                    .foregroundColor(RDColorPalette.labelSecondary(isDark))
-
-                ForEach(ReaderLayoutMode.allCases) { mode in
-                    Button {
-                        tab.layoutMode = mode
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: mode.iconName)
-                                .frame(width: 18)
-                                .foregroundColor(tab.layoutMode == mode ? RDColorPalette.primaryTint : RDColorPalette.labelSecondary(isDark))
-                            Text(mode.title)
-                                .font(.system(size: 12.5, weight: tab.layoutMode == mode ? .semibold : .regular))
-                            Spacer()
-                            if tab.layoutMode == mode {
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundColor(RDColorPalette.primaryTint)
-                            }
-                        }
-                        .padding(.vertical, 3)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                Toggle(isOn: Binding(
-                    get: { tab.isClearMarginsEnabled },
-                    set: { newValue in
-                        tab.isClearMarginsEnabled = newValue
-                        tab.applyClearMarginsIfNeeded()
-                    }
-                )) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "crop")
-                        Text("清除空白边 (智能识别页面内容边界)")
-                            .font(.system(size: 12.5))
-                    }
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .padding(.top, 4)
-            }
-
-            Divider()
-
-            // 4. Split View Mode (PDFDocumentsSplitViewController)
-            VStack(alignment: .leading, spacing: 8) {
-                Text("分屏对比视图")
-                    .font(.system(size: 11.5, weight: .semibold))
-                    .foregroundColor(RDColorPalette.labelSecondary(isDark))
-
-                Picker("", selection: $tab.splitMode) {
-                    Text("关闭").tag(ReaderSplitMode.disabled)
-                    Text("左右垂直").tag(ReaderSplitMode.vertical)
-                    Text("上下水平").tag(ReaderSplitMode.horizontal)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-
-                if tab.splitMode != .disabled {
-                    HStack(spacing: 10) {
-                        Toggle("同步滚动和缩放", isOn: $tab.syncScrollAndZoom)
-                            .toggleStyle(.checkbox)
-                            .font(.system(size: 12))
-
-                        Spacer()
-
-                        Button("对调位置") {
-                            tab.isSplitSwapped.toggle()
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-
-                        Button("切换对比文档...") {
-                            tab.showSplitDocumentPicker = true
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
-                    .padding(.top, 4)
-                }
-            }
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 14.5, weight: .regular))
+                .foregroundColor(foregroundColor)
+                .frame(width: 34, height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(backgroundColor)
+                )
+                .contentShape(Rectangle())
         }
-        .padding(16)
-        .frame(width: 296)
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .help(tooltip)
+        .accessibilityLabel(Text(tooltip))
+        .accessibilityAddTraits(isActive ? .isSelected : [])
+        .onHover { isHovered = $0 }
+    }
+
+    private var foregroundColor: Color {
+        if isDisabled {
+            return RDColorPalette.labelQuaternary(isDark)
+        }
+        if isActive, let tint = activeTint {
+            return tint
+        }
+        return RDColorPalette.toolbarIcon(isDark)
+    }
+
+    private var backgroundColor: Color {
+        if isActive {
+            return RDColorPalette.toolbarActive(isDark)
+        }
+        if isHovered && !isDisabled {
+            return RDColorPalette.toolbarHover(isDark)
+        }
+        return Color.clear
     }
 }
 
-// MARK: - SearchResultsListPopover
+struct ZoomStepButton: View {
+    let icon: String
+    let tooltip: String
+    let isDark: Bool
+    let action: () -> Void
 
-struct SearchResultsListPopover: View {
-    @ObservedObject var tab: DocumentTabState
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(RDColorPalette.toolbarIcon(isDark))
+                .frame(width: 30, height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(isHovered ? RDColorPalette.toolbarActive(isDark) : Color.clear)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(tooltip)
+        .accessibilityLabel(Text(tooltip))
+        .onHover { isHovered = $0 }
+    }
+}
+
+struct ToolbarDivider: View {
     let isDark: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("共找到 \(tab.searchMatches.count) 处匹配")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(RDColorPalette.labelSecondary(isDark))
-                Spacer()
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(RDColorPalette.secondarySystemBackground(isDark))
-
-            Divider()
-
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 2) {
-                    ForEach(Array(tab.searchMatches.enumerated()), id: \.element.id) { idx, item in
-                        let isSelected = (idx == tab.selectedMatchIndex)
-                        Button {
-                            tab.selectedMatchIndex = idx
-                            tab.navigateToPage(item.pageIndex, recordHistory: false)
-                        } label: {
-                            HStack(alignment: .top, spacing: 8) {
-                                Text("P.\(item.pageIndex + 1)")
-                                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                                    .foregroundColor(isSelected ? .white : RDColorPalette.primaryTint)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 4)
-                                            .fill(isSelected ? RDColorPalette.primaryTint : RDColorPalette.primaryTint.opacity(0.14))
-                                    )
-
-                                Text(item.snippet)
-                                    .font(.system(size: 11.5))
-                                    .foregroundColor(RDColorPalette.labelPrimary(isDark))
-                                    .lineLimit(2)
-                                    .multilineTextAlignment(.leading)
-                                Spacer()
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .fill(isSelected ? RDColorPalette.primaryTint.opacity(0.15) : Color.clear)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(6)
-            }
-            .frame(width: 320, height: 280)
-        }
+        Rectangle()
+            .fill(RDColorPalette.toolbarIcon(isDark).opacity(0.16))
+            .frame(width: 1, height: 18)
+            .padding(.horizontal, 6)
     }
 }
 
-// MARK: - Left Sidebar Panel (PanelViewsDockViewController)
+// MARK: - AppKit Bridges (anchors for NSMenu / NSSharingServicePicker)
 
+/// Weak handle to an AppKit view inside the SwiftUI hierarchy.
+final class NSViewAnchor {
+    weak var view: NSView?
+}
+
+struct ViewAnchorRepresentable: NSViewRepresentable {
+    let anchor: NSViewAnchor
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        anchor.view = view
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        anchor.view = nsView
+    }
+}
+
+struct NativeMenuItem {
+    var title: String = ""
+    var keyEquivalent: String = ""
+    var isChecked: Bool = false
+    var isSeparator: Bool = false
+    var action: (() -> Void)?
+
+    static var separator: NativeMenuItem {
+        NativeMenuItem(isSeparator: true)
+    }
+
+    static func action(_ title: String, keyEquivalent: String = "", isChecked: Bool = false, _ action: @escaping () -> Void) -> NativeMenuItem {
+        NativeMenuItem(title: title, keyEquivalent: keyEquivalent, isChecked: isChecked, action: action)
+    }
+}
+
+private final class ClosureMenuItem: NSMenuItem {
+    private let handler: () -> Void
+
+    init(title: String, keyEquivalent: String, handler: @escaping () -> Void) {
+        self.handler = handler
+        super.init(title: title, action: #selector(performHandler), keyEquivalent: keyEquivalent)
+        self.target = self
+    }
+
+    required init(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    @objc private func performHandler() {
+        handler()
+    }
+}
+
+enum NativeMenu {
+    /// Pops up a native menu right below `anchorView` (e.g. the zoom percentage pop-up).
+    @MainActor
+    static func popUp(_ items: [NativeMenuItem], below anchorView: NSView?) {
+        guard let anchorView else { return }
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        for item in items {
+            if item.isSeparator {
+                menu.addItem(.separator())
+                continue
+            }
+            let menuItem = ClosureMenuItem(title: item.title, keyEquivalent: item.keyEquivalent, handler: item.action ?? {})
+            menuItem.keyEquivalentModifierMask = item.keyEquivalent.isEmpty ? [] : [.command]
+            menuItem.state = item.isChecked ? .on : .off
+            menu.addItem(menuItem)
+        }
+        let origin = NSPoint(x: 0, y: anchorView.isFlipped ? anchorView.bounds.height + 5 : -5)
+        menu.popUp(positioning: nil, at: origin, in: anchorView)
+    }
+}
+
+// MARK: - Left Panel (PanelViewsDockViewController)
+
+/// `240pt` left dock hosting either the Document Summary (thumbnails / outline / bookmarks) or the
+/// View Settings panel — PDF Expert 3's two left toolbar toggles share this dock.
 public struct ReaderLeftSidebarView: View {
     @ObservedObject var store: AppStore
     @ObservedObject var tab: DocumentTabState
@@ -614,38 +459,53 @@ public struct ReaderLeftSidebarView: View {
     @Environment(\.colorScheme) private var colorScheme
     private var isDark: Bool { colorScheme == .dark }
 
-    public var body: some View {
-        VStack(spacing: 0) {
-            // Segmented Header (Thumbnails / Outline / Bookmarks)
-            HStack(spacing: 4) {
-                ForEach(ReaderSidebarTab.allCases) { sTab in
-                    let isSelected = tab.activeSidebarTab == sTab
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.14)) {
-                            tab.activeSidebarTab = sTab
-                        }
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: sTab.iconName)
-                                .font(.system(size: 11.5, weight: .medium))
-                            Text(sTab.title)
-                                .font(.system(size: 11.5, weight: isSelected ? .semibold : .regular))
-                        }
-                        .foregroundColor(isSelected ? RDColorPalette.primaryTint : RDColorPalette.labelSecondary(isDark))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(isSelected ? RDColorPalette.primaryTint.opacity(isDark ? 0.22 : 0.14) : Color.clear)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(8)
-            .background(RDColorPalette.secondarySystemBackground(isDark))
+    public static let width: CGFloat = 240
 
-            Divider()
+    public var body: some View {
+        Group {
+            switch tab.leftPanel {
+            case .documentSummary:
+                documentSummary
+            case .viewSettings:
+                DocumentViewSettingsPanel(store: store, tab: tab, isDark: isDark)
+            }
+        }
+        .frame(width: Self.width)
+        .frame(maxHeight: .infinity)
+        .background(RDColorPalette.panelBackground(isDark))
+        .overlay(alignment: .trailing) {
+            Rectangle()
+                .fill(RDColorPalette.panelHairline(isDark))
+                .frame(width: 1)
+        }
+    }
+
+    private var documentSummary: some View {
+        VStack(spacing: 0) {
+            // Icon Segmented Header (Thumbnails / Outline / Bookmarks)
+            PanelSegmentedControl(items: ReaderSidebarTab.allCases, selection: $tab.activeSidebarTab, isDark: isDark) { sTab, _ in
+                Image(systemName: sTab.iconName)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .help(sTab.title)
+                    .accessibilityLabel(Text(sTab.title))
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 10)
+            .padding(.bottom, 4)
+
+            HStack(spacing: 6) {
+                Text(tab.activeSidebarTab.title)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(RDColorPalette.labelPrimary(isDark))
+                Spacer()
+                headerAccessory
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 34)
+
+            Rectangle()
+                .fill(RDColorPalette.panelSeparator(isDark))
+                .frame(height: 1)
 
             // Active Panel Content
             Group {
@@ -659,14 +519,160 @@ public struct ReaderLeftSidebarView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(RDColorPalette.secondarySystemBackground(isDark))
         }
-        .frame(width: 228)
-        .overlay(alignment: .trailing) {
-            Rectangle()
-                .fill(RDColorPalette.separator(isDark).opacity(0.55))
-                .frame(width: 1)
+    }
+
+    @ViewBuilder
+    private var headerAccessory: some View {
+        switch tab.activeSidebarTab {
+        case .thumbnails:
+            Text("\(tab.pageCount) 页")
+                .font(.system(size: 11))
+                .monospacedDigit()
+                .foregroundColor(RDColorPalette.labelTertiary(isDark))
+        case .outline:
+            EmptyView()
+        case .bookmarks:
+            let isCurrentBookmarked = store.isPageBookmarked(pageIndex: tab.currentPageIndex, in: tab.documentID)
+            PanelHeaderIconButton(
+                icon: "plus",
+                tooltip: "为当前页添加书签 (⌘D)",
+                isDisabled: isCurrentBookmarked,
+                isDark: isDark
+            ) {
+                store.toggleBookmark(pageIndex: tab.currentPageIndex, in: tab.documentID)
+            }
         }
+    }
+}
+
+// MARK: - Panel Building Blocks
+
+/// PDF Expert-style segmented control: grey track, white thumb under the selected segment.
+struct PanelSegmentedControl<Item: Identifiable & Hashable, SegmentLabel: View>: View {
+    let items: [Item]
+    @Binding var selection: Item
+    let isDark: Bool
+    @ViewBuilder let label: (Item, Bool) -> SegmentLabel
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(items) { item in
+                let isSelected = (item == selection)
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        selection = item
+                    }
+                } label: {
+                    label(item, isSelected)
+                        .foregroundColor(isSelected ? RDColorPalette.labelPrimary(isDark) : RDColorPalette.labelSecondary(isDark))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 24)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(isSelected ? RDColorPalette.segmentedThumb(isDark) : Color.clear)
+                                .shadow(color: Color.black.opacity(isSelected ? (isDark ? 0.35 : 0.10) : 0), radius: 1.5, x: 0, y: 0.5)
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(3)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(RDColorPalette.segmentedTrack(isDark))
+        )
+    }
+}
+
+struct PanelHeaderIconButton: View {
+    let icon: String
+    let tooltip: String
+    var isDisabled: Bool = false
+    let isDark: Bool
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundColor(isDisabled ? RDColorPalette.labelQuaternary(isDark) : RDColorPalette.labelSecondary(isDark))
+                .frame(width: 22, height: 22)
+                .background(
+                    Circle()
+                        .fill(isHovered && !isDisabled ? RDColorPalette.toolbarActive(isDark) : RDColorPalette.segmentedTrack(isDark))
+                )
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .help(tooltip)
+        .accessibilityLabel(Text(tooltip))
+        .onHover { isHovered = $0 }
+    }
+}
+
+struct PanelTextButton: View {
+    let title: String
+    let icon: String
+    let isDark: Bool
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: .medium))
+                Text(title)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .lineLimit(1)
+            }
+            .foregroundColor(RDColorPalette.labelPrimary(isDark))
+            .frame(maxWidth: .infinity)
+            .frame(height: 26)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isHovered ? RDColorPalette.rowHover(isDark) : RDColorPalette.panelListBackground(isDark))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(RDColorPalette.panelSeparator(isDark), lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+    }
+}
+
+struct PanelEmptyState: View {
+    let icon: String
+    let title: String
+    let subtitle: String?
+    let isDark: Bool
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 26, weight: .light))
+                .foregroundColor(RDColorPalette.labelQuaternary(isDark))
+            Text(title)
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundColor(RDColorPalette.labelSecondary(isDark))
+            if let subtitle {
+                Text(subtitle)
+                    .font(.system(size: 11))
+                    .foregroundColor(RDColorPalette.labelTertiary(isDark))
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -680,70 +686,111 @@ struct PDFPageThumbnailsPanel: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 14) {
+                LazyVStack(spacing: 14) {
                     ForEach(0..<tab.pageCount, id: \.self) { pageIdx in
-                        let isCurrent = (tab.currentPageIndex == pageIdx)
-                        let isBookmarked = store.isPageBookmarked(pageIndex: pageIdx, in: tab.documentID)
-                        Button {
+                        PageThumbnailCell(
+                            store: store,
+                            tab: tab,
+                            pageIndex: pageIdx,
+                            maxSize: CGSize(width: 148, height: 192),
+                            isDark: isDark
+                        ) {
                             tab.navigateToPage(pageIdx)
-                        } label: {
-                            VStack(spacing: 6) {
-                                ZStack(alignment: .topTrailing) {
-                                    if let page = tab.pdfDocument.page(at: pageIdx) {
-                                        let thumb = PDFThumbnailCache.shared.thumbnail(
-                                            for: page,
-                                            documentID: tab.documentID.id,
-                                            pageIndex: pageIdx,
-                                            theme: store.pdfTheme
-                                        )
-                                        Image(nsImage: thumb)
-                                            .resizable()
-                                            .aspectRatio(contentMode: .fit)
-                                            .frame(height: 148)
-                                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                                            .shadow(color: Color.black.opacity(isDark ? 0.45 : 0.15), radius: 3, x: 0, y: 1)
-                                            .padding(4)
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                                    .stroke(isCurrent ? RDColorPalette.primaryTint : Color.clear, lineWidth: 2.2)
-                                            )
-                                    }
-
-                                    if isBookmarked {
-                                        Image(systemName: "bookmark.fill")
-                                            .font(.system(size: 12))
-                                            .foregroundColor(RDColorPalette.systemRed)
-                                            .padding(8)
-                                    }
-                                }
-
-                                Text("\(pageIdx + 1)")
-                                    .font(.system(size: 11, weight: isCurrent ? .bold : .medium, design: .monospaced))
-                                    .foregroundColor(isCurrent ? .white : RDColorPalette.labelSecondary(isDark))
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 2)
-                                    .background(
-                                        Capsule()
-                                            .fill(isCurrent ? RDColorPalette.primaryTint : Color.clear)
-                                    )
-                            }
-                            .padding(.vertical, 4)
                         }
-                        .buttonStyle(.plain)
                         .id(pageIdx)
-                        .contextMenu {
-                            Button(isBookmarked ? "移除书签" : "添加书签") {
-                                store.toggleBookmark(pageIndex: pageIdx, in: tab.documentID)
-                            }
-                        }
                     }
                 }
-                .padding(12)
+                .padding(.vertical, 16)
+                .frame(maxWidth: .infinity)
+            }
+            .onAppear {
+                proxy.scrollTo(tab.currentPageIndex, anchor: .center)
             }
             .onChange(of: tab.currentPageIndex) { _, newIdx in
                 withAnimation(.easeInOut(duration: 0.2)) {
                     proxy.scrollTo(newIdx, anchor: .center)
                 }
+            }
+        }
+    }
+}
+
+/// Page thumbnail rendered with the active GPU theme; shared by the left panel and the page overview grid.
+struct PageThumbnailCell: View {
+    @ObservedObject var store: AppStore
+    @ObservedObject var tab: DocumentTabState
+    let pageIndex: Int
+    let maxSize: CGSize
+    let isDark: Bool
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        let isCurrent = (tab.currentPageIndex == pageIndex)
+        let isBookmarked = store.isPageBookmarked(pageIndex: pageIndex, in: tab.documentID)
+        let page = tab.pdfDocument.page(at: pageIndex)
+
+        Button(action: action) {
+            VStack(spacing: 7) {
+                if let page {
+                    let thumb = PDFThumbnailCache.shared.thumbnail(
+                        for: page,
+                        documentID: tab.documentID.id,
+                        pageIndex: pageIndex,
+                        theme: store.pdfTheme,
+                        size: CGSize(width: maxSize.width * 2, height: maxSize.height * 2)
+                    )
+                    Image(nsImage: thumb)
+                        .resizable()
+                        .interpolation(.high)
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: maxSize.width, maxHeight: maxSize.height)
+                        .overlay(
+                            Rectangle()
+                                .stroke(Color.black.opacity(isDark ? 0.4 : 0.12), lineWidth: 0.5)
+                        )
+                        .overlay(alignment: .topTrailing) {
+                            if isBookmarked {
+                                Image(systemName: "bookmark.fill")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(RDColorPalette.systemRed)
+                                    .shadow(color: Color.black.opacity(0.2), radius: 1, x: 0, y: 0.5)
+                                    .padding(.trailing, 8)
+                                    .offset(y: -2)
+                            }
+                        }
+                        .shadow(color: Color.black.opacity(isDark ? 0.45 : 0.10), radius: 2.5, x: 0, y: 1)
+                        .padding(4)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .stroke(
+                                    isCurrent
+                                        ? RDColorPalette.accentBlue
+                                        : (isHovered ? RDColorPalette.accentBlue.opacity(0.35) : Color.clear),
+                                    lineWidth: 2
+                                )
+                        )
+                }
+
+                Text(page?.label ?? "\(pageIndex + 1)")
+                    .font(.system(size: 11, weight: isCurrent ? .semibold : .regular))
+                    .monospacedDigit()
+                    .foregroundColor(isCurrent ? .white : RDColorPalette.labelSecondary(isDark))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .fill(isCurrent ? RDColorPalette.accentBlue : Color.clear)
+                    )
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .contextMenu {
+            Button(isBookmarked ? "移除书签" : "添加书签") {
+                store.toggleBookmark(pageIndex: pageIndex, in: tab.documentID)
             }
         }
     }
@@ -755,6 +802,7 @@ struct PDFOutlineNode: Identifiable {
     let id = UUID()
     let title: String
     let pageIndex: Int?
+    let pageLabel: String?
     let children: [PDFOutlineNode]
 }
 
@@ -762,51 +810,132 @@ struct PDFOutlinePanel: View {
     @ObservedObject var tab: DocumentTabState
     let isDark: Bool
 
-    private var nodes: [PDFOutlineNode] {
-        guard let root = tab.pdfDocument.outlineRoot else { return [] }
-        return buildOutlineNodes(from: root)
+    @State private var nodes: [PDFOutlineNode] = []
+    @State private var expandedIDs: Set<UUID> = []
+    @State private var hasLoaded = false
+
+    private struct OutlineRow: Identifiable {
+        let node: PDFOutlineNode
+        let level: Int
+        var id: UUID { node.id }
     }
 
     var body: some View {
-        if nodes.isEmpty {
-            VStack(spacing: 8) {
-                Image(systemName: "list.bullet.indent")
-                    .font(.system(size: 28, weight: .light))
-                    .foregroundColor(RDColorPalette.labelTertiary(isDark))
-                Text("此文档不包含目录大纲")
-                    .font(.system(size: 12.5, weight: .medium))
-                    .foregroundColor(RDColorPalette.labelSecondary(isDark))
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 2) {
-                    ForEach(nodes) { node in
-                        PDFOutlineRowView(node: node, level: 0, tab: tab, isDark: isDark)
+        Group {
+            if hasLoaded && nodes.isEmpty {
+                PanelEmptyState(icon: "list.bullet.indent", title: "此文档不包含目录大纲", subtitle: nil, isDark: isDark)
+            } else {
+                let rows = visibleRows
+                let activeID = activeNodeID(in: rows)
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(rows) { row in
+                            PDFOutlineRowView(
+                                node: row.node,
+                                level: row.level,
+                                isExpanded: expandedIDs.contains(row.node.id),
+                                isActive: row.node.id == activeID,
+                                isDark: isDark,
+                                onToggle: { toggle(row.node) },
+                                onSelect: {
+                                    if let pIdx = row.node.pageIndex {
+                                        tab.navigateToPage(pIdx)
+                                    }
+                                }
+                            )
+                        }
                     }
+                    .background(RDColorPalette.panelListBackground(isDark))
                 }
-                .padding(8)
             }
         }
+        .onAppear(perform: loadIfNeeded)
+    }
+
+    private var visibleRows: [OutlineRow] {
+        var rows: [OutlineRow] = []
+        func walk(_ list: [PDFOutlineNode], level: Int) {
+            for node in list {
+                rows.append(OutlineRow(node: node, level: level))
+                if expandedIDs.contains(node.id) {
+                    walk(node.children, level: level + 1)
+                }
+            }
+        }
+        walk(nodes, level: 0)
+        return rows
+    }
+
+    /// The section containing the current page: last visible row starting at or before it.
+    private func activeNodeID(in rows: [OutlineRow]) -> UUID? {
+        rows.last(where: { ($0.node.pageIndex ?? Int.max) <= tab.currentPageIndex })?.node.id
+    }
+
+    private func toggle(_ node: PDFOutlineNode) {
+        withAnimation(.easeInOut(duration: 0.14)) {
+            if expandedIDs.contains(node.id) {
+                expandedIDs.remove(node.id)
+            } else {
+                expandedIDs.insert(node.id)
+            }
+        }
+    }
+
+    private func loadIfNeeded() {
+        guard !hasLoaded else { return }
+        hasLoaded = true
+        guard let root = tab.pdfDocument.outlineRoot else { return }
+        nodes = buildOutlineNodes(from: root)
+
+        // Short outlines open fully; long ones only reveal the branch holding the current page
+        var parentIDs: [UUID] = []
+        var nodeCount = 0
+        func collect(_ list: [PDFOutlineNode]) {
+            for node in list {
+                nodeCount += 1
+                if !node.children.isEmpty {
+                    parentIDs.append(node.id)
+                    collect(node.children)
+                }
+            }
+        }
+        collect(nodes)
+        expandedIDs = nodeCount <= 30 ? Set(parentIDs) : Set(ancestorIDs(ofPage: tab.currentPageIndex))
+    }
+
+    private func ancestorIDs(ofPage page: Int) -> [UUID] {
+        var best: [UUID] = []
+        func walk(_ list: [PDFOutlineNode], path: [UUID]) {
+            for node in list {
+                if let pIdx = node.pageIndex, pIdx <= page {
+                    best = path
+                }
+                walk(node.children, path: path + [node.id])
+            }
+        }
+        walk(nodes, path: [])
+        return best
     }
 
     private func buildOutlineNodes(from parent: PDFOutline) -> [PDFOutlineNode] {
         var result: [PDFOutlineNode] = []
         for i in 0..<parent.numberOfChildren {
             guard let child = parent.child(at: i) else { continue }
-            let pageIdx: Int?
+            var pageIdx: Int?
+            var pageLabel: String?
             if let page = child.destination?.page ?? child.action?.PerformPage(in: tab.pdfDocument) {
                 let idx = tab.pdfDocument.index(for: page)
-                pageIdx = (idx >= 0 && idx < tab.pageCount) ? idx : nil
-            } else {
-                pageIdx = nil
+                if idx >= 0 && idx < tab.pageCount {
+                    pageIdx = idx
+                    pageLabel = page.label ?? "\(idx + 1)"
+                }
             }
-            let subNodes = buildOutlineNodes(from: child)
             result.append(
                 PDFOutlineNode(
                     title: child.label ?? "未命名章节",
                     pageIndex: pageIdx,
-                    children: subNodes
+                    pageLabel: pageLabel,
+                    children: buildOutlineNodes(from: child)
                 )
             )
         }
@@ -826,65 +955,66 @@ extension PDFAction {
 struct PDFOutlineRowView: View {
     let node: PDFOutlineNode
     let level: Int
-    @ObservedObject var tab: DocumentTabState
+    let isExpanded: Bool
+    let isActive: Bool
     let isDark: Bool
-    @State private var isExpanded: Bool = true
+    let onToggle: () -> Void
+    let onSelect: () -> Void
+
+    @State private var isHovered = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            let isCurrent = (node.pageIndex == tab.currentPageIndex)
-            HStack(spacing: 4) {
-                if !node.children.isEmpty {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.14)) {
-                            isExpanded.toggle()
-                        }
-                    } label: {
-                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 9, weight: .bold))
+        HStack(alignment: .top, spacing: 4) {
+            Group {
+                if node.children.isEmpty {
+                    Color.clear
+                } else {
+                    Button(action: onToggle) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9.5, weight: .semibold))
                             .foregroundColor(RDColorPalette.labelTertiary(isDark))
-                            .frame(width: 14, height: 14)
+                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                            .frame(width: 18, height: 18)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                } else {
-                    Spacer().frame(width: 14)
                 }
-
-                Button {
-                    if let pIdx = node.pageIndex {
-                        tab.navigateToPage(pIdx)
-                    }
-                } label: {
-                    HStack {
-                        Text(node.title)
-                            .font(.system(size: 12, weight: level == 0 ? .semibold : .regular))
-                            .foregroundColor(isCurrent ? RDColorPalette.primaryTint : RDColorPalette.labelPrimary(isDark))
-                            .lineLimit(1)
-                        Spacer()
-                        if let pIdx = node.pageIndex {
-                            Text("\(pIdx + 1)")
-                                .font(.system(size: 10.5, design: .monospaced))
-                                .foregroundColor(isCurrent ? RDColorPalette.primaryTint : RDColorPalette.labelTertiary(isDark))
-                        }
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
             }
-            .padding(.leading, CGFloat(level) * 12)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 5)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(isCurrent ? RDColorPalette.primaryTint.opacity(isDark ? 0.18 : 0.12) : Color.clear)
-            )
+            .frame(width: 18, height: 18)
 
-            if isExpanded {
-                ForEach(node.children) { child in
-                    PDFOutlineRowView(node: child, level: level + 1, tab: tab, isDark: isDark)
-                }
+            Text(node.title)
+                .font(.system(size: 12.5, weight: level == 0 ? .medium : .regular))
+                .foregroundColor(isActive ? RDColorPalette.accentBlue : RDColorPalette.labelPrimary(isDark))
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 1)
+
+            if let label = node.pageLabel {
+                Text(label)
+                    .font(.system(size: 11))
+                    .monospacedDigit()
+                    .foregroundColor(isActive ? RDColorPalette.accentBlue : RDColorPalette.labelTertiary(isDark))
+                    .padding(.top, 2)
             }
         }
+        .padding(.leading, 8 + CGFloat(level) * 14)
+        .padding(.trailing, 12)
+        .padding(.vertical, 8)
+        .background(
+            isActive
+                ? RDColorPalette.accentBlue.opacity(isDark ? 0.20 : 0.10)
+                : (isHovered ? RDColorPalette.rowHover(isDark) : Color.clear)
+        )
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(RDColorPalette.panelSeparator(isDark))
+                .frame(height: 1)
+                .padding(.leading, 30 + CGFloat(level) * 14)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
+        .onHover { isHovered = $0 }
     }
 }
 
@@ -897,104 +1027,213 @@ struct PDFBookmarksPanel: View {
 
     var body: some View {
         let items = store.bookmarks(for: tab.documentID)
-        let isCurrentBookmarked = store.isPageBookmarked(pageIndex: tab.currentPageIndex, in: tab.documentID)
 
-        VStack(spacing: 0) {
-            // Quick Add/Toggle Bookmark Bar
-            HStack {
-                Button {
-                    store.toggleBookmark(pageIndex: tab.currentPageIndex, in: tab.documentID)
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: isCurrentBookmarked ? "bookmark.slash" : "bookmark.fill")
-                        Text(isCurrentBookmarked ? "移除当前页书签 (P.\(tab.currentPageIndex + 1))" : "添加当前页到书签 (P.\(tab.currentPageIndex + 1))")
+        if items.isEmpty {
+            PanelEmptyState(
+                icon: "bookmark",
+                title: "暂无页面书签",
+                subtitle: "按 ⌘D 或点击右上角的 + 标记当前页",
+                isDark: isDark
+            )
+        } else {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(items) { bm in
+                        BookmarkRowView(
+                            bookmark: bm,
+                            pageLabel: tab.pdfDocument.page(at: bm.pageIndex)?.label ?? "\(bm.pageIndex + 1)",
+                            isCurrent: bm.pageIndex == tab.currentPageIndex,
+                            isDark: isDark,
+                            onSelect: { tab.navigateToPage(bm.pageIndex) },
+                            onDelete: { store.removeBookmark(id: bm.id, in: tab.documentID) }
+                        )
                     }
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundColor(RDColorPalette.primaryTint)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(RDColorPalette.primaryTint.opacity(0.12))
-                    )
                 }
-                .buttonStyle(.plain)
-            }
-            .padding(8)
-
-            Divider()
-
-            if items.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "bookmark")
-                        .font(.system(size: 28, weight: .light))
-                        .foregroundColor(RDColorPalette.labelTertiary(isDark))
-                    Text("暂无页面书签")
-                        .font(.system(size: 12.5, weight: .medium))
-                        .foregroundColor(RDColorPalette.labelSecondary(isDark))
-                    Text("按 ⌘D 或点击上方按钮标记重要页面")
-                        .font(.system(size: 11))
-                        .foregroundColor(RDColorPalette.labelTertiary(isDark))
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 4) {
-                        ForEach(items) { bm in
-                            let isCurrent = (bm.pageIndex == tab.currentPageIndex)
-                            HStack(spacing: 8) {
-                                Image(systemName: "bookmark.fill")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(RDColorPalette.systemRed)
-
-                                Button {
-                                    tab.navigateToPage(bm.pageIndex)
-                                } label: {
-                                    HStack {
-                                        Text(bm.title)
-                                            .font(.system(size: 12, weight: isCurrent ? .semibold : .regular))
-                                            .foregroundColor(isCurrent ? RDColorPalette.primaryTint : RDColorPalette.labelPrimary(isDark))
-                                            .lineLimit(1)
-                                        Spacer()
-                                        Text("P.\(bm.pageIndex + 1)")
-                                            .font(.system(size: 10.5, design: .monospaced))
-                                            .foregroundColor(RDColorPalette.labelTertiary(isDark))
-                                    }
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .fill(isCurrent ? RDColorPalette.primaryTint.opacity(0.14) : Color.clear)
-                            )
-                            .contextMenu {
-                                Button("跳转到第 \(bm.pageIndex + 1) 页") {
-                                    tab.navigateToPage(bm.pageIndex)
-                                }
-                                Divider()
-                                Button("删除书签", role: .destructive) {
-                                    store.removeBookmark(id: bm.id, in: tab.documentID)
-                                }
-                            }
-                        }
-                    }
-                    .padding(8)
-                }
+                .background(RDColorPalette.panelListBackground(isDark))
             }
         }
     }
 }
 
-// MARK: - ToolbarIconButton Helper
+struct BookmarkRowView: View {
+    let bookmark: BookmarkItem
+    let pageLabel: String
+    let isCurrent: Bool
+    let isDark: Bool
+    let onSelect: () -> Void
+    let onDelete: () -> Void
 
-struct ToolbarIconButton: View {
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "bookmark.fill")
+                .font(.system(size: 11))
+                .foregroundColor(RDColorPalette.systemRed)
+
+            Text(bookmark.title)
+                .font(.system(size: 12.5, weight: isCurrent ? .medium : .regular))
+                .foregroundColor(isCurrent ? RDColorPalette.accentBlue : RDColorPalette.labelPrimary(isDark))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text(pageLabel)
+                .font(.system(size: 11))
+                .monospacedDigit()
+                .foregroundColor(RDColorPalette.labelTertiary(isDark))
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .background(
+            isCurrent
+                ? RDColorPalette.accentBlue.opacity(isDark ? 0.20 : 0.10)
+                : (isHovered ? RDColorPalette.rowHover(isDark) : Color.clear)
+        )
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(RDColorPalette.panelSeparator(isDark))
+                .frame(height: 1)
+                .padding(.leading, 33)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
+        .onHover { isHovered = $0 }
+        .contextMenu {
+            Button("跳转到第 \(pageLabel) 页", action: onSelect)
+            Divider()
+            Button("删除书签", role: .destructive, action: onDelete)
+        }
+    }
+}
+
+// MARK: - 4. DocumentViewSettingsPanel (DocumentDisplaySettingsPanelViewController / "Layout options")
+
+struct DocumentViewSettingsPanel: View {
+    @ObservedObject var store: AppStore
+    @ObservedObject var tab: DocumentTabState
+    let isDark: Bool
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                Text("显示选项")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(RDColorPalette.labelPrimary(isDark))
+
+                // 1. Page Layout Mode (Single / Two Pages / Cover)
+                settingsSection("页面布局") {
+                    HStack(spacing: 6) {
+                        ForEach(ReaderLayoutMode.allCases) { mode in
+                            OptionTile(icon: mode.iconName, title: mode.shortTitle, isSelected: tab.layoutMode == mode, isDark: isDark) {
+                                tab.layoutMode = mode
+                            }
+                        }
+                    }
+                }
+
+                // 2. Split View Mode (PDFDocumentsSplitViewController)
+                settingsSection("分屏视图") {
+                    HStack(spacing: 6) {
+                        ForEach(ReaderSplitMode.allCases) { mode in
+                            OptionTile(icon: mode.iconName, title: mode.shortTitle, isSelected: tab.splitMode == mode, isDark: isDark) {
+                                withAnimation(.easeInOut(duration: 0.18)) {
+                                    tab.splitMode = mode
+                                }
+                            }
+                        }
+                    }
+
+                    if tab.splitMode != .disabled {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Toggle("同步滚动和缩放", isOn: $tab.syncScrollAndZoom)
+                                .toggleStyle(.switch)
+                                .controlSize(.mini)
+                                .font(.system(size: 12))
+                                .foregroundColor(RDColorPalette.labelPrimary(isDark))
+
+                            HStack(spacing: 6) {
+                                PanelTextButton(title: "对调位置", icon: "arrow.left.arrow.right", isDark: isDark) {
+                                    tab.isSplitSwapped.toggle()
+                                }
+                                PanelTextButton(title: "对比文档…", icon: "doc.on.doc", isDark: isDark) {
+                                    tab.showSplitDocumentPicker = true
+                                }
+                            }
+                        }
+                        .padding(.top, 4)
+                    }
+                }
+
+                // 3. Page Reading Theme (RDPDFShaders)
+                settingsSection("阅读主题") {
+                    HStack(spacing: 6) {
+                        ForEach([PDFViewTheme.day, .sepia, .night]) { theme in
+                            ThemePreviewTile(theme: theme, isSelected: store.pdfTheme == theme, isDark: isDark) {
+                                withAnimation(.easeInOut(duration: 0.16)) {
+                                    store.pdfTheme = theme
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 4. Page Tools (Clear Margins + Rotation)
+                settingsSection("页面") {
+                    Toggle(isOn: Binding(
+                        get: { tab.isClearMarginsEnabled },
+                        set: { newValue in
+                            tab.isClearMarginsEnabled = newValue
+                            tab.applyClearMarginsIfNeeded()
+                        }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("清除空白边")
+                                .font(.system(size: 12.5))
+                                .foregroundColor(RDColorPalette.labelPrimary(isDark))
+                            Text("识别内容边界并裁切页边距")
+                                .font(.system(size: 10.5))
+                                .foregroundColor(RDColorPalette.labelTertiary(isDark))
+                        }
+                    }
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+
+                    HStack(spacing: 6) {
+                        PanelTextButton(title: "向左旋转", icon: "rotate.left", isDark: isDark) {
+                            tab.rotateCurrentPage(clockwise: false)
+                        }
+                        PanelTextButton(title: "向右旋转", icon: "rotate.right", isDark: isDark) {
+                            tab.rotateCurrentPage(clockwise: true)
+                        }
+                    }
+                }
+
+                // 5. App UI Appearance (System / Light / Dark)
+                settingsSection("界面外观") {
+                    PanelSegmentedControl(items: AppAppearanceMode.allCases, selection: $store.appearanceMode, isDark: isDark) { mode, _ in
+                        Text(mode.shortTitle)
+                            .font(.system(size: 11.5, weight: .medium))
+                    }
+                }
+            }
+            .padding(14)
+        }
+    }
+
+    private func settingsSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundColor(RDColorPalette.labelTertiary(isDark))
+            content()
+        }
+    }
+}
+
+struct OptionTile: View {
     let icon: String
-    let tooltip: String
-    var isActive: Bool = false
-    var isDisabled: Bool = false
+    let title: String
+    let isSelected: Bool
     let isDark: Bool
     let action: () -> Void
 
@@ -1002,38 +1241,90 @@ struct ToolbarIconButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(foregroundColor)
-                .frame(width: 28, height: 26)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(backgroundColor)
-                )
+            VStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: 17, weight: .light))
+                    .frame(height: 24)
+                Text(title)
+                    .font(.system(size: 11, weight: isSelected ? .medium : .regular))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
+            .foregroundColor(isSelected ? RDColorPalette.accentBlue : RDColorPalette.labelSecondary(isDark))
+            .frame(maxWidth: .infinity)
+            .frame(height: 58)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isSelected ? RDColorPalette.panelListBackground(isDark) : (isHovered ? RDColorPalette.rowHover(isDark) : Color.clear))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(isSelected ? RDColorPalette.accentBlue.opacity(0.6) : Color.clear, lineWidth: 1.5)
+            )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(isDisabled)
-        .help(tooltip)
         .onHover { isHovered = $0 }
     }
+}
 
-    private var foregroundColor: Color {
-        if isDisabled {
-            return RDColorPalette.labelQuaternary(isDark)
+struct ThemePreviewTile: View {
+    let theme: PDFViewTheme
+    let isSelected: Bool
+    let isDark: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(theme.documentBackgroundColor(isDarkUI: isDark))
+                    MiniPagePreview(theme: theme)
+                        .frame(width: 26, height: 34)
+                }
+                .frame(height: 48)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(isSelected ? RDColorPalette.accentBlue : RDColorPalette.panelSeparator(isDark), lineWidth: isSelected ? 2 : 1)
+                )
+
+                Text(theme.title)
+                    .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                    .foregroundColor(isSelected ? RDColorPalette.accentBlue : RDColorPalette.labelSecondary(isDark))
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
         }
-        if isActive {
-            return RDColorPalette.primaryTint
-        }
-        return RDColorPalette.labelPrimary(isDark)
+        .buttonStyle(.plain)
+        .help("阅读主题：\(theme.title)")
     }
+}
 
-    private var backgroundColor: Color {
-        if isActive {
-            return RDColorPalette.primaryTint.opacity(isDark ? 0.22 : 0.14)
+/// Miniature page drawn with the theme's paper + ink colors (shader white/black outputs).
+struct MiniPagePreview: View {
+    let theme: PDFViewTheme
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(theme.pagePaperColor)
+                    .shadow(color: Color.black.opacity(0.18), radius: 1.5, x: 0, y: 0.5)
+
+                VStack(alignment: .leading, spacing: max(2, w * 0.08)) {
+                    Capsule()
+                        .fill(theme.pageInkColor)
+                        .frame(width: w * 0.55, height: max(1.5, w * 0.07))
+                    ForEach(0..<4, id: \.self) { line in
+                        Capsule()
+                            .fill(theme.pageInkColor.opacity(0.55))
+                            .frame(width: w * (line == 3 ? 0.42 : 0.7), height: max(1, w * 0.045))
+                    }
+                }
+                .padding(w * 0.15)
+            }
         }
-        if isHovered && !isDisabled {
-            return RDColorPalette.tertiarySystemBackground(isDark)
-        }
-        return Color.clear
     }
 }

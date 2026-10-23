@@ -6,6 +6,8 @@
     <string>zh_CN</string>
     <key>CFBundleExecutable</key>
     <string>OpenPDFExpert</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>com.openpdfexpert.reader</string>
     <key>CFBundleInfoDictionaryVersion</key>

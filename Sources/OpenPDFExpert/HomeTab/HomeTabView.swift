@@ -3,20 +3,24 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// Replicates `HomeTabRootView`, `HomeTabPageView`, `HomeTabSidebarView`, `HorizontalItemsRow`,
-/// and `DocumentsCollectionView` from `HomeTab.framework/Resources/ARCHITECTURE.md`.
+/// and `DocumentsCollectionView` from `HomeTab.framework/Resources/ARCHITECTURE.md`, laid out like
+/// PDF Expert 3.13's Home: opaque `216pt` sidebar, large page title, dashed drop area and card sections.
 public struct HomeTabRootView: View {
     @ObservedObject var store: AppStore
     var isStandaloneSplitPane: Bool = false
     var onSelectDocumentInSplitPane: ((URL) -> Void)?
 
+    @State private var isDropTargeted = false
     @Environment(\.colorScheme) private var colorScheme
     private var isDark: Bool { colorScheme == .dark }
 
     public static let sidebarWidth: CGFloat = 216
     public static let maxColumnWidth: CGFloat = 880
-    public static let minimumGutter: CGFloat = 32
-    public static let cardWidth: CGFloat = 144
-    public static let cardHeight: CGFloat = 214
+    public static let minimumGutter: CGFloat = 40
+    public static let cardMinWidth: CGFloat = 132
+    public static let cardMaxWidth: CGFloat = 156
+    /// Home shows one row's worth of documents; "查看全部" opens the full page
+    public static let homeSectionItemLimit = 6
 
     public init(
         store: AppStore,
@@ -29,41 +33,33 @@ public struct HomeTabRootView: View {
     }
 
     public var body: some View {
-        ZStack(alignment: .leading) {
-            // Page Container (full width, inset by sidebarWidth when not standalone)
-            pageContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(RDColorPalette.secondarySystemBackground(isDark))
-
-            // Leading .thinMaterial Sidebar (216pt) pinned to leading edge
+        HStack(spacing: 0) {
             if !isStandaloneSplitPane {
                 HomeTabSidebarView(store: store)
                     .frame(width: Self.sidebarWidth)
                     .frame(maxHeight: .infinity)
-                    .background(.thinMaterial)
-                    .overlay(alignment: .trailing) {
-                        Rectangle()
-                            .fill(RDColorPalette.separator(isDark).opacity(0.45))
-                            .frame(width: 1)
-                    }
             }
 
+            pageContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(RDColorPalette.homeContentBackground(isDark))
+        }
+        .overlay {
             // Drag-and-Drop Overlay (DropOverlayView)
-            if store.isDraggingOverHome {
+            if isDropTargeted {
                 DropOverlayView(isDark: isDark)
-                    .padding(16)
+                    .padding(14)
                     .transition(.opacity)
             }
         }
-        .onDrop(of: [.fileURL, .pdf], isTargeted: $store.isDraggingOverHome) { providers in
+        .onDrop(of: [.fileURL, .pdf], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)
         }
     }
 
-    @ViewBuilder
     private var pageContent: some View {
         ScrollView(.vertical, showsIndicators: true) {
-            VStack(alignment: .center, spacing: 28) {
+            VStack(alignment: .leading, spacing: 32) {
                 switch isStandaloneSplitPane ? .home : store.homeCurrentPage {
                 case .home:
                     homePageSections
@@ -73,9 +69,10 @@ public struct HomeTabRootView: View {
                     favoritesFullPage
                 }
             }
-            .padding(.leading, isStandaloneSplitPane ? 0 : Self.sidebarWidth)
-            .padding(.horizontal, Self.minimumGutter)
-            .padding(.vertical, 28)
+            .frame(maxWidth: Self.maxColumnWidth, alignment: .leading)
+            .padding(.horizontal, isStandaloneSplitPane ? 24 : Self.minimumGutter)
+            .padding(.top, isStandaloneSplitPane ? 22 : 34)
+            .padding(.bottom, 40)
             .frame(maxWidth: .infinity)
         }
     }
@@ -83,145 +80,102 @@ public struct HomeTabRootView: View {
     // MARK: - Home Page Sections
 
     private var homePageSections: some View {
-        VStack(alignment: .leading, spacing: 28) {
-            // Top Header + Quick Theme Switcher
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(isStandaloneSplitPane ? "选择分屏对比文档" : "欢迎使用 PDF Expert 阅读版")
-                        .font(.system(size: 22, weight: .bold))
-                        .foregroundColor(RDColorPalette.labelPrimary(isDark))
-                        .lineLimit(1)
-                    Text(isStandaloneSplitPane ? "点击任一文档或在下方拖入 PDF 以在分屏视图中打开" : "纯粹阅读体验 • GPU 原生着色器支持日间 / 纸质 / 夜间三色切换")
-                        .font(.system(size: 12.5))
-                        .foregroundColor(RDColorPalette.labelSecondary(isDark))
-                        .lineLimit(1)
-                }
-                Spacer()
-                if !isStandaloneSplitPane {
-                    HomeThemeQuickPicker(store: store)
-                }
-            }
-            .pageSection()
+        VStack(alignment: .leading, spacing: 32) {
+            pageTitle(
+                isStandaloneSplitPane ? "选择对比文档" : "主页",
+                subtitle: isStandaloneSplitPane ? "点击任一文档，或将 PDF 拖放到下方，在分屏中打开" : nil
+            )
 
             // Drop Area Section (HomeSection.dropArea)
-            HomeDropAreaCard(
-                isDark: isDark,
-                onOpenFilePicker: {
-                    if let splitHandler = onSelectDocumentInSplitPane {
-                        let panel = NSOpenPanel()
-                        panel.allowedContentTypes = [.pdf]
-                        panel.allowsMultipleSelection = false
-                        if panel.runModal() == .OK, let url = panel.url {
-                            splitHandler(url)
-                        }
-                    } else {
-                        store.openFilePicker()
-                    }
-                },
-                onOpenGuide: {
-                    let url = SamplePDFGenerator.ensureSamplePDFExists()
-                    openURL(url)
-                }
-            )
-            .pageSection()
+            HomeDropAreaCard(isDark: isDark, isCompact: isStandaloneSplitPane, onOpenFilePicker: openFilePicker)
 
-            // Opened Files Section (when any document tab is open)
-            if !store.openedDocumentItems.isEmpty && !isStandaloneSplitPane {
-                HomeDocumentsHorizontalSection(
-                    title: "已打开的文档",
-                    icon: "doc.on.doc.fill",
-                    items: store.openedDocumentItems,
-                    pdfTheme: store.pdfTheme,
-                    isDark: isDark,
-                    viewAllAction: nil,
-                    onOpen: { openURL($0.url) },
-                    onToggleFavorite: { store.toggleFavorite(id: $0.documentID) },
-                    onShowInFinder: { store.showInFinder(id: $0.documentID) },
-                    onRemoveRecent: nil
-                )
-                .pageSection()
+            // Reading Themes (RDPDFShaders) — PDF Expert's "Tools for You" card row
+            if !isStandaloneSplitPane {
+                VStack(alignment: .leading, spacing: 14) {
+                    HomeSectionHeader(title: "阅读主题", isDark: isDark)
+                    HStack(spacing: 12) {
+                        ForEach([PDFViewTheme.day, .sepia, .night]) { theme in
+                            HomeThemeCard(theme: theme, isSelected: store.pdfTheme == theme, isDark: isDark) {
+                                withAnimation(.easeInOut(duration: 0.18)) {
+                                    store.pdfTheme = theme
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
-            // Recent Documents Horizontal Row
-            HomeDocumentsHorizontalSection(
+            // Recent Documents
+            documentsSection(
                 title: "最近打开",
-                icon: "clock.fill",
                 items: store.recentDocuments,
-                pdfTheme: store.pdfTheme,
-                isDark: isDark,
-                viewAllAction: isStandaloneSplitPane ? nil : { store.homeCurrentPage = .recents },
-                onOpen: { openURL($0.url) },
-                onToggleFavorite: { store.toggleFavorite(id: $0.documentID) },
-                onShowInFinder: { store.showInFinder(id: $0.documentID) },
-                onRemoveRecent: { store.removeFromRecents(id: $0.documentID) }
+                actions: isStandaloneSplitPane ? [] : [
+                    HomeSectionAction(title: "清除全部") { store.clearAllRecents() },
+                    HomeSectionAction(title: "查看全部") { store.homeCurrentPage = .recents }
+                ],
+                allowsRemoval: true,
+                emptyText: "打开过的 PDF 会显示在这里，方便随时继续阅读。"
             )
-            .pageSection()
 
-            // Favorites Horizontal Row
-            HomeDocumentsHorizontalSection(
+            // Favorites
+            documentsSection(
                 title: "收藏夹",
-                icon: "star.fill",
                 items: store.favoriteDocuments,
-                pdfTheme: store.pdfTheme,
-                isDark: isDark,
-                viewAllAction: isStandaloneSplitPane ? nil : { store.homeCurrentPage = .favorites },
-                onOpen: { openURL($0.url) },
-                onToggleFavorite: { store.toggleFavorite(id: $0.documentID) },
-                onShowInFinder: { store.showInFinder(id: $0.documentID) },
-                onRemoveRecent: nil
+                actions: isStandaloneSplitPane ? [] : [
+                    HomeSectionAction(title: "查看全部") { store.homeCurrentPage = .favorites }
+                ],
+                allowsRemoval: false,
+                emptyText: "将鼠标悬停在文档上并点按星标，即可加入收藏夹。"
             )
-            .pageSection()
+        }
+    }
+
+    private func documentsSection(
+        title: String,
+        items: [DocumentItem],
+        actions: [HomeSectionAction],
+        allowsRemoval: Bool,
+        emptyText: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HomeSectionHeader(title: title, actions: items.isEmpty ? [] : actions, isDark: isDark)
+
+            if items.isEmpty {
+                Text(emptyText)
+                    .font(.system(size: 13))
+                    .foregroundColor(RDColorPalette.labelTertiary(isDark))
+                    .padding(.vertical, 4)
+            } else {
+                documentsGrid(Array(items.prefix(Self.homeSectionItemLimit)), allowsRemoval: allowsRemoval)
+            }
         }
     }
 
     // MARK: - Recents Full Page
 
     private var recentsFullPage: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            HStack {
-                Label("最近打开", systemImage: "clock.fill")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundColor(RDColorPalette.labelPrimary(isDark))
+        VStack(alignment: .leading, spacing: 24) {
+            HStack(alignment: .firstTextBaseline) {
+                pageTitle("最近打开")
                 Spacer()
                 if !store.recentDocuments.isEmpty {
-                    Button("清除全部最近记录") {
+                    HomeLinkButton(title: "清除全部") {
                         store.clearAllRecents()
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
                 }
             }
-            .pageSection()
 
             if store.recentDocuments.isEmpty {
                 HomeEmptyStateView(
-                    icon: "clock.badge.questionmark",
+                    icon: "clock",
                     title: "暂无最近打开的 PDF 文档",
                     subtitle: "打开过的文件会自动显示在这里，方便随时继续阅读。",
-                    actionTitle: "打开 PDF 文件...",
+                    actionTitle: "打开文件",
                     isDark: isDark,
                     action: { store.openFilePicker() }
                 )
-                .pageSection()
             } else {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: Self.cardWidth, maximum: 168), spacing: 18)],
-                    alignment: .leading,
-                    spacing: 20
-                ) {
-                    ForEach(store.recentDocuments) { item in
-                        DocumentCardView(
-                            item: item,
-                            pdfTheme: store.pdfTheme,
-                            isDark: isDark,
-                            onOpen: { openURL(item.url) },
-                            onToggleFavorite: { store.toggleFavorite(id: item.documentID) },
-                            onShowInFinder: { store.showInFinder(id: item.documentID) },
-                            onRemoveRecent: { store.removeFromRecents(id: item.documentID) }
-                        )
-                    }
-                }
-                .pageSection()
+                documentsGrid(store.recentDocuments, allowsRemoval: true)
             }
         }
     }
@@ -229,52 +183,77 @@ public struct HomeTabRootView: View {
     // MARK: - Favorites Full Page
 
     private var favoritesFullPage: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            HStack {
-                Label("收藏夹", systemImage: "star.fill")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundColor(RDColorPalette.labelPrimary(isDark))
+        VStack(alignment: .leading, spacing: 24) {
+            HStack(alignment: .firstTextBaseline) {
+                pageTitle("收藏夹")
                 Spacer()
                 if !store.favoriteDocuments.isEmpty {
-                    Button("清空收藏夹") {
+                    HomeLinkButton(title: "清空收藏夹") {
                         store.clearAllFavorites()
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
                 }
             }
-            .pageSection()
 
             if store.favoriteDocuments.isEmpty {
                 HomeEmptyStateView(
-                    icon: "star.slash",
+                    icon: "star",
                     title: "收藏夹为空",
-                    subtitle: "将鼠标悬停在任意文档卡片右上角点击星标，即可将其加入收藏夹。",
+                    subtitle: "将鼠标悬停在任意文档上并点按星标，即可将其加入收藏夹。",
                     actionTitle: "返回主页",
                     isDark: isDark,
                     action: { store.homeCurrentPage = .home }
                 )
-                .pageSection()
             } else {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: Self.cardWidth, maximum: 168), spacing: 18)],
-                    alignment: .leading,
-                    spacing: 20
-                ) {
-                    ForEach(store.favoriteDocuments) { item in
-                        DocumentCardView(
-                            item: item,
-                            pdfTheme: store.pdfTheme,
-                            isDark: isDark,
-                            onOpen: { openURL(item.url) },
-                            onToggleFavorite: { store.toggleFavorite(id: item.documentID) },
-                            onShowInFinder: { store.showInFinder(id: item.documentID) },
-                            onRemoveRecent: nil
-                        )
-                    }
-                }
-                .pageSection()
+                documentsGrid(store.favoriteDocuments, allowsRemoval: false)
             }
+        }
+    }
+
+    // MARK: - Shared Pieces
+
+    private func pageTitle(_ title: String, subtitle: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: isStandaloneSplitPane ? 22 : 28, weight: .bold))
+                .foregroundColor(RDColorPalette.labelPrimary(isDark))
+            if let subtitle {
+                Text(subtitle)
+                    .font(.system(size: 12.5))
+                    .foregroundColor(RDColorPalette.labelSecondary(isDark))
+            }
+        }
+    }
+
+    private func documentsGrid(_ items: [DocumentItem], allowsRemoval: Bool) -> some View {
+        LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: Self.cardMinWidth, maximum: Self.cardMaxWidth), spacing: 14, alignment: .top)],
+            alignment: .leading,
+            spacing: 18
+        ) {
+            ForEach(items) { item in
+                DocumentCardView(
+                    item: item,
+                    pdfTheme: store.pdfTheme,
+                    isDark: isDark,
+                    onOpen: { openURL(item.url) },
+                    onToggleFavorite: { store.toggleFavorite(id: item.documentID) },
+                    onShowInFinder: { store.showInFinder(id: item.documentID) },
+                    onRemoveRecent: allowsRemoval ? { store.removeFromRecents(id: item.documentID) } : nil
+                )
+            }
+        }
+    }
+
+    private func openFilePicker() {
+        if let splitHandler = onSelectDocumentInSplitPane {
+            let panel = NSOpenPanel()
+            panel.allowedContentTypes = [.pdf]
+            panel.allowsMultipleSelection = false
+            if panel.runModal() == .OK, let url = panel.url {
+                splitHandler(url)
+            }
+        } else {
+            store.openFilePicker()
         }
     }
 
@@ -307,17 +286,6 @@ public struct HomeTabRootView: View {
     }
 }
 
-// MARK: - View.pageSection() Modifier (from HomeTabPageView.swift)
-
-extension View {
-    func pageSection() -> some View {
-        ZStack {
-            self
-        }
-        .frame(maxWidth: HomeTabRootView.maxColumnWidth, alignment: .leading)
-    }
-}
-
 // MARK: - HomeTabSidebarView
 
 struct HomeTabSidebarView: View {
@@ -326,170 +294,175 @@ struct HomeTabSidebarView: View {
     private var isDark: Bool { colorScheme == .dark }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // App Identity Header
-            HStack(spacing: 10) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [RDColorPalette.primaryTint, RDColorPalette.systemDarkBlue],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 32, height: 32)
-                    Image(systemName: "doc.richtext.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
-                }
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("PDF Expert")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(RDColorPalette.labelPrimary(isDark))
-                    Text("Reader Edition")
-                        .font(.system(size: 10.5, weight: .medium))
-                        .foregroundColor(RDColorPalette.labelTertiary(isDark))
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 18)
-            .padding(.bottom, 12)
-
+        VStack(alignment: .leading, spacing: 2) {
             // Navigation Pages (Home / Recents / Favorites)
             ForEach(HomeTabPage.allCases) { page in
-                let isSelected = store.homeCurrentPage == page
                 Button {
                     withAnimation(.easeInOut(duration: 0.15)) {
                         store.homeCurrentPage = page
                     }
                 } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: isSelected ? "\(page.iconName).fill" : page.iconName)
-                            .font(.system(size: 14, weight: .medium))
-                            .frame(width: 20)
-                            .foregroundColor(isSelected ? RDColorPalette.primaryTint : RDColorPalette.labelSecondary(isDark))
-                        Text(page.title)
-                            .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
-                            .foregroundColor(isSelected ? RDColorPalette.labelPrimary(isDark) : RDColorPalette.labelSecondary(isDark))
-                        Spacer()
-                        if page == .recents && !store.recentDocuments.isEmpty {
-                            Text("\(store.recentDocuments.count)")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(RDColorPalette.labelTertiary(isDark))
-                        } else if page == .favorites && !store.favoriteDocuments.isEmpty {
-                            Text("\(store.favoriteDocuments.count)")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(RDColorPalette.labelTertiary(isDark))
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(isSelected ? RDColorPalette.primaryTint.opacity(isDark ? 0.20 : 0.14) : Color.clear)
+                    HomeSidebarRowLabel(
+                        icon: "\(page.iconName).fill",
+                        iconColor: page == .home ? RDColorPalette.systemRed : RDColorPalette.labelPrimary(isDark),
+                        title: page.title,
+                        badge: badge(for: page),
+                        isSelected: store.homeCurrentPage == page,
+                        isDark: isDark
                     )
                 }
                 .buttonStyle(.plain)
-                .padding(.horizontal, 10)
             }
 
-            Spacer()
+            Spacer(minLength: 16)
 
-            Divider()
-                .padding(.horizontal, 14)
-
-            // Appearance & Theme Quick Panel in Sidebar Footer
-            VStack(alignment: .leading, spacing: 8) {
-                Text("界面外观")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(RDColorPalette.labelTertiary(isDark))
-
-                Picker("", selection: $store.appearanceMode) {
-                    ForEach(AppAppearanceMode.allCases) { mode in
-                        Text(mode.title.replacingOccurrences(of: "外观", with: "")).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 6)
-
-            // Open File Button
+            // Footer actions (PDF Expert: Account Details / Settings / Get Support)
             Button {
                 store.openFilePicker()
             } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "folder.badge.plus")
-                    Text("打开 PDF 文件...")
-                        .fontWeight(.medium)
-                    Spacer()
-                    Text("⌘O")
-                        .font(.system(size: 11))
-                        .opacity(0.75)
-                }
-                .font(.system(size: 12.5))
-                .foregroundColor(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(RDColorPalette.primaryTint)
-                )
+                HomeSidebarRowLabel(icon: "folder", iconColor: RDColorPalette.labelSecondary(isDark), title: "打开文件…", badge: "⌘O", isSecondary: true, isDark: isDark)
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, 12)
-            .padding(.bottom, 16)
+
+            Button {
+                store.openGettingStartedGuide()
+            } label: {
+                HomeSidebarRowLabel(icon: "questionmark.circle", iconColor: RDColorPalette.labelSecondary(isDark), title: "阅读指南", isSecondary: true, isDark: isDark)
+            }
+            .buttonStyle(.plain)
+
+            SettingsLink {
+                HomeSidebarRowLabel(icon: "gearshape", iconColor: RDColorPalette.labelSecondary(isDark), title: "设置", badge: "⌘,", isSecondary: true, isDark: isDark)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 14)
+        .padding(.bottom, 14)
+        .background(RDColorPalette.homeSidebarBackground(isDark))
+    }
+
+    private func badge(for page: HomeTabPage) -> String? {
+        switch page {
+        case .home:
+            return nil
+        case .recents:
+            return store.recentDocuments.isEmpty ? nil : "\(store.recentDocuments.count)"
+        case .favorites:
+            return store.favoriteDocuments.isEmpty ? nil : "\(store.favoriteDocuments.count)"
         }
     }
 }
 
-// MARK: - HomeThemeQuickPicker
+struct HomeSidebarRowLabel: View {
+    let icon: String
+    let iconColor: Color
+    let title: String
+    var badge: String?
+    var isSelected: Bool = false
+    var isSecondary: Bool = false
+    let isDark: Bool
 
-struct HomeThemeQuickPicker: View {
-    @ObservedObject var store: AppStore
-    @Environment(\.colorScheme) private var colorScheme
-    private var isDark: Bool { colorScheme == .dark }
+    @State private var isHovered = false
 
     var body: some View {
-        HStack(spacing: 4) {
-            ForEach([PDFViewTheme.day, .sepia, .night]) { theme in
-                let isSelected = store.pdfTheme == theme
-                Button {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        store.pdfTheme = theme
-                    }
-                } label: {
-                    HStack(spacing: 5) {
-                        Circle()
-                            .fill(theme.pagePaperColor)
-                            .frame(width: 11, height: 11)
-                            .overlay(
-                                Circle().stroke(Color.gray.opacity(0.45), lineWidth: 0.8)
-                            )
-                        Text(theme.title)
-                            .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(isSelected ? RDColorPalette.primaryTint.opacity(0.18) : Color.clear)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .stroke(isSelected ? RDColorPalette.primaryTint : Color.clear, lineWidth: 1)
-                    )
-                }
-                .buttonStyle(.plain)
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: isSecondary ? 13 : 15, weight: .medium))
+                .foregroundColor(iconColor)
+                .frame(width: 22)
+            Text(title)
+                .font(.system(size: isSecondary ? 13 : 14, weight: isSelected ? .semibold : .regular))
+                .foregroundColor(isSecondary ? RDColorPalette.labelSecondary(isDark) : RDColorPalette.labelPrimary(isDark))
+            Spacer(minLength: 4)
+            if let badge {
+                Text(badge)
+                    .font(.system(size: 11.5))
+                    .monospacedDigit()
+                    .foregroundColor(RDColorPalette.labelTertiary(isDark))
             }
         }
-        .padding(3)
+        .padding(.horizontal, 10)
+        .frame(height: isSecondary ? 34 : 38)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(RDColorPalette.tertiarySystemBackground(isDark))
+                .fill(
+                    isSelected
+                        ? RDColorPalette.homeSidebarSelection(isDark)
+                        : (isHovered ? RDColorPalette.homeSidebarSelection(isDark).opacity(0.55) : Color.clear)
+                )
         )
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+    }
+}
+
+// MARK: - Section Header & Links
+
+struct HomeSectionAction: Identifiable {
+    let title: String
+    let action: () -> Void
+    var id: String { title }
+}
+
+struct HomeSectionHeader: View {
+    let title: String
+    var actions: [HomeSectionAction] = []
+    let isDark: Bool
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(title)
+                .font(.system(size: 20, weight: .bold))
+                .foregroundColor(RDColorPalette.labelPrimary(isDark))
+            Spacer()
+            ForEach(Array(actions.enumerated()), id: \.element.id) { idx, action in
+                if idx > 0 {
+                    Rectangle()
+                        .fill(RDColorPalette.separator(isDark))
+                        .frame(width: 1, height: 14)
+                }
+                HomeLinkButton(title: action.title, action: action.action)
+            }
+        }
+    }
+}
+
+struct HomeLinkButton: View {
+    let title: String
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 13.5))
+                .foregroundColor(RDColorPalette.accentBlue.opacity(isHovered ? 0.75 : 1))
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+    }
+}
+
+struct HomePrimaryButton: View {
+    let title: String
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.white)
+                .padding(.horizontal, 18)
+                .frame(height: 30)
+                .background(Capsule().fill(RDColorPalette.accentBlue.opacity(isHovered ? 0.88 : 1)))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
     }
 }
 
@@ -497,138 +470,143 @@ struct HomeThemeQuickPicker: View {
 
 struct HomeDropAreaCard: View {
     let isDark: Bool
+    var isCompact: Bool = false
     let onOpenFilePicker: () -> Void
-    let onOpenGuide: () -> Void
+
     @State private var isHovered = false
 
     var body: some View {
-        HStack(spacing: 18) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(RDColorPalette.primaryTint.opacity(isDark ? 0.18 : 0.12))
-                    .frame(width: 56, height: 56)
-                Image(systemName: "arrow.up.doc.on.clipboard")
-                    .font(.system(size: 24, weight: .medium))
-                    .foregroundColor(RDColorPalette.primaryTint)
-            }
+        VStack(spacing: 12) {
+            PDFStackIllustration(isDark: isDark)
+                .frame(width: 104, height: 62)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("将 PDF 拖拽至此处阅读，或点击选择本地文件")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(RDColorPalette.labelPrimary(isDark))
-                Text("支持多标签页阅读、日间/纸质/夜间着色器滤镜、单双页与分屏视图、自动去白边及目录大纲检索")
-                    .font(.system(size: 12))
-                    .foregroundColor(RDColorPalette.labelSecondary(isDark))
-                    .lineLimit(1)
-            }
+            HomePrimaryButton(title: "打开文件", action: onOpenFilePicker)
 
-            Spacer()
-
-            Button("阅读指南 PDF") {
-                onOpenGuide()
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.regular)
-
-            Button("选择文件...") {
-                onOpenFilePicker()
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(RDColorPalette.primaryTint)
-            .controlSize(.regular)
+            Text("或将 PDF 文件拖放到此处")
+                .font(.system(size: 12.5))
+                .foregroundColor(RDColorPalette.accentBlue.opacity(0.85))
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity)
+        .frame(height: isCompact ? 176 : 196)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(RDColorPalette.tertiarySystemBackground(isDark))
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(RDColorPalette.accentBlue.opacity(isDark ? 0.10 : 0.05))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(
-                    style: StrokeStyle(lineWidth: 1.2, dash: [6, 4])
-                )
-                .foregroundColor(isHovered ? RDColorPalette.primaryTint : RDColorPalette.separator(isDark))
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(RDColorPalette.accentBlue.opacity(isDark ? 0.22 : 0.13), lineWidth: 3)
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .strokeBorder(
+                    RDColorPalette.accentBlue.opacity(isHovered ? 0.75 : 0.42),
+                    style: StrokeStyle(lineWidth: 1.5, dash: [8, 6])
+                )
+                .padding(6)
+        )
+        .contentShape(Rectangle())
         .onHover { isHovered = $0 }
-        .onTapGesture { onOpenFilePicker() }
+        .onTapGesture(perform: onOpenFilePicker)
     }
 }
 
-// MARK: - HomeDocumentsHorizontalSection (HorizontalItemsRow)
-
-struct HomeDocumentsHorizontalSection: View {
-    let title: String
-    let icon: String
-    let items: [DocumentItem]
-    let pdfTheme: PDFViewTheme
+/// Three fanned pages with a "PDF" label (PDF Expert's drop-area artwork, drawn with shapes).
+struct PDFStackIllustration: View {
     let isDark: Bool
-    let viewAllAction: (() -> Void)?
-    let onOpen: (DocumentItem) -> Void
-    let onToggleFavorite: (DocumentItem) -> Void
-    let onShowInFinder: (DocumentItem) -> Void
-    let onRemoveRecent: ((DocumentItem) -> Void)?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Label(title, systemImage: icon)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(RDColorPalette.labelPrimary(isDark))
-                Text("(\(items.count))")
-                    .font(.system(size: 12.5))
-                    .foregroundColor(RDColorPalette.labelTertiary(isDark))
-                Spacer()
-                if let viewAll = viewAllAction, !items.isEmpty {
-                    Button {
-                        viewAll()
-                    } label: {
-                        HStack(spacing: 3) {
-                            Text("查看全部")
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 10, weight: .semibold))
-                        }
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(RDColorPalette.primaryTint)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            if items.isEmpty {
-                HStack(spacing: 10) {
-                    Image(systemName: "tray")
-                        .foregroundColor(RDColorPalette.labelTertiary(isDark))
-                    Text("暂无\(title)内容")
-                        .font(.system(size: 12.5))
-                        .foregroundColor(RDColorPalette.labelTertiary(isDark))
-                }
-                .frame(maxWidth: .infinity, minHeight: 84)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(RDColorPalette.tertiarySystemBackground(isDark).opacity(0.6))
+        ZStack {
+            paper(showsLines: true)
+                .rotationEffect(.degrees(-12))
+                .offset(x: -24, y: 4)
+            paper(showsLines: true)
+                .rotationEffect(.degrees(12))
+                .offset(x: 24, y: 4)
+            paper(showsLines: false)
+                .overlay(
+                    Text("PDF")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(RDColorPalette.accentBlue.opacity(0.75))
+                        .offset(y: 9)
                 )
-            } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .top, spacing: 16) {
-                        ForEach(items) { item in
-                            DocumentCardView(
-                                item: item,
-                                pdfTheme: pdfTheme,
-                                isDark: isDark,
-                                onOpen: { onOpen(item) },
-                                onToggleFavorite: { onToggleFavorite(item) },
-                                onShowInFinder: { onShowInFinder(item) },
-                                onRemoveRecent: onRemoveRecent.map { fn in { fn(item) } }
-                            )
-                            .frame(width: HomeTabRootView.cardWidth)
+        }
+    }
+
+    private func paper(showsLines: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 4, style: .continuous)
+            .fill(isDark ? Color(hex: 0x2C2C30) : Color.white)
+            .frame(width: 42, height: 54)
+            .overlay(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .stroke(RDColorPalette.accentBlue.opacity(0.28), lineWidth: 1)
+            )
+            .overlay(alignment: .topLeading) {
+                if showsLines {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(0..<4, id: \.self) { line in
+                            Capsule()
+                                .fill(RDColorPalette.accentBlue.opacity(0.25))
+                                .frame(width: line == 3 ? 14 : 24, height: 2)
                         }
                     }
-                    .padding(.vertical, 4)
+                    .padding(8)
                 }
-                .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
             }
+            .shadow(color: Color.black.opacity(isDark ? 0.4 : 0.08), radius: 3, x: 0, y: 1)
+    }
+}
+
+// MARK: - HomeThemeCard (Day / Sepia / Night)
+
+struct HomeThemeCard: View {
+    let theme: PDFViewTheme
+    let isSelected: Bool
+    let isDark: Bool
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(theme.documentBackgroundColor(isDarkUI: isDark))
+                    MiniPagePreview(theme: theme)
+                        .frame(width: 36, height: 46)
+                }
+                .frame(height: 66)
+
+                HStack(spacing: 6) {
+                    Image(systemName: theme.toolbarIconName)
+                        .font(.system(size: 12, weight: .medium))
+                    Text(theme.title)
+                        .font(.system(size: 13, weight: .medium))
+                    Spacer(minLength: 0)
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 13))
+                            .foregroundColor(RDColorPalette.accentBlue)
+                    }
+                }
+                .foregroundColor(RDColorPalette.labelPrimary(isDark))
+                .padding(.horizontal, 2)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(isHovered ? RDColorPalette.homeCardHover(isDark) : RDColorPalette.homeCardBackground(isDark))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(isSelected ? RDColorPalette.accentBlue : Color.clear, lineWidth: 2)
+            )
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .help("阅读主题：\(theme.title)")
+        .onHover { isHovered = $0 }
     }
 }
 
@@ -644,71 +622,60 @@ struct DocumentCardView: View {
     let onRemoveRecent: (() -> Void)?
 
     @State private var isHovered = false
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ZStack(alignment: .topTrailing) {
-                // Thumbnail Preview Container
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(RDColorPalette.tertiarySystemBackground(isDark))
-
-                    Image(nsImage: themedThumbnail)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                        .shadow(color: Color.black.opacity(isDark ? 0.45 : 0.14), radius: 5, x: 0, y: 2)
-                        .padding(10)
-                        .id("\(colorScheme)-\(pdfTheme.rawValue)")
-                }
-                .frame(height: 158)
+        VStack(spacing: 8) {
+            Image(nsImage: PDFThumbnailCache.shared.themedCover(for: item, theme: pdfTheme))
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(maxWidth: 112, maxHeight: 142)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(isHovered ? RDColorPalette.primaryTint : RDColorPalette.separator(isDark).opacity(0.45), lineWidth: isHovered ? 1.5 : 0.8)
+                    Rectangle()
+                        .stroke(Color.black.opacity(isDark ? 0.35 : 0.10), lineWidth: 0.5)
                 )
-
-                // Page count badge (bottom-left) + Favorite Star (top-right)
-                if isHovered || item.isFavorite {
-                    Button {
-                        onToggleFavorite()
-                    } label: {
-                        Image(systemName: item.isFavorite ? "star.fill" : "star")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(item.isFavorite ? RDColorPalette.systemYellow : .white)
-                            .padding(6)
-                            .background(Circle().fill(Color.black.opacity(0.55)))
+                .overlay(alignment: .topTrailing) {
+                    // Favorite Star (on hover, or always when favorited)
+                    if isHovered || item.isFavorite {
+                        Button(action: onToggleFavorite) {
+                            Image(systemName: item.isFavorite ? "star.fill" : "star")
+                                .font(.system(size: 10.5, weight: .semibold))
+                                .foregroundColor(item.isFavorite ? RDColorPalette.systemYellow : .white)
+                                .frame(width: 22, height: 22)
+                                .background(Circle().fill(Color.black.opacity(0.5)))
+                        }
+                        .buttonStyle(.plain)
+                        .help(item.isFavorite ? "取消收藏" : "添加到收藏")
+                        .padding(5)
                     }
-                    .buttonStyle(.plain)
-                    .padding(8)
                 }
-            }
+                .shadow(color: Color.black.opacity(isDark ? 0.5 : 0.16), radius: isHovered ? 6 : 3.5, x: 0, y: isHovered ? 3 : 1.5)
+                .frame(height: 150)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(spacing: 2) {
                 Text(item.title)
-                    .font(.system(size: 12.5, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundColor(RDColorPalette.labelPrimary(isDark))
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
                     .truncationMode(.middle)
 
-                HStack(spacing: 4) {
-                    Text("\(item.pageCount) 页")
-                    if !item.dateOpenedText.isEmpty {
-                        Text("•")
-                        Text(item.dateOpenedText)
-                    }
-                }
-                .font(.system(size: 10.5))
-                .foregroundColor(RDColorPalette.labelTertiary(isDark))
-                .lineLimit(1)
+                Text(item.dateOpenedText.isEmpty ? "\(item.pageCount) 页" : "\(item.pageCount) 页 · \(item.dateOpenedText)")
+                    .font(.system(size: 10.5))
+                    .foregroundColor(RDColorPalette.labelTertiary(isDark))
+                    .lineLimit(1)
             }
-            .padding(.horizontal, 2)
+            .frame(maxWidth: .infinity)
         }
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(isHovered ? RDColorPalette.homeCardHover(isDark) : Color.clear)
+        )
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
-        .onTapGesture {
-            onOpen()
-        }
+        .onTapGesture(perform: onOpen)
+        .help(item.url.path)
         .contextMenu {
             Button("阅读文档") { onOpen() }
             Button(item.isFavorite ? "取消收藏" : "添加到收藏") { onToggleFavorite() }
@@ -719,17 +686,6 @@ struct DocumentCardView: View {
                 Button("从最近打开中移除", role: .destructive) { remove() }
             }
         }
-    }
-
-    private var themedThumbnail: NSImage {
-        if pdfTheme == .day {
-            return item.thumbnail
-        }
-        if let cg = item.thumbnail.cgImage(forProposedRect: nil, context: nil, hints: nil),
-           let outCG = MetalShaderRenderer.shared.applyShader(to: cg, theme: pdfTheme) {
-            return NSImage(cgImage: outCG, size: item.thumbnail.size)
-        }
-        return item.thumbnail
     }
 }
 
@@ -746,8 +702,8 @@ struct HomeEmptyStateView: View {
     var body: some View {
         VStack(spacing: 12) {
             Image(systemName: icon)
-                .font(.system(size: 38, weight: .light))
-                .foregroundColor(RDColorPalette.labelTertiary(isDark))
+                .font(.system(size: 36, weight: .light))
+                .foregroundColor(RDColorPalette.labelQuaternary(isDark))
             Text(title)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundColor(RDColorPalette.labelPrimary(isDark))
@@ -756,19 +712,11 @@ struct HomeEmptyStateView: View {
                 .foregroundColor(RDColorPalette.labelSecondary(isDark))
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 380)
-            Button(actionTitle) {
-                action()
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(RDColorPalette.primaryTint)
-            .padding(.top, 4)
+            HomePrimaryButton(title: actionTitle, action: action)
+                .padding(.top, 4)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 56)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(RDColorPalette.tertiarySystemBackground(isDark).opacity(0.6))
-        )
+        .padding(.vertical, 64)
     }
 }
 
@@ -777,20 +725,21 @@ struct DropOverlayView: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(RDColorPalette.primaryTint.opacity(0.12))
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(RDColorPalette.primaryTint, style: StrokeStyle(lineWidth: 2.5, dash: [10, 6]))
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(RDColorPalette.accentBlue.opacity(0.10))
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(RDColorPalette.accentBlue, style: StrokeStyle(lineWidth: 2, dash: [10, 6]))
             VStack(spacing: 10) {
                 Image(systemName: "arrow.down.doc.fill")
-                    .font(.system(size: 42))
-                    .foregroundColor(RDColorPalette.primaryTint)
-                Text("松开以在 Open PDF Expert 中打开阅读")
+                    .font(.system(size: 40))
+                    .foregroundColor(RDColorPalette.accentBlue)
+                Text("松开鼠标即可打开 PDF")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(RDColorPalette.labelPrimary(isDark))
             }
             .padding(28)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
+        .allowsHitTesting(false)
     }
 }

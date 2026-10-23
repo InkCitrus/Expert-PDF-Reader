@@ -1,12 +1,17 @@
 import AppKit
 import SwiftUI
 
-/// Replicates `MainWindowController` + `TabsViewController` + `HomeTabButtonView` from `PDFExpert`.
+/// Replicates `MainWindowController` + `TabsViewController` + `HomeTabButtonView` from `PDFExpert`:
+/// one unified `40pt` title bar hosting the traffic lights, the pinned Home tab and the document tabs.
+/// Unlike PDF Expert (always graphite), the strip follows the system / app appearance.
 /// Enforces a minimum window width of `600pt` per `HomeTab.framework/ARCHITECTURE.md`.
 public struct MainWindowView: View {
     @ObservedObject var store: AppStore
     @Environment(\.colorScheme) private var colorScheme
+    @State private var chromeMetrics = WindowChromeMetrics()
     private var isDark: Bool { colorScheme == .dark }
+
+    public static let tabStripHeight: CGFloat = 40
 
     public init(store: AppStore) {
         self.store = store
@@ -14,8 +19,9 @@ public struct MainWindowView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            // Top Multi-Tab Bar (TabsViewController)
-            TopTabBarView(store: store, isDark: isDark)
+            // Unified Title Bar: traffic lights + Home tab + document tabs (TabsViewController)
+            TopTabBarView(store: store, metrics: chromeMetrics, isDark: isDark)
+                .frame(height: Self.tabStripHeight)
 
             // Active Tab Content
             ZStack {
@@ -34,7 +40,9 @@ public struct MainWindowView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 600, minHeight: 520)
-        .background(RDColorPalette.systemBackground(isDark))
+        .background(RDColorPalette.homeContentBackground(isDark))
+        .background(WindowChromeConfigurator(titleBarHeight: Self.tabStripHeight, metrics: $chromeMetrics))
+        .ignoresSafeArea(.container, edges: .top)
     }
 }
 
@@ -42,153 +50,205 @@ public struct MainWindowView: View {
 
 struct TopTabBarView: View {
     @ObservedObject var store: AppStore
+    let metrics: WindowChromeMetrics
     let isDark: Bool
 
     @State private var hoveredTabID: UUID?
+    @State private var isNewTabHovered = false
+
+    private static let homeTabWidth: CGFloat = 46
+    private static let newTabButtonWidth: CGFloat = 40
+    private static let minimumTabWidth: CGFloat = 120
+    private static let maximumTabWidth: CGFloat = 260
+    /// Empty strip kept on the trailing side so the window can always be dragged
+    private static let reservedDragWidth: CGFloat = 64
 
     var body: some View {
-        HStack(spacing: 4) {
-            // Fixed HomeTabButtonView (always accessible on the left)
-            if let homeTab = store.tabs.first(where: { $0.isHome }) {
-                let isHomeSelected = (store.selectedTabID == homeTab.id)
-                Button {
-                    store.selectedTabID = homeTab.id
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: isHomeSelected ? "house.fill" : "house")
-                            .font(.system(size: 12.5, weight: .semibold))
-                            .foregroundColor(isHomeSelected ? RDColorPalette.primaryTint : RDColorPalette.labelSecondary(isDark))
-                        Text("主页")
-                            .font(.system(size: 12.5, weight: isHomeSelected ? .semibold : .medium))
-                            .foregroundColor(isHomeSelected ? RDColorPalette.labelPrimary(isDark) : RDColorPalette.labelSecondary(isDark))
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .background(
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(isHomeSelected ? RDColorPalette.tertiarySystemBackground(isDark) : Color.clear)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .stroke(isHomeSelected ? RDColorPalette.separator(isDark).opacity(0.65) : Color.clear, lineWidth: 1)
-                    )
-                }
-                .buttonStyle(.plain)
+        GeometryReader { proxy in
+            let documentTabs = store.tabs.compactMap { tab -> DocumentTabState? in
+                if case .document(let state) = tab { return state }
+                return nil
             }
+            let leadingInset = metrics.isFullScreen ? 10 : metrics.trafficLightsInset
+            let available = max(0, proxy.size.width - leadingInset - Self.homeTabWidth - Self.newTabButtonWidth - Self.reservedDragWidth)
+            let fitWidth = documentTabs.isEmpty ? Self.maximumTabWidth : (available / CGFloat(documentTabs.count)).rounded(.down)
+            let tabWidth = min(Self.maximumTabWidth, max(Self.minimumTabWidth, fitWidth))
 
-            Divider()
-                .frame(height: 18)
-                .padding(.horizontal, 2)
+            HStack(spacing: 0) {
+                Color.clear
+                    .frame(width: leadingInset)
 
-            // Scrollable Document Tabs
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
-                    ForEach(store.tabs.filter { !$0.isHome }) { tab in
-                        let isSelected = (store.selectedTabID == tab.id)
-                        let isHovered = (hoveredTabID == tab.id)
+                tabSeparator
+                homeTabButton
+                tabSeparator
 
-                        HStack(spacing: 7) {
-                            Image(systemName: "doc.richtext.fill")
-                                .font(.system(size: 11.5))
-                                .foregroundColor(isSelected ? RDColorPalette.systemRed : RDColorPalette.labelTertiary(isDark))
-
-                            Text(tab.title)
-                                .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
-                                .foregroundColor(isSelected ? RDColorPalette.labelPrimary(isDark) : RDColorPalette.labelSecondary(isDark))
-                                .lineLimit(1)
-                                .frame(maxWidth: 170, alignment: .leading)
-
-                            Button {
-                                store.closeTab(id: tab.id)
-                            } label: {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 9.5, weight: .bold))
-                                    .foregroundColor(RDColorPalette.labelSecondary(isDark))
-                                    .frame(width: 16, height: 16)
-                                    .background(
-                                        Circle()
-                                            .fill(isHovered ? RDColorPalette.separator(isDark).opacity(0.6) : Color.clear)
-                                    )
-                            }
-                            .buttonStyle(.plain)
-                            .opacity((isSelected || isHovered) ? 1.0 : 0.45)
-                        }
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .fill(
-                                    isSelected
-                                        ? RDColorPalette.tertiarySystemBackground(isDark)
-                                        : (isHovered ? RDColorPalette.tertiarySystemBackground(isDark).opacity(0.5) : Color.clear)
-                                )
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .stroke(isSelected ? RDColorPalette.separator(isDark).opacity(0.65) : Color.clear, lineWidth: 1)
-                        )
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            store.selectedTabID = tab.id
-                        }
-                        .onHover { hovering in
-                            hoveredTabID = hovering ? tab.id : nil
-                        }
+                if fitWidth < Self.minimumTabWidth {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        documentTabsRow(documentTabs, tabWidth: tabWidth)
                     }
-
-                    // "+" Button to Open Document
-                    Button {
-                        store.openFilePicker()
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(RDColorPalette.labelSecondary(isDark))
-                            .frame(width: 26, height: 26)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .fill(RDColorPalette.tertiarySystemBackground(isDark).opacity(0.6))
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .help("打开新 PDF 文档 (⌘O)")
+                    .frame(width: available)
+                } else {
+                    documentTabsRow(documentTabs, tabWidth: tabWidth)
                 }
-            }
 
-            Spacer()
+                newTabButton
 
-            // Global Appearance Mode Pill (System / Light / Dark) in Tab Bar
-            HStack(spacing: 3) {
-                ForEach(AppAppearanceMode.allCases) { mode in
-                    let isSelected = (store.appearanceMode == mode)
-                    Button {
-                        store.appearanceMode = mode
-                    } label: {
-                        Image(systemName: mode.iconName)
-                            .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
-                            .foregroundColor(isSelected ? RDColorPalette.primaryTint : RDColorPalette.labelSecondary(isDark))
-                            .frame(width: 24, height: 22)
-                            .background(
-                                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                    .fill(isSelected ? RDColorPalette.primaryTint.opacity(isDark ? 0.22 : 0.14) : Color.clear)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .help("界面外观：\(mode.title)")
-                }
+                Spacer(minLength: 0)
             }
-            .padding(2)
-            .background(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(RDColorPalette.tertiarySystemBackground(isDark))
-            )
+            .frame(height: proxy.size.height)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(RDColorPalette.systemBackground(isDark))
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(RDColorPalette.separator(isDark).opacity(0.6))
-                .frame(height: 1)
+        .background(WindowDragArea())
+        .background(RDColorPalette.tabStripBackground(isDark))
+    }
+
+    private func documentTabsRow(_ documentTabs: [DocumentTabState], tabWidth: CGFloat) -> some View {
+        HStack(spacing: 0) {
+            ForEach(documentTabs) { state in
+                DocumentTabItemView(
+                    store: store,
+                    state: state,
+                    isSelected: store.selectedTabID == state.id,
+                    isHovered: hoveredTabID == state.id,
+                    isDark: isDark
+                )
+                .frame(width: tabWidth)
+                .onHover { hovering in
+                    if hovering {
+                        hoveredTabID = state.id
+                    } else if hoveredTabID == state.id {
+                        hoveredTabID = nil
+                    }
+                }
+
+                tabSeparator
+            }
+        }
+    }
+
+    private var tabSeparator: some View {
+        Rectangle()
+            .fill(RDColorPalette.tabSeparator(isDark))
+            .frame(width: 1)
+    }
+
+    // Fixed HomeTabButtonView (icon-only, always pinned on the left)
+    private var homeTabButton: some View {
+        let homeID = store.tabs.first(where: { $0.isHome })?.id
+        let isHomeSelected = homeID != nil && store.selectedTabID == homeID
+        let isHovered = hoveredTabID != nil && hoveredTabID == homeID
+        return Button {
+            store.selectHomeTab()
+        } label: {
+            Image(systemName: "house.fill")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(isHomeSelected ? RDColorPalette.labelPrimary(isDark) : RDColorPalette.labelTertiary(isDark))
+                .frame(width: Self.homeTabWidth)
+                .frame(maxHeight: .infinity)
+                .background(tabFill(isSelected: isHomeSelected, isHovered: isHovered))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("主页")
+        .accessibilityLabel(Text("主页"))
+        .accessibilityAddTraits(isHomeSelected ? .isSelected : [])
+        .onHover { hovering in
+            if hovering {
+                hoveredTabID = homeID
+            } else if hoveredTabID == homeID {
+                hoveredTabID = nil
+            }
+        }
+    }
+
+    // "+" Button to Open Document
+    private var newTabButton: some View {
+        Button {
+            store.openFilePicker()
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 13, weight: .regular))
+                .foregroundColor(RDColorPalette.labelSecondary(isDark))
+                .frame(width: 28, height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(isNewTabHovered ? RDColorPalette.tabHoverBackground(isDark) : Color.clear)
+                )
+                .frame(width: Self.newTabButtonWidth)
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("打开 PDF 文档 (⌘O)")
+        .accessibilityLabel(Text("打开 PDF 文档"))
+        .onHover { isNewTabHovered = $0 }
+    }
+
+    private func tabFill(isSelected: Bool, isHovered: Bool) -> Color {
+        if isSelected {
+            return RDColorPalette.tabSelectedBackground(isDark)
+        }
+        return isHovered ? RDColorPalette.tabHoverBackground(isDark) : Color.clear
+    }
+}
+
+// MARK: - DocumentTabItemView (TabView)
+
+struct DocumentTabItemView: View {
+    @ObservedObject var store: AppStore
+    let state: DocumentTabState
+    let isSelected: Bool
+    let isHovered: Bool
+    let isDark: Bool
+
+    @State private var isCloseHovered = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(state.title)
+                .font(.system(size: 12, weight: isSelected ? .medium : .regular))
+                .foregroundColor(isSelected ? RDColorPalette.labelPrimary(isDark) : RDColorPalette.labelSecondary(isDark))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button {
+                store.closeTab(id: state.id)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(RDColorPalette.labelSecondary(isDark))
+                    .frame(width: 18, height: 18)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .fill(isCloseHovered ? RDColorPalette.toolbarHover(isDark) : Color.clear)
+                    )
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("关闭标签 (⌘W)")
+            .accessibilityLabel(Text("关闭标签 \(state.title)"))
+            .onHover { isCloseHovered = $0 }
+            .opacity(isSelected || isHovered ? 1 : 0)
+            .allowsHitTesting(isSelected || isHovered)
+        }
+        .padding(.leading, 14)
+        .padding(.trailing, 8)
+        .frame(maxHeight: .infinity)
+        .background(
+            isSelected
+                ? RDColorPalette.tabSelectedBackground(isDark)
+                : (isHovered ? RDColorPalette.tabHoverBackground(isDark) : Color.clear)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            store.selectedTabID = state.id
+        }
+        .help(state.documentID.url.path)
+        .contextMenu {
+            Button("关闭标签") { store.closeTab(id: state.id) }
+            Button("关闭其他标签") { store.closeOtherTabs(keeping: state.id) }
+            Divider()
+            Button("在 Finder 中显示") { store.showInFinder(id: state.documentID) }
         }
     }
 }

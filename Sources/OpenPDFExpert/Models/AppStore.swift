@@ -143,6 +143,14 @@ public enum ReaderSplitMode: String, CaseIterable, Identifiable, Codable {
         }
     }
 
+    public var shortTitle: String {
+        switch self {
+        case .disabled:   return "不分屏"
+        case .vertical:   return "左右"
+        case .horizontal: return "上下"
+        }
+    }
+
     public var iconName: String {
         switch self {
         case .disabled:   return "rectangle"
@@ -150,6 +158,12 @@ public enum ReaderSplitMode: String, CaseIterable, Identifiable, Codable {
         case .horizontal: return "rectangle.split.1x2"
         }
     }
+}
+
+/// Content of the left dock: PDF Expert 3 swaps "Document Summary" and "Layout options" in the same panel.
+public enum ReaderLeftPanel: String {
+    case documentSummary = "documentSummary"
+    case viewSettings = "viewSettings"
 }
 
 public enum ReaderSidebarTab: String, CaseIterable, Identifiable {
@@ -199,7 +213,11 @@ public final class DocumentTabState: ObservableObject, Identifiable {
 
     // Left Sidebar state
     @Published public var isLeftSidebarVisible: Bool = true
+    @Published public var leftPanel: ReaderLeftPanel = .documentSummary
     @Published public var activeSidebarTab: ReaderSidebarTab = .thumbnails
+
+    // Page Overview grid (toolbar "Page Management" button, read-only here)
+    @Published public var isPageOverviewVisible: Bool = false
 
     // Split View state (PDFDocumentsSplitViewController)
     @Published public var splitMode: ReaderSplitMode = .disabled
@@ -216,11 +234,13 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     @Published public private(set) var forwardStack: [Int] = []
     private var isNavigatingHistory: Bool = false
 
-    // Search state (PDFTextSearchPanelViewController)
+    // Search state (PDFTextSearchPanelViewController); `isSearchVisible` drives the right results dock
     @Published public var isSearchVisible: Bool = false
     @Published public var searchQuery: String = ""
     @Published public var searchMatches: [SearchMatchItem] = []
     @Published public var selectedMatchIndex: Int = 0
+    @Published public private(set) var lastSearchedQuery: String = ""
+    @Published public var searchFocusToken: Int = 0
 
     // Action triggers for PDFView imperative commands
     @Published public var zoomCommandToken: Int = 0
@@ -233,6 +253,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         case actualSize
         case fitWidth
         case fitPage
+        case scale(CGFloat)
     }
 
     // Cached original mediaBox and computed tight cropBox per page index
@@ -291,6 +312,36 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     public func triggerZoom(_ action: ZoomAction) {
         pendingZoomAction = action
         zoomCommandToken &+= 1
+    }
+
+    /// Toolbar toggles behave like PDF Expert's: clicking the active panel's button closes the dock.
+    public func toggleLeftPanel(_ panel: ReaderLeftPanel) {
+        if isLeftSidebarVisible && leftPanel == panel {
+            isLeftSidebarVisible = false
+        } else {
+            leftPanel = panel
+            isLeftSidebarVisible = true
+        }
+    }
+
+    public func showSidebarTab(_ sidebarTab: ReaderSidebarTab) {
+        leftPanel = .documentSummary
+        activeSidebarTab = sidebarTab
+        isLeftSidebarVisible = true
+    }
+
+    /// ⌘F: opens the results dock and focuses the toolbar search field.
+    public func beginSearch() {
+        isSearchVisible = true
+        searchFocusToken &+= 1
+    }
+
+    public func endSearch() {
+        searchQuery = ""
+        searchMatches = []
+        selectedMatchIndex = 0
+        lastSearchedQuery = ""
+        isSearchVisible = false
     }
 
     public func rotateCurrentPage(clockwise: Bool) {
@@ -399,6 +450,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
 
     public func performSearch() {
         let trimmed = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        lastSearchedQuery = trimmed
         guard !trimmed.isEmpty else {
             searchMatches = []
             selectedMatchIndex = 0
@@ -411,15 +463,17 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         for sel in selections {
             guard let page = sel.pages.first else { continue }
             let pageIdx = pdfDocument.index(for: page)
-            let pageText = (page.string ?? "").replacingOccurrences(of: "\n", with: " ")
-            let matchStr = sel.string ?? trimmed
-            var snippet = matchStr
-            if let range = pageText.range(of: matchStr, options: .caseInsensitive) {
-                let start = pageText.index(range.lowerBound, offsetBy: -26, limitedBy: pageText.startIndex) ?? pageText.startIndex
-                let end = pageText.index(range.upperBound, offsetBy: 36, limitedBy: pageText.endIndex) ?? pageText.endIndex
-                let prefix = start > pageText.startIndex ? "…" : ""
-                let suffix = end < pageText.endIndex ? "…" : ""
-                snippet = prefix + String(pageText[start..<end]) + suffix
+            let pageText = (page.string ?? "") as NSString
+            var snippet = sel.string ?? trimmed
+            // Use this selection's own character range so repeated matches on a page get distinct context
+            let matchRange = sel.range(at: 0, on: page)
+            if matchRange.location != NSNotFound, NSMaxRange(matchRange) <= pageText.length {
+                let start = max(0, matchRange.location - 26)
+                let end = min(pageText.length, NSMaxRange(matchRange) + 36)
+                let contextRange = pageText.rangeOfComposedCharacterSequences(for: NSRange(location: start, length: end - start))
+                let prefix = contextRange.location > 0 ? "…" : ""
+                let suffix = NSMaxRange(contextRange) < pageText.length ? "…" : ""
+                snippet = prefix + pageText.substring(with: contextRange).replacingOccurrences(of: "\n", with: " ") + suffix
             }
             results.append(SearchMatchItem(pageIndex: pageIdx, snippet: snippet, selection: sel))
         }
@@ -482,26 +536,48 @@ public enum AppTab: Identifiable, Equatable {
 public final class PDFThumbnailCache: ObservableObject {
     public static let shared = PDFThumbnailCache()
 
-    private var cache: [String: NSImage] = [:]
+    // Bounded by bytes so long documents scrolled in the thumbnail panel / page overview don't grow memory forever
+    private let cache: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.totalCostLimit = 160 * 1024 * 1024
+        return cache
+    }()
 
     public func thumbnail(for page: PDFPage, documentID: String, pageIndex: Int, theme: PDFViewTheme, size: CGSize = CGSize(width: 160, height: 210)) -> NSImage {
-        let key = "\(documentID)#\(pageIndex)#\(theme.rawValue)#\(Int(size.width))x\(Int(size.height))"
-        if let cached = cache[key] {
+        let key = "\(documentID)#\(pageIndex)#\(theme.rawValue)#\(Int(size.width))x\(Int(size.height))#\(page.rotation)" as NSString
+        if let cached = cache.object(forKey: key) {
             return cached
         }
-        let baseImg = page.thumbnail(of: size, for: .mediaBox)
-        if theme == .day {
-            cache[key] = baseImg
+        let themedImg = themedImage(page.thumbnail(of: size, for: .mediaBox), theme: theme)
+        cache.setObject(themedImg, forKey: key, cost: Self.byteCost(of: themedImg))
+        return themedImg
+    }
+
+    /// HomeTab cover thumbnails: shader output cached per document + theme so hover redraws stay cheap.
+    public func themedCover(for item: DocumentItem, theme: PDFViewTheme) -> NSImage {
+        guard theme != .day else { return item.thumbnail }
+        let key = "cover#\(item.id)#\(item.dateOpened.timeIntervalSince1970)#\(theme.rawValue)" as NSString
+        if let cached = cache.object(forKey: key) {
+            return cached
+        }
+        let themedImg = themedImage(item.thumbnail, theme: theme)
+        cache.setObject(themedImg, forKey: key, cost: Self.byteCost(of: themedImg))
+        return themedImg
+    }
+
+    /// RGBA bytes of the largest bitmap representation (thumbnails may be backed at Retina scale)
+    private static func byteCost(of image: NSImage) -> Int {
+        let pixels = image.representations.map { $0.pixelsWide * $0.pixelsHigh }.max() ?? 0
+        return max(pixels, Int(image.size.width * image.size.height)) * 4
+    }
+
+    private func themedImage(_ baseImg: NSImage, theme: PDFViewTheme) -> NSImage {
+        guard theme != .day,
+              let cgImg = baseImg.cgImage(forProposedRect: nil, context: nil, hints: nil),
+              let filteredCG = MetalShaderRenderer.shared.applyShader(to: cgImg, theme: theme) else {
             return baseImg
         }
-        if let cgImg = baseImg.cgImage(forProposedRect: nil, context: nil, hints: nil),
-           let filteredCG = MetalShaderRenderer.shared.applyShader(to: cgImg, theme: theme) {
-            let themedImg = NSImage(cgImage: filteredCG, size: baseImg.size)
-            cache[key] = themedImg
-            return themedImg
-        }
-        cache[key] = baseImg
-        return baseImg
+        return NSImage(cgImage: filteredCG, size: baseImg.size)
     }
 }
 
@@ -525,7 +601,6 @@ public final class AppStore: ObservableObject {
 
     // HomeTab Navigation State (HomeTabNavigationStateContainer)
     @Published public var homeCurrentPage: HomeTabPage = .home
-    @Published public var isDraggingOverHome: Bool = false
 
     // DocumentsStore (Recents + Favorites + Bookmarks)
     @Published public private(set) var documents: [DocumentItem] = []
@@ -707,6 +782,13 @@ public final class AppStore: ObservableObject {
 
     public func closeCurrentTab() {
         closeTab(id: selectedTabID)
+    }
+
+    public func closeOtherTabs(keeping id: UUID) {
+        tabs.removeAll(where: { !$0.isHome && $0.id != id })
+        if !tabs.contains(where: { $0.id == selectedTabID }) {
+            selectedTabID = id
+        }
     }
 
     public func selectNextTab() {

@@ -13,9 +13,8 @@ mkdir -p "$MODULE_CACHE"
 mkdir -p OpenPDFExpert.app/Contents/MacOS OpenPDFExpert.app/Contents/Resources
 
 cp Sources/OpenPDFExpert/Resources/RDPDFShaders.metallib OpenPDFExpert.app/Contents/Resources/RDPDFShaders.metallib
-if [[ -f "/Applications/PDF Expert.app/Contents/Resources/AppIcon.icns" ]]; then
-    cp "/Applications/PDF Expert.app/Contents/Resources/AppIcon.icns" OpenPDFExpert.app/Contents/Resources/AppIcon.icns
-fi
+# Original app icon (regenerate with: swift scripts/make_app_icon.swift)
+cp Assets/AppIcon.icns OpenPDFExpert.app/Contents/Resources/AppIcon.icns
 
 echo "Compiling OpenPDFExpert.app using SDK: $SDK_PATH ..."
 SDKROOT="$SDK_PATH" CLANG_MODULE_CACHE_PATH="$MODULE_CACHE" swiftc \
@@ -31,8 +30,11 @@ SDKROOT="$SDK_PATH" CLANG_MODULE_CACHE_PATH="$MODULE_CACHE" swiftc \
     Sources/OpenPDFExpert/HomeTab/HomeTabView.swift \
     Sources/OpenPDFExpert/Reader/PDFReaderCanvasView.swift \
     Sources/OpenPDFExpert/Reader/ReaderSidebarsAndToolbars.swift \
+    Sources/OpenPDFExpert/Reader/ReaderOverlays.swift \
     Sources/OpenPDFExpert/Reader/PDFReaderView.swift \
+    Sources/OpenPDFExpert/App/WindowChrome.swift \
     Sources/OpenPDFExpert/App/MainWindowView.swift \
+    Sources/OpenPDFExpert/App/SettingsView.swift \
     Sources/OpenPDFExpert/App/OpenPDFExpertApp.swift \
     -o OpenPDFExpert.app/Contents/MacOS/OpenPDFExpert
 

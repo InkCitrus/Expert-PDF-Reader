@@ -4,6 +4,7 @@ import CryptoKit
 import Foundation
 import PDFKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - URL Symlink Normalization (from HomeTab/Utils/URL+SymlinkNormalized.swift)
 
@@ -68,7 +69,33 @@ public struct ReadingPosition: Codable, Equatable {
     public var zoomScale: Double
     public var isAutoScaling: Bool
     public var layoutMode: ReaderLayoutMode
+    /// Optional so positions saved before these existed still decode
+    public var pageDirection: PageDirection?
+    /// The result of reading the book's printed page numbers, so it is done once per book
+    public var bookPageScan: BookPageScan?
     public var updatedAt: Date
+}
+
+/// Which way two-page spreads and ← / → run: as detected, or as the reader chose for this book
+public enum PageDirection: String, Codable, CaseIterable, Identifiable {
+    case automatic
+    case leftToRight
+    case rightToLeft
+
+    public var id: String { rawValue }
+
+    /// "Automatic (Right to Left)": the automatic choice names the direction it settled on
+    public func title(detectedRightToLeft: Bool) -> String {
+        switch self {
+        case .automatic:
+            let detected = (detectedRightToLeft ? PageDirection.rightToLeft : .leftToRight).title(detectedRightToLeft: false)
+            return L10n.parenthetical(L10n.tr("自动", "Automatic"), detected)
+        case .leftToRight:
+            return L10n.tr("从左往右", "Left to Right")
+        case .rightToLeft:
+            return L10n.tr("从右往左", "Right to Left")
+        }
+    }
 }
 
 public struct BookmarkItem: Identifiable, Codable, Equatable {
@@ -439,6 +466,27 @@ public final class ReadingLocation: ObservableObject {
     }
 }
 
+extension PDFDocument {
+    /// `/ViewerPreferences /Direction /R2L`: the PDF asks to be read right to left
+    public var declaresRightToLeft: Bool {
+        guard let catalog = documentRef?.catalog else { return false }
+        var preferences: CGPDFDictionaryRef?
+        var direction: UnsafePointer<CChar>?
+        guard CGPDFDictionaryGetDictionary(catalog, "ViewerPreferences", &preferences), let preferences,
+              CGPDFDictionaryGetName(preferences, "Direction", &direction), let direction else { return false }
+        return String(cString: direction) == "R2L"
+    }
+}
+
+extension PDFPage {
+    /// The number printed on the page per the PDF's page labels; scans often give their unnumbered
+    /// front matter an empty label, which counts as none
+    public var printedNumber: String? {
+        guard let label = label?.trimmingCharacters(in: .whitespaces), !label.isEmpty else { return nil }
+        return label
+    }
+}
+
 @MainActor
 public final class DocumentTabState: ObservableObject, Identifiable {
     public let id: UUID = UUID()
@@ -454,6 +502,13 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     /// Mirrors `PDFView.autoScales` (fit width); when `false` the view keeps `zoomScale`
     @Published public var isAutoScaling: Bool = true
     @Published public var layoutMode: ReaderLayoutMode = .singlePage
+    /// Books bound on the right (vertical Chinese and Japanese, manga): two-page layouts put the earlier page
+    /// on the right and ← / → swap, like SumatraPDF's manga mode
+    @Published public var pageDirection: PageDirection = .automatic
+    /// What the book's pages show (printed page numbers, reading direction); `nil` until they have been read
+    @Published public private(set) var pageScan: BookPageScan? {
+        didSet { cachedPageIndicesByLabel = nil }
+    }
     @Published public var isClearMarginsEnabled: Bool = false
 
     // Left Sidebar state
@@ -516,6 +571,8 @@ public final class DocumentTabState: ObservableObject, Identifiable {
 
     private var searchTask: Task<Void, Never>?
     private var searchGeneration = 0
+    private var pageScanTask: Task<Void, Never>?
+    private let declaresRightToLeft: Bool
 
     public init(url: URL, pdfDocument: PDFDocument, password: String? = nil) {
         self.documentID = DocumentID(url: url)
@@ -525,10 +582,103 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         // Default secondary pane to same document so split comparison works out-of-the-box
         self.secondaryDocumentURL = url
         self.secondaryPDFDocument = pdfDocument
+        self.declaresRightToLeft = pdfDocument.declaresRightToLeft
+    }
+
+    /// The direction the PDF declares, else the one read from its pages, unless chosen for this book
+    public var readsRightToLeft: Bool {
+        switch pageDirection {
+        case .leftToRight: return false
+        case .rightToLeft: return true
+        case .automatic: return detectedRightToLeft
+        }
+    }
+
+    public var detectedRightToLeft: Bool {
+        declaresRightToLeft || pageScan?.readsRightToLeft == true
+    }
+
+    /// Reads the printed page numbers on a sample of pages in the background, once per book
+    public func scanPagesIfNeeded() {
+        guard pageScan == nil, pageScanTask == nil, pageCount >= 16 else { return }
+        let url = documentID.url
+        let password = self.password
+        pageScanTask = Task.detached(priority: .utility) { [weak self] in
+            // Let the pages being read render first
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled, let document = PDFDocumentLoader.openCopy(of: url, password: password) else { return }
+            let scan = BookPageScanner.scan(document)
+            await self?.finishPageScan(scan)
+        }
+    }
+
+    private func finishPageScan(_ scan: BookPageScan) {
+        pageScanTask = nil
+        pageScan = scan
+    }
+
+    /// The number printed on a page: read from the page itself where the PDF's labels are wrong or missing,
+    /// else the PDF's page label
+    public func printedNumber(at index: Int) -> String? {
+        if let numbers = pageScan?.printedNumbers, numbers.replacesPageLabels {
+            return numbers.number(at: index).map(String.init)
+        }
+        return pdfDocument.page(at: index)?.printedNumber
+    }
+
+    /// The pages shown side by side with the current one: its spread in two-page layouts
+    public var visiblePageIndices: [Int] {
+        let index = currentPageIndex
+        let partner: Int?
+        switch layoutMode {
+        case .singlePage:
+            partner = nil
+        case .twoPages:
+            partner = index ^ 1
+        case .twoPagesCover:
+            // The first page stands alone, then (2, 3), (4, 5)…
+            partner = index == 0 ? nil : (index % 2 == 1 ? index + 1 : index - 1)
+        }
+        guard let partner, partner >= 0, partner < pageCount else { return [index] }
+        return [min(index, partner), max(index, partner)]
     }
 
     public var pageCount: Int {
         pdfDocument.pageCount
+    }
+
+    /// Printed page numbers from the PDF's page labels (a scanned book's "iv" or "10" on its 31st page),
+    /// label → page indices; empty when every label is just the page's position
+    public var pageIndicesByLabel: [String: [Int]] {
+        if let cached = cachedPageIndicesByLabel { return cached }
+        var map: [String: [Int]] = [:]
+        var hasPrintedNumbers = false
+        for idx in 0..<pdfDocument.pageCount {
+            guard let label = printedNumber(at: idx) else { continue }
+            map[label, default: []].append(idx)
+            if label != "\(idx + 1)" { hasPrintedNumbers = true }
+        }
+        let index = hasPrintedNumbers ? map : [:]
+        cachedPageIndicesByLabel = index
+        return index
+    }
+
+    private var cachedPageIndicesByLabel: [String: [Int]]?
+
+    /// A page's number as the reader shows it: the printed number, else its position — in parentheses when
+    /// other pages do have printed numbers, so the cover's "(6)" can't be mistaken for the printed page 6
+    public func displayPageNumber(at index: Int) -> String {
+        if let printed = printedNumber(at: index) { return printed }
+        return pageIndicesByLabel.isEmpty ? "\(index + 1)" : "(\(index + 1))"
+    }
+
+    /// The page printed with `label`, ignoring case only when nothing matches exactly (a book may letter its
+    /// cover pages "A", "B"… and number the preface "i", "ii"…); when several pages share it (numbering
+    /// restarts per part), the one nearest to the current page
+    public func pageIndex(forLabel label: String) -> Int? {
+        let candidates = pageIndicesByLabel[label]
+            ?? pageIndicesByLabel.filter { $0.key.caseInsensitiveCompare(label) == .orderedSame }.flatMap(\.value)
+        return candidates.min { abs($0 - currentPageIndex) < abs($1 - currentPageIndex) }
     }
 
     public var readingPosition: ReadingPosition {
@@ -537,6 +687,8 @@ public final class DocumentTabState: ObservableObject, Identifiable {
             zoomScale: Double(zoomScale),
             isAutoScaling: isAutoScaling,
             layoutMode: layoutMode,
+            pageDirection: pageDirection,
+            bookPageScan: pageScan,
             updatedAt: Date()
         )
     }
@@ -547,6 +699,12 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         zoomScale = CGFloat(position.zoomScale)
         isAutoScaling = position.isAutoScaling
         layoutMode = position.layoutMode
+        if let pageDirection = position.pageDirection {
+            self.pageDirection = pageDirection
+        }
+        if let pageScan = position.bookPageScan {
+            self.pageScan = pageScan
+        }
     }
 
     public func navigateToPage(_ index: Int, recordHistory: Bool = true) {
@@ -930,14 +1088,89 @@ public final class PDFThumbnailCache: ObservableObject {
         return cache
     }()
 
-    public func thumbnail(for page: PDFPage, documentID: String, pageIndex: Int, theme: PDFViewTheme, size: CGSize = CGSize(width: 160, height: 210)) -> NSImage {
-        let key = "\(documentID)#\(pageIndex)#\(theme.rawValue)#\(Int(size.width))x\(Int(size.height))#\(page.rotation)" as NSString
-        if let cached = cache.object(forKey: key) {
+    public struct ThumbnailRequest: Hashable {
+        public let documentID: String
+        public let documentURL: URL
+        public let password: String?
+        public let pageIndex: Int
+        public let rotation: Int
+        public let theme: PDFViewTheme
+        public let size: CGSize
+
+        @MainActor
+        public init(tab: DocumentTabState, pageIndex: Int, theme: PDFViewTheme, size: CGSize) {
+            documentID = tab.documentID.id
+            documentURL = tab.documentID.url
+            password = tab.password
+            self.pageIndex = pageIndex
+            rotation = tab.pdfDocument.page(at: pageIndex)?.rotation ?? 0
+            self.theme = theme
+            self.size = size
+        }
+
+        public static func == (lhs: Self, rhs: Self) -> Bool { lhs.key == rhs.key }
+        public func hash(into hasher: inout Hasher) { hasher.combine(key) }
+
+        var key: String {
+            "\(documentID)#\(pageIndex)#\(theme.rawValue)#\(Int(size.width))x\(Int(size.height))#\(rotation)"
+        }
+    }
+
+    /// A thumbnail already rendered, to draw without waiting
+    public func cachedThumbnail(for request: ThumbnailRequest) -> NSImage? {
+        cache.object(forKey: request.key as NSString)
+    }
+
+    /// Renders off the main thread, one page at a time, from a private copy of the document: the pages of a large
+    /// scanned guidebook each take a moment to decode, which stalled the thumbnail panel and the page overview.
+    /// Requests whose thumbnail scrolled away before its turn are skipped.
+    public func thumbnail(for request: ThumbnailRequest) async -> NSImage? {
+        if let cached = cachedThumbnail(for: request) {
             return cached
         }
-        let themedImg = themedImage(page.thumbnail(of: size, for: .mediaBox), theme: theme)
-        cache.setObject(themedImg, forKey: key, cost: Self.byteCost(of: themedImg))
-        return themedImg
+        let cancellation = RenderCancellation()
+        let image: NSImage? = await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                Self.renderQueue.async {
+                    guard !cancellation.isCancelled else {
+                        continuation.resume(returning: nil)
+                        return
+                    }
+                    continuation.resume(returning: Self.render(request))
+                }
+            }
+        } onCancel: {
+            cancellation.isCancelled = true
+        }
+        if let image {
+            cache.setObject(image, forKey: request.key as NSString, cost: Self.byteCost(of: image))
+        }
+        return image
+    }
+
+    private final class RenderCancellation: @unchecked Sendable {
+        var isCancelled = false
+    }
+
+    private nonisolated static let renderQueue = DispatchQueue(label: "io.github.inkcitrus.expertpdfreader.thumbnails", qos: .userInitiated)
+    /// Document copies for rendering, used only on `renderQueue`
+    private nonisolated(unsafe) static var renderDocuments: [String: PDFDocument] = [:]
+
+    private nonisolated static func render(_ request: ThumbnailRequest) -> NSImage? {
+        let document: PDFDocument
+        if let open = renderDocuments[request.documentID] {
+            document = open
+        } else {
+            guard let copy = PDFDocumentLoader.openCopy(of: request.documentURL, password: request.password) else { return nil }
+            if renderDocuments.count >= 6 {
+                renderDocuments.removeAll()
+            }
+            renderDocuments[request.documentID] = copy
+            document = copy
+        }
+        guard let page = document.page(at: request.pageIndex) else { return nil }
+        page.rotation = request.rotation
+        return themedImage(page.thumbnail(of: request.size, for: .mediaBox), theme: request.theme)
     }
 
     /// HomeTab cover thumbnails: shader output cached per document + theme so hover redraws stay cheap.
@@ -947,18 +1180,18 @@ public final class PDFThumbnailCache: ObservableObject {
         if let cached = cache.object(forKey: key) {
             return cached
         }
-        let themedImg = themedImage(item.thumbnail, theme: theme)
+        let themedImg = Self.themedImage(item.thumbnail, theme: theme)
         cache.setObject(themedImg, forKey: key, cost: Self.byteCost(of: themedImg))
         return themedImg
     }
 
     /// RGBA bytes of the largest bitmap representation (thumbnails may be backed at Retina scale)
-    private static func byteCost(of image: NSImage) -> Int {
+    private nonisolated static func byteCost(of image: NSImage) -> Int {
         let pixels = image.representations.map { $0.pixelsWide * $0.pixelsHigh }.max() ?? 0
         return max(pixels, Int(image.size.width * image.size.height)) * 4
     }
 
-    private func themedImage(_ baseImg: NSImage, theme: PDFViewTheme) -> NSImage {
+    private nonisolated static func themedImage(_ baseImg: NSImage, theme: PDFViewTheme) -> NSImage {
         guard theme != .day,
               let cgImg = baseImg.cgImage(forProposedRect: nil, context: nil, hints: nil),
               let filteredCG = MetalShaderRenderer.shared.applyShader(to: cgImg, theme: theme) else {
@@ -1053,6 +1286,34 @@ public final class AppStore: ObservableObject {
             NSApp.terminate(nil)
         } catch {
             NSSound.beep()
+        }
+    }
+
+    // MARK: - Default PDF App
+
+    /// Whether double-clicking a PDF in Finder opens this app, and otherwise the name of the app that does
+    @Published public private(set) var isDefaultPDFApp = false
+    @Published public private(set) var defaultPDFAppName: String?
+
+    /// Re-read from Launch Services: the default can also be changed in Finder (Get Info › Open with)
+    public func refreshDefaultPDFApp() {
+        let appURL = NSWorkspace.shared.urlForApplication(toOpen: .pdf)
+        // Compared by bundle ID: a development build and the installed copy are the same app to Launch Services
+        isDefaultPDFApp = appURL.flatMap { Bundle(url: $0)?.bundleIdentifier } == Bundle.main.bundleIdentifier
+        defaultPDFAppName = appURL.map { FileManager.default.displayName(atPath: $0.path) }
+            .map { $0.hasSuffix(".app") ? String($0.dropLast(4)) : $0 }
+    }
+
+    public func makeDefaultPDFApp() {
+        Task {
+            do {
+                try await NSWorkspace.shared.setDefaultApplication(at: Bundle.main.bundleURL, toOpen: .pdf)
+            } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSUserCancelledError {
+                // Declined in the system's confirmation
+            } catch {
+                NSApp.presentError(error)
+            }
+            refreshDefaultPDFApp()
         }
     }
 
@@ -1277,6 +1538,7 @@ public final class AppStore: ObservableObject {
             tabState.restore(position)
         }
         observeReadingPosition(of: tabState)
+        tabState.scanPagesIfNeeded()
         let newTab = AppTab.document(tabState)
         tabs.append(newTab)
         selectedTabID = newTab.id
@@ -1290,6 +1552,7 @@ public final class AppStore: ObservableObject {
         }
         if case .document(let state) = tabs[idx] {
             rememberReadingPositions(of: [state])
+            rememberClosedDocuments([state])
         }
         let wasSelected = (selectedTabID == id)
         tabs.remove(at: idx)
@@ -1308,14 +1571,36 @@ public final class AppStore: ObservableObject {
     }
 
     public func closeOtherTabs(keeping id: UUID) {
-        rememberReadingPositions(of: tabs.compactMap { tab in
+        let closing: [DocumentTabState] = tabs.compactMap { tab in
             guard case .document(let state) = tab, state.id != id else { return nil }
             return state
-        })
+        }
+        rememberReadingPositions(of: closing)
+        rememberClosedDocuments(closing)
         tabs.removeAll(where: { !$0.isHome && $0.id != id })
         if !tabs.contains(where: { $0.id == selectedTabID }) {
             selectedTabID = id
         }
+    }
+
+    /// Documents of closed tabs, the most recent last, for File › Reopen Closed Tab
+    @Published public private(set) var closedDocumentURLs: [URL] = []
+
+    private func rememberClosedDocuments(_ states: [DocumentTabState]) {
+        closedDocumentURLs.append(contentsOf: states.map(\.documentID.url))
+        if closedDocumentURLs.count > 20 {
+            closedDocumentURLs.removeFirst(closedDocumentURLs.count - 20)
+        }
+    }
+
+    /// Opens the most recently closed document again, at the page it was left on
+    public func reopenClosedTab() {
+        while let url = closedDocumentURLs.popLast() {
+            if FileManager.default.fileExists(atPath: url.path), openDocument(at: url) != nil {
+                return
+            }
+        }
+        NSSound.beep()
     }
 
     public func selectNextTab() {
@@ -1656,6 +1941,7 @@ public final class AppStore: ObservableObject {
     private func observeReadingPosition(of tab: DocumentTabState) {
         tab.$currentPageIndex
             .combineLatest(tab.$zoomScale, tab.$isAutoScaling, tab.$layoutMode)
+            .combineLatest(tab.$pageDirection, tab.$pageScan)
             .dropFirst()
             .debounce(for: .seconds(1), scheduler: RunLoop.main)
             .sink { [weak self, weak tab] _ in

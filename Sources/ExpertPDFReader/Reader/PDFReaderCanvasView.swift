@@ -9,13 +9,16 @@ import SwiftUI
 ///   to `PDFScrollView.layer` (**above** `NSClipView.layer`'s magnification transform) while keeping `PDFScrollView`'s
 ///   background transparent (`alpha = 0`). This guarantees that `PDFPageLayerTile` bitmaps (`contentsScale = backingScale * magnification`)
 ///   are never offscreen-downsampled before `NSClipView` magnification, completely eliminating PDF blurriness when switching themes or layouts.
-/// - Supports Left (`←`) and Right (`→`) arrow key page navigation in the pane that has the keyboard focus.
+/// - Supports Left (`←`) and Right (`→`) arrow key page navigation in the pane that has the keyboard focus
+///   (swapped for right-to-left books).
 /// - Opens at the tab's saved page and zoom (`currentPageIndex`, `zoomScale` / `isAutoScaling`).
 public struct PDFReaderCanvasView: NSViewRepresentable {
     public let pdfDocument: PDFDocument
     @Binding public var currentPageIndex: Int
     @Binding public var zoomScale: CGFloat
     public let layoutMode: ReaderLayoutMode
+    /// Right-bound books: spreads show the earlier page on the right and ← / → swap
+    public let readsRightToLeft: Bool
     public let isClearMarginsEnabled: Bool
     public let pdfTheme: PDFViewTheme
     public let isDarkUI: Bool
@@ -40,6 +43,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         currentPageIndex: Binding<Int>,
         zoomScale: Binding<CGFloat>,
         layoutMode: ReaderLayoutMode,
+        readsRightToLeft: Bool = false,
         isClearMarginsEnabled: Bool,
         pdfTheme: PDFViewTheme,
         isDarkUI: Bool,
@@ -59,6 +63,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         self._currentPageIndex = currentPageIndex
         self._zoomScale = zoomScale
         self.layoutMode = layoutMode
+        self.readsRightToLeft = readsRightToLeft
         self.isClearMarginsEnabled = isClearMarginsEnabled
         self.pdfTheme = pdfTheme
         self.isDarkUI = isDarkUI
@@ -75,6 +80,9 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         self.onReadingLocationChange = onReadingLocationChange
     }
 
+    private static let pageBreakMargins = NSEdgeInsets(top: 10, left: 12, bottom: 10, right: 12)
+    private static let spreadPageBreakMargins = NSEdgeInsets(top: 10, left: 0, bottom: 10, right: 0)
+
     public func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
     }
@@ -86,7 +94,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         pdfView.layerUsesCoreImageFilters = true
         pdfView.autoScales = true
         pdfView.displaysPageBreaks = true
-        pdfView.pageBreakMargins = NSEdgeInsets(top: 10, left: 12, bottom: 10, right: 12)
+        pdfView.pageBreakMargins = Self.pageBreakMargins
         pdfView.interpolationQuality = .high
         pdfView.backgroundColor = .clear
         pdfView.document = pdfDocument
@@ -142,6 +150,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
 
         let layoutChanged = (pdfView.displayMode != targetDisplayMode)
             || (pdfView.displaysAsBook != targetDisplaysAsBook)
+            || (pdfView.displaysRTL != readsRightToLeft)
             || (pdfView.displayBox != targetBox)
 
         if layoutChanged {
@@ -158,9 +167,19 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
             if pdfView.displaysAsBook != targetDisplaysAsBook {
                 pdfView.displaysAsBook = targetDisplaysAsBook
             }
+            if pdfView.displaysRTL != readsRightToLeft {
+                pdfView.displaysRTL = readsRightToLeft
+            }
             if pdfView.displayBox != targetBox {
                 pdfView.displayBox = targetBox
             }
+            // The two pages of a spread meet at the spine, like the open book
+            let spread = targetDisplayMode == .twoUpContinuous
+                ? SpreadAlignment.Spread(isBook: targetDisplaysAsBook, readsRightToLeft: readsRightToLeft)
+                : nil
+            pdfView.pageBreakMargins = spread == nil ? Self.pageBreakMargins : Self.spreadPageBreakMargins
+            SpreadAlignment.apply(to: pdfDocument, box: targetBox, spread: spread)
+            coordinator.spread = spread
             pdfView.layoutDocumentView()
             // Switching between single and two-page layouts refits the width so a spread is never cut off;
             // the first layout keeps the zoom a document reopens with
@@ -192,6 +211,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         if coordinator.lastLayoutToken != layoutToken {
             coordinator.lastLayoutToken = layoutToken
             let destination = pdfView.currentDestination
+            SpreadAlignment.apply(to: pdfDocument, box: pdfView.displayBox, spread: coordinator.spread)
             pdfView.layoutDocumentView()
             if let destination {
                 pdfView.go(to: destination)
@@ -202,6 +222,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         if let themed = pdfView as? ThemedPDFView {
             themed.onStepPage = onStepPage
             themed.handlesUnfocusedArrowKeys = handlesUnfocusedArrowKeys
+            themed.readsRightToLeft = readsRightToLeft
             themed.currentTheme = pdfTheme
             themed.isDarkUI = isDarkUI
             themed.applyThemeLayers()
@@ -310,6 +331,8 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         var lastPageJumpToken: Int = -1
         var lastZoomCommandToken: Int = -1
         var lastLayoutToken: Int
+        /// The spread layout last applied, so pages whose boxes change later (Clear Margins) are aligned too
+        var spread: SpreadAlignment.Spread?
         var lastHighlightedMatchID: UUID?
         var hasAppliedLayout = false
         private var observers: [NSObjectProtocol] = []
@@ -419,6 +442,7 @@ final class ThemedPDFView: PDFView {
     var isDarkUI: Bool = false
     var onStepPage: ((Int) -> Void)?
     var handlesUnfocusedArrowKeys = true
+    var readsRightToLeft = false
 
     /// Page and zoom to show once the view has a size: `go(to:)` and `scaleFactor` before the first layout are lost.
     var pendingInitialPage: PDFPage?
@@ -441,6 +465,7 @@ final class ThemedPDFView: PDFView {
     /// `-1` / `1` when an unmodified ←/→ should turn the page in this view, `nil` to leave the key alone:
     /// text fields and sidebar lists use the arrows themselves, a zoomed page wider than the view keeps them
     /// for horizontal scrolling, and in Split View only the pane with the keyboard focus turns the page.
+    /// Reading right to left, ← is the next page, as it lies on the left of a right-bound book's spread.
     func pageStep(for event: NSEvent) -> Int? {
         guard onStepPage != nil, event.keyCode == 123 || event.keyCode == 124 else { return nil }
         let disallowedModifiers: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
@@ -458,7 +483,8 @@ final class ThemedPDFView: PDFView {
         } else if !handlesUnfocusedArrowKeys {
             return nil
         }
-        return event.keyCode == 123 ? -1 : 1
+        let towardLeft = event.keyCode == 123
+        return towardLeft != readsRightToLeft ? -1 : 1
     }
 
     private var canScrollHorizontally: Bool {
@@ -589,5 +615,106 @@ final class ThemedPDFView: PDFView {
                 paperLayer.backgroundColor = NSColor.white.cgColor
             }
         }
+    }
+}
+
+// MARK: - SpreadAlignment (two-page layouts meet at the spine)
+
+/// PDFKit sizes each column of a two-page layout to the widest page of the whole document and centres the
+/// narrower ones in it, so a scan whose covers are a little wider than its text pages shows a gap at the spine
+/// of every spread. In spreads each page is brought to the common width instead: a slightly wider page (a cover)
+/// loses a sliver on both sides, a narrower one gains paper on its outer edge. Only the displayed box changes,
+/// only in memory, and leaving the spread layout puts the original boxes back.
+enum SpreadAlignment {
+    struct Spread: Equatable {
+        var isBook: Bool
+        var readsRightToLeft: Bool
+    }
+
+    private struct Adjustment {
+        let box: PDFDisplayBox
+        let original: CGRect
+        let applied: CGRect
+    }
+
+    private final class Adjustments {
+        var byPage: [Int: Adjustment] = [:]
+    }
+
+    private static let adjustments = NSMapTable<PDFDocument, Adjustments>.weakToStrongObjects()
+
+    /// Pages further than this from the common width (fold-outs, inserts) are left as they are
+    private static let tolerance: CGFloat = 0.15
+
+    static func apply(to document: PDFDocument, box: PDFDisplayBox, spread: Spread?) {
+        let record = adjustments.object(forKey: document) ?? {
+            let record = Adjustments()
+            adjustments.setObject(record, forKey: document)
+            return record
+        }()
+        // Undo the previous alignment, except where the box has been set since (Clear Margins)
+        for (index, adjustment) in record.byPage {
+            guard let page = document.page(at: index),
+                  page.bounds(for: adjustment.box).isAlmostEqual(to: adjustment.applied) else { continue }
+            page.setBounds(adjustment.original, for: adjustment.box)
+        }
+        record.byPage.removeAll()
+        guard let spread else { return }
+
+        var widths: [Int: CGFloat] = [:]
+        for index in 0..<document.pageCount {
+            // A quarter-turned page shows its height across the spread; leave it be
+            guard let page = document.page(at: index), page.rotation % 180 == 0 else { continue }
+            widths[index] = page.bounds(for: box).width
+        }
+        guard let target = commonWidth(of: Array(widths.values), mayTrim: box == .mediaBox) else { return }
+
+        for (index, width) in widths where abs(width - target) > 0.5 && abs(width - target) <= target * tolerance {
+            guard let page = document.page(at: index) else { continue }
+            let original = page.bounds(for: box)
+            var aligned = original
+            if width > target {
+                // Only the paper box is trimmed; a Clear Margins box holds the content and is never cut
+                guard box == .mediaBox else { continue }
+                aligned = original.insetBy(dx: (width - target) / 2, dy: 0)
+            } else {
+                if isInLeftColumn(index, spread: spread) {
+                    aligned.origin.x -= target - width
+                }
+                aligned.size.width = target
+                if box != .mediaBox {
+                    aligned = aligned.intersection(page.bounds(for: .mediaBox))
+                }
+            }
+            page.setBounds(aligned, for: box)
+            record.byPage[index] = Adjustment(box: box, original: original, applied: page.bounds(for: box))
+        }
+    }
+
+    /// The paper size most pages share; for content boxes, which all differ, the widest one near the median
+    private static func commonWidth(of widths: [CGFloat], mayTrim: Bool) -> CGFloat? {
+        guard !widths.isEmpty else { return nil }
+        let median = widths.sorted()[widths.count / 2]
+        if mayTrim {
+            let counts = Dictionary(grouping: widths, by: { $0.rounded() }).mapValues(\.count)
+            if let (width, count) = counts.max(by: { $0.value < $1.value }), count > 1 {
+                return width
+            }
+            return median
+        }
+        return widths.filter { $0 <= median * (1 + tolerance) }.max()
+    }
+
+    /// A book layout shows the first page alone, then pairs (2, 3), (4, 5)…; a plain one pairs (1, 2), (3, 4)…
+    private static func isInLeftColumn(_ index: Int, spread: Spread) -> Bool {
+        let leftReadingLeftToRight = spread.isBook ? index % 2 == 1 : index % 2 == 0
+        return leftReadingLeftToRight != spread.readsRightToLeft
+    }
+}
+
+private extension CGRect {
+    func isAlmostEqual(to other: CGRect) -> Bool {
+        abs(minX - other.minX) < 0.01 && abs(minY - other.minY) < 0.01
+            && abs(width - other.width) < 0.01 && abs(height - other.height) < 0.01
     }
 }

@@ -14,17 +14,18 @@ A native macOS PDF reader built for reading: tabs, Split View, and Day / Sepia /
   - **Night**: soft inversion of lightness ($`L' = 0.75(1 - L)`$) that keeps hues: `#000000` paper and `#BFBFBF` ink to avoid glare in the dark, colored figures stay recognizable, `#202223` canvas.
   - **Follow System** switches between Day and Night with the system appearance, optionally using Sepia instead of Day.
   - Pages stay sharp at every zoom level: the color matrix is applied above `NSClipView`'s magnification, so PDFKit's tiles render at full Retina resolution.
-- **12 Languages**: **简体中文**, **繁體中文**, **English**, **日本語**, **한국어**, **Français**, **Deutsch**, **Español**, **Italiano**, **Português**, **Русский** and **Українська**, or Follow System; switchable live from Settings (`⌘,`), the View menu or the View Settings panel. The built-in Reading Guide PDF is localized too.
+- **12 Languages**: **简体中文**, **繁體中文**, **English**, **日本語**, **한국어**, **Français**, **Deutsch**, **Español**, **Italiano**, **Português**, **Русский** and **Українська**, or Follow System; switchable live from Settings (`⌘,`) or the View menu. The built-in Reading Guide PDF is localized too.
 - **Interface**
   - **Unified 40pt title bar**: traffic lights centered on the tab strip, icon-only Home tab, document tabs (close on hover, context menu) and `+` to open files.
   - **Toolbar**: Document Summary / Page Overview / View Settings toggles, zoom pop-up with presets and `−` / `+`, theme switcher, Clear Margins, Rotate, Share, Bookmark and a search field.
-  - **Left dock (240pt)**: Thumbnails / Outline (highlights the section you are reading) / Bookmarks, or the View Settings panel (page layout, split view, reading theme, clear margins, rotation, appearance, language).
+  - **Left dock (240pt)**: Thumbnails / Outline (highlights the section you are reading) / Bookmarks, or the View Settings panel (page layout, split view, reading theme, clear margins, rotation, appearance).
   - **Right search dock**, bottom-right **page counter** (click or `⌥⌘G` → Go to Page) and a **Page Overview** grid (`⌃⌘1`).
   - Tab strip, toolbar and panels follow the **System / Light / Dark** appearance.
 - **Home Tab**: sidebar with Home, Recents and Favorites (plus Open File…, Reading Guide and Settings; Help › Reading Guide, `⌘?`, opens the guide from anywhere), a drag-and-drop area, reading-theme cards and document grids with locale-aware dates.
-- **Tabs & Split View**: `⌃⇥` / `⌃⇧⇥` (or `⇧⌘]` / `⇧⌘[`) switch tabs; vertical (left / right) or horizontal (top / bottom) Split View with Swap Sides, Sync Scroll & Zoom, and the Home tab as a picker for the second document.
+- **Tabs & Split View**: `⌃⇥` / `⌃⇧⇥` (or `⇧⌘]` / `⇧⌘[`) switch tabs and `⇧⌘T` reopens the last closed one; vertical (left / right) or horizontal (top / bottom) Split View with Swap Sides, Sync Scroll & Zoom, and the Home tab as a picker for the second document.
 - **Reading**
-  - Single Page, Two Pages and Two Pages with Single Cover (`⌘1`, `⌘2`, `⌘3`).
+  - Single Page, Two Pages and Two Pages with Single Cover (`⌘1`, `⌘2`, `⌘3`); the pages of a spread meet at the spine. Books bound on the right are detected (from the PDF, or from where the page numbers sit on vertically set pages) and read right to left; View › Page Direction overrides it.
+  - **Printed page numbers**: the page counter and Go to Page use the numbers printed on the pages — read from the pages themselves when the PDF's own page labels are missing or wrong — and show both pages of a spread.
   - **`←` / `→`** turn the page in the focused pane.
   - **Clear Margins (`⇧⌘M`)** detects the content bounds of each page and crops the margins, computed in the background.
   - **Left sidebar (`⌘B`)**: themed page thumbnails, the document outline and bookmarks (`⌘D`).

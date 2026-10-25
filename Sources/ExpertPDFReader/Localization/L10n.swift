@@ -254,6 +254,31 @@ public enum L10n {
         }
     }
 
+    public static func defaultPDFAppNote(_ appName: String) -> String {
+        switch resolvedLanguage {
+        case .zhHans: return "PDF 文件目前用“\(appName)”打开。"
+        case .zhHant: return "PDF 檔案目前以「\(appName)」打開。"
+        case .ja:     return "PDF は現在 “\(appName)” で開きます。"
+        case .ko:     return "현재 PDF 파일은 ‘\(appName)’에서 열립니다."
+        case .fr:     return "Les fichiers PDF s’ouvrent actuellement dans « \(appName) »."
+        case .de:     return "PDF-Dateien werden zurzeit mit „\(appName)“ geöffnet."
+        case .es:     return "Los archivos PDF se abren ahora con «\(appName)»."
+        case .it:     return "Al momento i file PDF si aprono con «\(appName)»."
+        case .pt:     return "No momento, os arquivos PDF abrem no “\(appName)”."
+        case .ru:     return "Сейчас PDF-файлы открываются в «\(appName)»."
+        case .uk:     return "Зараз PDF-файли відкриваються в «\(appName)»."
+        default:      return "PDF files currently open in \(appName)."
+        }
+    }
+
+    /// "Automatic (Right to Left)", with full-width parentheses in Chinese and Japanese
+    public static func parenthetical(_ text: String, _ detail: String) -> String {
+        switch resolvedLanguage {
+        case .zhHans, .zhHant, .ja: return "\(text)（\(detail)）"
+        default:                    return "\(text) (\(detail))"
+        }
+    }
+
     public static func zoomPercentageAccessibility(_ percent: Int) -> String {
         "\(tr("缩放比例", "Zoom Level")) \(percent)%"
     }
@@ -264,6 +289,14 @@ public enum L10n {
 
     private static let catalog: [String: [String: String]] = [
         "zh-Hant": [
+            "重新打开关闭的标签|||Reopen Closed Tab": "重新打開已關閉的分頁",
+            "翻页方向|||Page Direction": "翻頁方向",
+            "自动|||Automatic": "自動",
+            "从左往右|||Left to Right": "從左往右",
+            "从右往左|||Right to Left": "從右往左",
+            "默认 PDF 应用|||Default PDF App": "預設 PDF 應用程式",
+            "设为默认|||Make Default": "設為預設",
+            "在 Finder 中双击 PDF 文件会用 Expert PDF Reader 打开。|||Double-clicking a PDF in Finder opens it in Expert PDF Reader.": "在 Finder 中按兩下 PDF 檔案會以 Expert PDF Reader 打開。",
             "上一页|||Previous Page": "上一頁",
             "下一页|||Next Page": "下一頁",
             "关闭窗口|||Close Window": "關閉視窗",
@@ -413,6 +446,14 @@ public enum L10n {
             "找不到该文件，它可能已被移动或删除。|||The file can't be found. It may have been moved or deleted.": "找不到該檔案，它可能已被移動或刪除。",
         ],
         "ja": [
+            "重新打开关闭的标签|||Reopen Closed Tab": "閉じたタブを再度開く",
+            "翻页方向|||Page Direction": "ページの方向",
+            "自动|||Automatic": "自動",
+            "从左往右|||Left to Right": "左から右",
+            "从右往左|||Right to Left": "右から左",
+            "默认 PDF 应用|||Default PDF App": "デフォルトの PDF アプリ",
+            "设为默认|||Make Default": "デフォルトに設定",
+            "在 Finder 中双击 PDF 文件会用 Expert PDF Reader 打开。|||Double-clicking a PDF in Finder opens it in Expert PDF Reader.": "Finder で PDF をダブルクリックすると Expert PDF Reader で開きます。",
             "上一页|||Previous Page": "前のページ",
             "下一页|||Next Page": "次のページ",
             "关闭窗口|||Close Window": "ウインドウを閉じる",
@@ -562,6 +603,14 @@ public enum L10n {
             "找不到该文件，它可能已被移动或删除。|||The file can't be found. It may have been moved or deleted.": "ファイルが見つかりません。移動または削除された可能性があります。",
         ],
         "ko": [
+            "重新打开关闭的标签|||Reopen Closed Tab": "닫은 탭 다시 열기",
+            "翻页方向|||Page Direction": "페이지 방향",
+            "自动|||Automatic": "자동",
+            "从左往右|||Left to Right": "왼쪽에서 오른쪽",
+            "从右往左|||Right to Left": "오른쪽에서 왼쪽",
+            "默认 PDF 应用|||Default PDF App": "기본 PDF 앱",
+            "设为默认|||Make Default": "기본으로 설정",
+            "在 Finder 中双击 PDF 文件会用 Expert PDF Reader 打开。|||Double-clicking a PDF in Finder opens it in Expert PDF Reader.": "Finder에서 PDF를 이중 클릭하면 Expert PDF Reader에서 열립니다.",
             "上一页|||Previous Page": "이전 페이지",
             "下一页|||Next Page": "다음 페이지",
             "关闭窗口|||Close Window": "윈도우 닫기",
@@ -711,6 +760,14 @@ public enum L10n {
             "找不到该文件，它可能已被移动或删除。|||The file can't be found. It may have been moved or deleted.": "파일을 찾을 수 없습니다. 이동되었거나 삭제되었을 수 있습니다.",
         ],
         "fr": [
+            "重新打开关闭的标签|||Reopen Closed Tab": "Rouvrir l’onglet fermé",
+            "翻页方向|||Page Direction": "Sens des pages",
+            "自动|||Automatic": "Automatique",
+            "从左往右|||Left to Right": "De gauche à droite",
+            "从右往左|||Right to Left": "De droite à gauche",
+            "默认 PDF 应用|||Default PDF App": "App PDF par défaut",
+            "设为默认|||Make Default": "Définir par défaut",
+            "在 Finder 中双击 PDF 文件会用 Expert PDF Reader 打开。|||Double-clicking a PDF in Finder opens it in Expert PDF Reader.": "Un double-clic sur un PDF dans le Finder l’ouvre dans Expert PDF Reader.",
             "上一页|||Previous Page": "Page précédente",
             "下一页|||Next Page": "Page suivante",
             "关闭窗口|||Close Window": "Fermer la fenêtre",
@@ -860,6 +917,14 @@ public enum L10n {
             "找不到该文件，它可能已被移动或删除。|||The file can't be found. It may have been moved or deleted.": "Le fichier est introuvable. Il a peut-être été déplacé ou supprimé.",
         ],
         "de": [
+            "重新打开关闭的标签|||Reopen Closed Tab": "Geschlossenen Tab wieder öffnen",
+            "翻页方向|||Page Direction": "Seitenrichtung",
+            "自动|||Automatic": "Automatisch",
+            "从左往右|||Left to Right": "Von links nach rechts",
+            "从右往左|||Right to Left": "Von rechts nach links",
+            "默认 PDF 应用|||Default PDF App": "Standard-App für PDFs",
+            "设为默认|||Make Default": "Als Standard festlegen",
+            "在 Finder 中双击 PDF 文件会用 Expert PDF Reader 打开。|||Double-clicking a PDF in Finder opens it in Expert PDF Reader.": "Ein Doppelklick auf ein PDF im Finder öffnet es in Expert PDF Reader.",
             "上一页|||Previous Page": "Vorherige Seite",
             "下一页|||Next Page": "Nächste Seite",
             "关闭窗口|||Close Window": "Fenster schließen",
@@ -1009,6 +1074,14 @@ public enum L10n {
             "找不到该文件，它可能已被移动或删除。|||The file can't be found. It may have been moved or deleted.": "Die Datei wurde nicht gefunden. Sie wurde möglicherweise verschoben oder gelöscht.",
         ],
         "es": [
+            "重新打开关闭的标签|||Reopen Closed Tab": "Reabrir pestaña cerrada",
+            "翻页方向|||Page Direction": "Dirección de página",
+            "自动|||Automatic": "Automática",
+            "从左往右|||Left to Right": "De izquierda a derecha",
+            "从右往左|||Right to Left": "De derecha a izquierda",
+            "默认 PDF 应用|||Default PDF App": "App de PDF por omisión",
+            "设为默认|||Make Default": "Usar por omisión",
+            "在 Finder 中双击 PDF 文件会用 Expert PDF Reader 打开。|||Double-clicking a PDF in Finder opens it in Expert PDF Reader.": "Al hacer doble clic en un PDF en el Finder, se abre en Expert PDF Reader.",
             "上一页|||Previous Page": "Página anterior",
             "下一页|||Next Page": "Página siguiente",
             "关闭窗口|||Close Window": "Cerrar ventana",
@@ -1158,6 +1231,14 @@ public enum L10n {
             "找不到该文件，它可能已被移动或删除。|||The file can't be found. It may have been moved or deleted.": "No se encuentra el archivo. Es posible que se haya movido o eliminado.",
         ],
         "it": [
+            "重新打开关闭的标签|||Reopen Closed Tab": "Riapri scheda chiusa",
+            "翻页方向|||Page Direction": "Direzione pagine",
+            "自动|||Automatic": "Automatica",
+            "从左往右|||Left to Right": "Da sinistra a destra",
+            "从右往左|||Right to Left": "Da destra a sinistra",
+            "默认 PDF 应用|||Default PDF App": "App PDF predefinita",
+            "设为默认|||Make Default": "Imposta come predefinita",
+            "在 Finder 中双击 PDF 文件会用 Expert PDF Reader 打开。|||Double-clicking a PDF in Finder opens it in Expert PDF Reader.": "Facendo doppio clic su un PDF nel Finder, si apre in Expert PDF Reader.",
             "上一页|||Previous Page": "Pagina precedente",
             "下一页|||Next Page": "Pagina successiva",
             "关闭窗口|||Close Window": "Chiudi finestra",
@@ -1307,6 +1388,14 @@ public enum L10n {
             "找不到该文件，它可能已被移动或删除。|||The file can't be found. It may have been moved or deleted.": "Impossibile trovare il file. Potrebbe essere stato spostato o eliminato.",
         ],
         "pt": [
+            "重新打开关闭的标签|||Reopen Closed Tab": "Reabrir aba fechada",
+            "翻页方向|||Page Direction": "Direção das páginas",
+            "自动|||Automatic": "Automática",
+            "从左往右|||Left to Right": "Da esquerda para a direita",
+            "从右往左|||Right to Left": "Da direita para a esquerda",
+            "默认 PDF 应用|||Default PDF App": "App de PDF padrão",
+            "设为默认|||Make Default": "Definir como padrão",
+            "在 Finder 中双击 PDF 文件会用 Expert PDF Reader 打开。|||Double-clicking a PDF in Finder opens it in Expert PDF Reader.": "Clicar duas vezes em um PDF no Finder o abre no Expert PDF Reader.",
             "上一页|||Previous Page": "Página anterior",
             "下一页|||Next Page": "Próxima página",
             "关闭窗口|||Close Window": "Fechar janela",
@@ -1456,6 +1545,14 @@ public enum L10n {
             "找不到该文件，它可能已被移动或删除。|||The file can't be found. It may have been moved or deleted.": "Não foi possível encontrar o arquivo. Ele pode ter sido movido ou apagado.",
         ],
         "ru": [
+            "重新打开关闭的标签|||Reopen Closed Tab": "Открыть закрытую вкладку",
+            "翻页方向|||Page Direction": "Направление страниц",
+            "自动|||Automatic": "Автоматически",
+            "从左往右|||Left to Right": "Слева направо",
+            "从右往左|||Right to Left": "Справа налево",
+            "默认 PDF 应用|||Default PDF App": "Приложение для PDF по умолчанию",
+            "设为默认|||Make Default": "Использовать по умолчанию",
+            "在 Finder 中双击 PDF 文件会用 Expert PDF Reader 打开。|||Double-clicking a PDF in Finder opens it in Expert PDF Reader.": "Двойное нажатие на PDF в Finder открывает его в Expert PDF Reader.",
             "上一页|||Previous Page": "Предыдущая страница",
             "下一页|||Next Page": "Следующая страница",
             "关闭窗口|||Close Window": "Закрыть окно",
@@ -1605,6 +1702,14 @@ public enum L10n {
             "找不到该文件，它可能已被移动或删除。|||The file can't be found. It may have been moved or deleted.": "Файл не найден. Возможно, он был перемещен или удален.",
         ],
         "uk": [
+            "重新打开关闭的标签|||Reopen Closed Tab": "Відкрити закриту вкладку",
+            "翻页方向|||Page Direction": "Напрямок сторінок",
+            "自动|||Automatic": "Автоматично",
+            "从左往右|||Left to Right": "Зліва направо",
+            "从右往左|||Right to Left": "Справа наліво",
+            "默认 PDF 应用|||Default PDF App": "Типова програма для PDF",
+            "设为默认|||Make Default": "Зробити типовою",
+            "在 Finder 中双击 PDF 文件会用 Expert PDF Reader 打开。|||Double-clicking a PDF in Finder opens it in Expert PDF Reader.": "Подвійне натискання PDF у Finder відкриває його в Expert PDF Reader.",
             "上一页|||Previous Page": "Попередня сторінка",
             "下一页|||Next Page": "Наступна сторінка",
             "关闭窗口|||Close Window": "Закрити вікно",

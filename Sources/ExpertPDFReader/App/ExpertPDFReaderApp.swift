@@ -152,6 +152,12 @@ struct ReaderMenuCommands: Commands {
                 store.openNewHomeTab()
             }
             .keyboardShortcut("t", modifiers: [.command])
+
+            Button(L10n.tr("重新打开关闭的标签", "Reopen Closed Tab")) {
+                store.reopenClosedTab()
+            }
+            .keyboardShortcut("t", modifiers: [.command, .shift])
+            .disabled(store.closedDocumentURLs.isEmpty)
         }
 
         // Replaces File › Close / Close All, whose ⌘W clashed with Close Tab
@@ -256,6 +262,19 @@ struct ReaderMenuCommands: Commands {
                 store.activeDocumentTab?.layoutMode = .twoPagesCover
             }
             .keyboardShortcut("3", modifiers: [.command])
+            .disabled(store.activeDocumentTab == nil)
+
+            // Detected from the PDF or its printed page numbers; chosen here only when that gets a book wrong
+            Picker(L10n.tr("翻页方向", "Page Direction"), selection: Binding(
+                get: { store.activeDocumentTab?.pageDirection ?? .automatic },
+                set: { store.activeDocumentTab?.pageDirection = $0 }
+            )) {
+                ForEach(PageDirection.allCases) { direction in
+                    Text(direction.title(detectedRightToLeft: store.activeDocumentTab?.detectedRightToLeft ?? false))
+                        .tag(direction)
+                }
+            }
+            .id("pageDirection.\(store.appLanguage.rawValue)")
             .disabled(store.activeDocumentTab == nil)
 
             Button(store.activeDocumentTab?.isClearMarginsEnabled == true ? L10n.tr("恢复页面空白边", "Restore Page Margins") : L10n.tr("清除空白边", "Clear Margins")) {

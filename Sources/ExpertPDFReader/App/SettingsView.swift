@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// `Settings` scene (⌘,), also reachable from the Home sidebar's 设置 / Settings row via `SettingsLink`.
@@ -6,6 +7,30 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            Section {
+                LabeledContent(L10n.tr("默认 PDF 应用", "Default PDF App")) {
+                    if store.isDefaultPDFApp {
+                        Label("Expert PDF Reader", systemImage: "checkmark.circle.fill")
+                            .labelStyle(.titleAndIcon)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Button(L10n.tr("设为默认", "Make Default")) {
+                            store.makeDefaultPDFApp()
+                        }
+                    }
+                }
+            } footer: {
+                Group {
+                    if store.isDefaultPDFApp {
+                        Text(L10n.tr("在 Finder 中双击 PDF 文件会用 Expert PDF Reader 打开。", "Double-clicking a PDF in Finder opens it in Expert PDF Reader."))
+                    } else if let appName = store.defaultPDFAppName {
+                        Text(L10n.defaultPDFAppNote(appName))
+                    }
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            }
+
             Section {
                 Picker(L10n.tr("语言", "Language"), selection: $store.appLanguage) {
                     ForEach(AppLanguage.allCases) { lang in
@@ -56,5 +81,9 @@ struct SettingsView: View {
         .scrollDisabled(true)
         .fixedSize(horizontal: false, vertical: true)
         .frame(width: 460)
+        .onAppear { store.refreshDefaultPDFApp() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            store.refreshDefaultPDFApp()
+        }
     }
 }

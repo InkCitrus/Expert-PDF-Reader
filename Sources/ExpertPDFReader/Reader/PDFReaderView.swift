@@ -106,6 +106,7 @@ public struct PDFReaderView: View {
             pendingZoomAction: tab.pendingZoomAction,
             isAutoScaling: tab.isAutoScaling,
             layoutToken: tab.clearMarginsLayoutToken,
+            readingSpot: tab.readingSpotBeforeCropChange,
             onAutoScalesChange: { autoScales in
                 if tab.isAutoScaling != autoScales {
                     tab.isAutoScaling = autoScales
@@ -116,6 +117,9 @@ public struct PDFReaderView: View {
             },
             onReadingLocationChange: { pageIndex, readingLineY in
                 tab.readingLocation.update(pageIndex: pageIndex, readingLineY: readingLineY)
+            },
+            onReadingSpotChange: { spot in
+                tab.readingSpot = spot
             }
         )
         .overlay(alignment: .bottomTrailing) {
@@ -230,6 +234,7 @@ public struct PDFReaderView: View {
                     pdfTheme: store.resolvedPDFTheme(isDark: isDark),
                     isDarkUI: isDark,
                     layoutToken: tab.clearMarginsLayoutToken,
+                    readingSpot: tab.secondaryReadingSpotBeforeCropChange,
                     handlesUnfocusedArrowKeys: false,
                     onStepPage: { delta in
                         let clamped = max(0, min(max(0, secDoc.pageCount - 1), tab.secondaryPageIndex + delta))
@@ -237,6 +242,9 @@ public struct PDFReaderView: View {
                         if tab.syncScrollAndZoom && clamped < tab.pageCount {
                             tab.currentPageIndex = clamped
                         }
+                    },
+                    onReadingSpotChange: { spot in
+                        tab.secondaryReadingSpot = spot
                     }
                 )
             } else {

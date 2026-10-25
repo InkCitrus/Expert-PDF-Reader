@@ -12,18 +12,34 @@ struct SettingsView: View {
                         Text(lang.title).tag(lang)
                     }
                 }
+                .id("language.\(store.appLanguage.rawValue)")
+
+                if store.menuBarNeedsRestartForLanguage {
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Text(L10n.tr("重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。", "Menus provided by macOS (File, Edit, Window…) switch to this language after a restart."))
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                        Button(L10n.tr("立即重新启动", "Restart Now")) {
+                            store.relaunchApp()
+                        }
+                    }
+                }
 
                 Picker(L10n.tr("界面外观", "App Appearance"), selection: $store.appearanceMode) {
                     ForEach(AppAppearanceMode.allCases) { mode in
                         Text(mode.title).tag(mode)
                     }
                 }
+                .id("appearance.\(store.appLanguage.rawValue)")
 
                 Picker(L10n.tr("阅读主题", "Reading Theme"), selection: $store.readingThemeMode) {
                     ForEach(PDFReadingThemeMode.allCases) { mode in
                         Text(mode.title).tag(mode)
                     }
                 }
+                .id("theme.\(store.appLanguage.rawValue)")
 
                 Toggle(L10n.tr("浅色时使用纸质替代日间", "Use Sepia Instead of Day in Light Mode"), isOn: $store.useSepiaForLightSystemTheme)
             } footer: {
@@ -36,6 +52,9 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        // Sized to its content instead of a tall window with empty space below the form
+        .scrollDisabled(true)
+        .fixedSize(horizontal: false, vertical: true)
         .frame(width: 460)
     }
 }

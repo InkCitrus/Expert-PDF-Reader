@@ -122,15 +122,6 @@ public enum PDFReadingThemeMode: String, CaseIterable, Identifiable, Codable {
         }
     }
 
-    public var shortTitle: String {
-        switch self {
-        case .system: return L10n.tr("跟随系统", "Auto")
-        case .day:    return PDFViewTheme.day.title
-        case .sepia:  return PDFViewTheme.sepia.title
-        case .night:  return PDFViewTheme.night.title
-        }
-    }
-
     public var toolbarIconName: String {
         switch self {
         case .system: return "circle.lefthalf.filled"
@@ -167,14 +158,6 @@ public enum AppAppearanceMode: String, CaseIterable, Identifiable, Codable {
         case .system: return L10n.tr("跟随系统", "Follow System")
         case .light:  return L10n.tr("浅色外观", "Light")
         case .dark:   return L10n.tr("深色外观", "Dark")
-        }
-    }
-
-    public var shortTitle: String {
-        switch self {
-        case .system: return L10n.tr("跟随系统", "Auto")
-        case .light:  return L10n.tr("浅色", "Light")
-        case .dark:   return L10n.tr("深色", "Dark")
         }
     }
 

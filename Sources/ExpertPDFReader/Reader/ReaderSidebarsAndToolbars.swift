@@ -10,8 +10,7 @@ public struct ReaderToolbarView: View {
     @ObservedObject var store: AppStore
     @ObservedObject var tab: DocumentTabState
 
-    @State private var zoomAnchor = NSViewAnchor()
-    @State private var shareAnchor = NSViewAnchor()
+    @State private var anchors = ToolbarAnchors()
     @FocusState private var isSearchFieldFocused: Bool
 
     @Environment(\.colorScheme) private var colorScheme
@@ -19,7 +18,32 @@ public struct ReaderToolbarView: View {
 
     public static let height: CGFloat = 40
 
+    /// How much of the toolbar fits: narrower windows first drop the zoom stepper and shorten the search
+    /// field, then fold the four reading theme buttons into one menu button
+    enum Density: String {
+        case regular, compact, minimal
+    }
+
     public var body: some View {
+        // The first layout that fits wins, so nothing is clipped down to the window's minimum width
+        ViewThatFits(in: .horizontal) {
+            toolbarContent(.regular)
+            toolbarContent(.compact)
+            toolbarContent(.minimal)
+        }
+        .frame(height: Self.height)
+        .background(AppPalette.toolbarBackground(isDark))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(AppPalette.chromeHairline(isDark))
+                .frame(height: 1)
+        }
+        .onChange(of: tab.searchFocusToken) { _, _ in
+            isSearchFieldFocused = true
+        }
+    }
+
+    private func toolbarContent(_ density: Density) -> some View {
         HStack(spacing: 2) {
             // Left Group: Document Summary / Page Overview / View Settings + Zoom (PDFZoomToolbarItemView)
             ToolbarIconButton(
@@ -55,23 +79,37 @@ public struct ReaderToolbarView: View {
                 }
             }
 
-            zoomControls
+            zoomControls(density)
                 .padding(.leading, 8)
 
             Spacer(minLength: 16)
 
             // Center Group: Follow System / Day / Sepia / Night + Page Tools
             HStack(spacing: 2) {
-                ForEach(PDFReadingThemeMode.allCases) { mode in
+                if density == .minimal {
+                    let themeAnchor = anchors.anchor("theme", density)
                     ToolbarIconButton(
-                        icon: mode.toolbarIconName,
-                        tooltip: "\(L10n.tr("阅读主题", "Reading Theme")): \(mode.title)",
-                        isActive: store.readingThemeMode == mode,
+                        icon: store.readingThemeMode.toolbarIconName,
+                        tooltip: "\(L10n.tr("阅读主题", "Reading Theme")): \(store.readingThemeMode.title)",
+                        isActive: true,
                         activeTint: AppPalette.accentBlue,
                         isDark: isDark
                     ) {
-                        withAnimation(.easeInOut(duration: 0.16)) {
-                            store.readingThemeMode = mode
+                        presentThemeMenu(below: themeAnchor)
+                    }
+                    .background(ViewAnchorRepresentable(anchor: themeAnchor))
+                } else {
+                    ForEach(PDFReadingThemeMode.allCases) { mode in
+                        ToolbarIconButton(
+                            icon: mode.toolbarIconName,
+                            tooltip: "\(L10n.tr("阅读主题", "Reading Theme")): \(mode.title)",
+                            isActive: store.readingThemeMode == mode,
+                            activeTint: AppPalette.accentBlue,
+                            isDark: isDark
+                        ) {
+                            withAnimation(.easeInOut(duration: 0.16)) {
+                                store.readingThemeMode = mode
+                            }
                         }
                     }
                 }
@@ -100,12 +138,13 @@ public struct ReaderToolbarView: View {
             Spacer(minLength: 16)
 
             // Right Group: Share + Bookmark + Search Field (PDFSearchToolbarItemView)
+            let shareAnchor = anchors.anchor("share", density)
             ToolbarIconButton(
                 icon: "square.and.arrow.up",
                 tooltip: L10n.tr("分享", "Share"),
                 isDark: isDark
             ) {
-                presentSharingPicker()
+                presentSharingPicker(from: shareAnchor)
             }
             .background(ViewAnchorRepresentable(anchor: shareAnchor))
 
@@ -121,28 +160,32 @@ public struct ReaderToolbarView: View {
             }
 
             searchField
-                .frame(width: 176)
+                .frame(width: density == .regular ? 176 : 132)
                 .padding(.leading, 6)
         }
         .padding(.horizontal, 8)
-        .frame(height: Self.height)
-        .background(AppPalette.toolbarBackground(isDark))
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(AppPalette.chromeHairline(isDark))
-                .frame(height: 1)
+    }
+
+    private func presentThemeMenu(below anchor: NSViewAnchor) {
+        var items = PDFReadingThemeMode.allCases.map { mode in
+            NativeMenuItem.action(mode.title, isChecked: store.readingThemeMode == mode) {
+                store.readingThemeMode = mode
+            }
         }
-        .onChange(of: tab.searchFocusToken) { _, _ in
-            isSearchFieldFocused = true
-        }
+        items.append(.separator)
+        items.append(.action(L10n.tr("浅色时使用纸质替代日间", "Use Sepia Instead of Day in Light Mode"), isChecked: store.useSepiaForLightSystemTheme) {
+            store.useSepiaForLightSystemTheme.toggle()
+        })
+        NativeMenu.popUp(items, below: anchor.view)
     }
 
     // MARK: Zoom (percentage pop-up + − / + stepper)
 
-    private var zoomControls: some View {
-        HStack(spacing: 6) {
+    private func zoomControls(_ density: Density) -> some View {
+        let zoomAnchor = anchors.anchor("zoom", density)
+        return HStack(spacing: 6) {
             Button {
-                presentZoomMenu()
+                presentZoomMenu(below: zoomAnchor)
             } label: {
                 HStack(spacing: 4) {
                     Text("\(Int((tab.zoomScale * 100).rounded()))%")
@@ -165,25 +208,27 @@ public struct ReaderToolbarView: View {
             .help(L10n.tr("缩放比例", "Zoom Level"))
             .accessibilityLabel(Text("\(L10n.tr("缩放比例", "Zoom Level")) \(Int((tab.zoomScale * 100).rounded()))%"))
 
-            HStack(spacing: 0) {
-                ZoomStepButton(icon: "minus", tooltip: L10n.tr("缩小 (⌘-)", "Zoom Out (⌘-)"), isDark: isDark) {
-                    tab.triggerZoom(.zoomOut)
+            if density == .regular {
+                HStack(spacing: 0) {
+                    ZoomStepButton(icon: "minus", tooltip: L10n.tr("缩小 (⌘-)", "Zoom Out (⌘-)"), isDark: isDark) {
+                        tab.triggerZoom(.zoomOut)
+                    }
+                    Rectangle()
+                        .fill(AppPalette.toolbarIcon(isDark).opacity(0.18))
+                        .frame(width: 1, height: 14)
+                    ZoomStepButton(icon: "plus", tooltip: L10n.tr("放大 (⌘+)", "Zoom In (⌘+)"), isDark: isDark) {
+                        tab.triggerZoom(.zoomIn)
+                    }
                 }
-                Rectangle()
-                    .fill(AppPalette.toolbarIcon(isDark).opacity(0.18))
-                    .frame(width: 1, height: 14)
-                ZoomStepButton(icon: "plus", tooltip: L10n.tr("放大 (⌘+)", "Zoom In (⌘+)"), isDark: isDark) {
-                    tab.triggerZoom(.zoomIn)
-                }
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(AppPalette.toolbarControlFill(isDark))
+                )
             }
-            .background(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(AppPalette.toolbarControlFill(isDark))
-            )
         }
     }
 
-    private func presentZoomMenu() {
+    private func presentZoomMenu(below zoomAnchor: NSViewAnchor) {
         let currentPercent = Int((tab.zoomScale * 100).rounded())
         var items: [NativeMenuItem] = [
             .action(L10n.tr("缩放至适应宽度", "Zoom to Fit Width"), keyEquivalent: "8") { tab.triggerZoom(.fitWidth) },
@@ -199,7 +244,7 @@ public struct ReaderToolbarView: View {
         NativeMenu.popUp(items, below: zoomAnchor.view)
     }
 
-    private func presentSharingPicker() {
+    private func presentSharingPicker(from shareAnchor: NSViewAnchor) {
         guard let anchorView = shareAnchor.view else { return }
         let picker = NSSharingServicePicker(items: [tab.documentID.url])
         picker.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .minY)
@@ -376,6 +421,22 @@ struct ToolbarDivider: View {
 /// Weak handle to an AppKit view inside the SwiftUI hierarchy.
 final class NSViewAnchor {
     weak var view: NSView?
+}
+
+/// One anchor per control and toolbar density: `ViewThatFits` may build the layouts it doesn't show,
+/// which must not take over the anchor of the visible one.
+final class ToolbarAnchors {
+    private var anchors: [String: NSViewAnchor] = [:]
+
+    func anchor(_ name: String, _ density: ReaderToolbarView.Density) -> NSViewAnchor {
+        let key = "\(name).\(density.rawValue)"
+        if let existing = anchors[key] {
+            return existing
+        }
+        let created = NSViewAnchor()
+        anchors[key] = created
+        return created
+    }
 }
 
 struct ViewAnchorRepresentable: NSViewRepresentable {
@@ -803,12 +864,21 @@ struct PDFOutlineNode: Identifiable {
     let title: String
     let pageIndex: Int?
     let pageLabel: String?
+    /// Destination's y in page space (origin bottom-left); `nil` means the top of the page
+    let top: CGFloat?
     let children: [PDFOutlineNode]
 }
 
 struct PDFOutlinePanel: View {
     @ObservedObject var tab: DocumentTabState
+    @ObservedObject private var location: ReadingLocation
     let isDark: Bool
+
+    init(tab: DocumentTabState, isDark: Bool) {
+        self._tab = ObservedObject(wrappedValue: tab)
+        self._location = ObservedObject(wrappedValue: tab.readingLocation)
+        self.isDark = isDark
+    }
 
     @State private var nodes: [PDFOutlineNode] = []
     @State private var expandedIDs: Set<UUID> = []
@@ -866,9 +936,16 @@ struct PDFOutlinePanel: View {
         return rows
     }
 
-    /// The section containing the current page: last visible row starting at or before it.
+    /// The section being read: the last visible row starting before the current page, or on it above the
+    /// reading line, so the right one of several sections on the same page is highlighted.
     private func activeNodeID(in rows: [OutlineRow]) -> UUID? {
-        rows.last(where: { ($0.node.pageIndex ?? Int.max) <= tab.currentPageIndex })?.node.id
+        let page = tab.currentPageIndex
+        let knowsPosition = location.pageIndex == page
+        return rows.last(where: { row in
+            guard let nodePage = row.node.pageIndex, nodePage <= page else { return false }
+            guard nodePage == page, knowsPosition, let top = row.node.top else { return true }
+            return top >= location.readingLineY
+        })?.node.id
     }
 
     private func toggle(_ node: PDFOutlineNode) {
@@ -923,32 +1000,27 @@ struct PDFOutlinePanel: View {
             guard let child = parent.child(at: i) else { continue }
             var pageIdx: Int?
             var pageLabel: String?
-            if let page = child.destination?.page ?? child.action?.PerformPage(in: tab.pdfDocument) {
+            let destination = child.destination ?? (child.action as? PDFActionGoTo)?.destination
+            if let page = destination?.page {
                 let idx = tab.pdfDocument.index(for: page)
                 if idx >= 0 && idx < tab.pageCount {
                     pageIdx = idx
                     pageLabel = page.label ?? "\(idx + 1)"
                 }
             }
+            // kPDFDestinationUnspecifiedValue (FLT_MAX) leaves the position on the page open
+            let top = destination.map(\.point.y).flatMap { $0 < 1_000_000 ? $0 : nil }
             result.append(
                 PDFOutlineNode(
                     title: child.label ?? L10n.tr("未命名章节", "Untitled Section"),
                     pageIndex: pageIdx,
                     pageLabel: pageLabel,
+                    top: top,
                     children: buildOutlineNodes(from: child)
                 )
             )
         }
         return result
-    }
-}
-
-extension PDFAction {
-    fileprivate func PerformPage(in doc: PDFDocument) -> PDFPage? {
-        if let goTo = self as? PDFActionGoTo {
-            return goTo.destination.page
-        }
-        return nil
     }
 }
 
@@ -1182,9 +1254,10 @@ struct DocumentViewSettingsPanel: View {
                     }
 
                     Toggle(isOn: $store.useSepiaForLightSystemTheme) {
-                        Text(L10n.tr("浅色时使用纸质替代日间", "Use Sepia in Light Mode"))
+                        Text(L10n.tr("浅色时使用纸质替代日间", "Use Sepia Instead of Day in Light Mode"))
                             .font(.system(size: 11.5))
                             .foregroundColor(AppPalette.labelPrimary(isDark))
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     .toggleStyle(.switch)
                     .controlSize(.mini)
@@ -1222,29 +1295,31 @@ struct DocumentViewSettingsPanel: View {
                     }
                 }
 
-                // 5. App UI Appearance (System / Light / Dark)
+                // 5. App UI Appearance (Follow System / Light / Dark), styled like Page Layout and Split View
                 settingsSection(L10n.tr("界面外观", "App Appearance")) {
-                    PanelSegmentedControl(items: AppAppearanceMode.allCases, selection: $store.appearanceMode, isDark: isDark) { mode, _ in
-                        Text(mode.shortTitle)
-                            .font(.system(size: 11.5, weight: .medium))
+                    HStack(spacing: 6) {
+                        ForEach(AppAppearanceMode.allCases) { mode in
+                            OptionTile(icon: mode.iconName, title: mode.title, isSelected: store.appearanceMode == mode, isDark: isDark) {
+                                store.appearanceMode = mode
+                            }
+                        }
                     }
                 }
 
                 // 6. Language (Follow System + 12 Languages)
                 settingsSection(L10n.tr("语言", "Language")) {
                     Menu {
-                        ForEach(AppLanguage.allCases) { lang in
-                            Button {
-                                store.appLanguage = lang
-                            } label: {
-                                HStack {
-                                    Text(lang.title)
-                                    if store.appLanguage == lang {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
+                        // An inline Picker gives the menu a checkmark on the current language
+                        Picker(selection: $store.appLanguage) {
+                            ForEach(AppLanguage.allCases) { lang in
+                                Text(lang.title).tag(lang)
                             }
+                        } label: {
+                            EmptyView()
                         }
+                        .pickerStyle(.inline)
+                        .labelsHidden()
+                        .id(store.appLanguage)
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "globe")
@@ -1270,6 +1345,10 @@ struct DocumentViewSettingsPanel: View {
                         )
                     }
                     .menuStyle(.borderlessButton)
+
+                    if store.menuBarNeedsRestartForLanguage {
+                        LanguageRestartNote(store: store, isDark: isDark)
+                    }
                 }
             }
             .padding(14)
@@ -1301,10 +1380,12 @@ struct OptionTile: View {
                 Image(systemName: icon)
                     .font(.system(size: 17, weight: .light))
                     .frame(height: 24)
+                // Two lines fit names such as Follow System or Suivre le système in a narrow tile
                 Text(title)
                     .font(.system(size: 11, weight: isSelected ? .medium : .regular))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .minimumScaleFactor(0.8)
             }
             .foregroundColor(isSelected ? AppPalette.accentBlue : AppPalette.labelSecondary(isDark))
             .frame(maxWidth: .infinity)
@@ -1321,6 +1402,26 @@ struct OptionTile: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
+    }
+}
+
+/// Shown under a language picker while the language differs from the one macOS used for its own menus
+/// (File, Edit, Window…), which only switch when the app starts.
+struct LanguageRestartNote: View {
+    @ObservedObject var store: AppStore
+    let isDark: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(L10n.tr("重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。", "Menus provided by macOS (File, Edit, Window…) switch to this language after a restart."))
+                .font(.system(size: 10.5))
+                .foregroundColor(AppPalette.labelTertiary(isDark))
+                .fixedSize(horizontal: false, vertical: true)
+            PanelTextButton(title: L10n.tr("立即重新启动", "Restart Now"), icon: "arrow.clockwise", isDark: isDark) {
+                store.relaunchApp()
+            }
+        }
+        .padding(.top, 2)
     }
 }
 
@@ -1360,10 +1461,13 @@ struct ThemeModePreviewTile: View {
                         .stroke(isSelected ? AppPalette.accentBlue : AppPalette.panelSeparator(isDark), lineWidth: isSelected ? 2 : 1)
                 )
 
-                Text(mode.shortTitle)
+                // The full name, as on the Home tab and in Settings; two lines are reserved so the tiles stay aligned
+                Text(mode.title)
                     .font(.system(size: 10.5, weight: isSelected ? .semibold : .regular))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .minimumScaleFactor(0.8)
+                    .frame(height: 26, alignment: .top)
                     .foregroundColor(isSelected ? AppPalette.accentBlue : AppPalette.labelSecondary(isDark))
             }
             .frame(maxWidth: .infinity)

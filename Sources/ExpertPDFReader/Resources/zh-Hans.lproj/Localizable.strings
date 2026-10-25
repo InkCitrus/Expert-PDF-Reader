@@ -1,10 +1,6 @@
 /* Expert PDF Reader — zh-Hans Localizable.strings */
-"上一页 (←)|||Previous Page (←)" = "上一页 (←)";
-"Previous Page (←)" = "上一页 (←)";
 "上下|||Horizontal" = "上下";
 "Horizontal" = "上下";
-"下一页 (→)|||Next Page (→)" = "下一页 (→)";
-"Next Page (→)" = "下一页 (→)";
 "不分屏|||Off" = "不分屏";
 "Off" = "不分屏";
 "为当前页添加/移除书签|||Toggle Bookmark for Current Page" = "为当前页添加/移除书签";
@@ -177,14 +173,10 @@
 "Horizontal Split (Top/Bottom)" = "水平分屏（上下）";
 "没有匹配结果|||No Matches Found" = "没有匹配结果";
 "No Matches Found" = "没有匹配结果";
-"浅色|||Light" = "浅色";
 "Light" = "浅色";
 "浅色外观|||Light" = "浅色外观";
 "浅色时使用纸质替代日间|||Use Sepia Instead of Day in Light Mode" = "浅色时使用纸质替代日间";
 "Use Sepia Instead of Day in Light Mode" = "浅色时使用纸质替代日间";
-"浅色时使用纸质替代日间|||Use Sepia in Light Mode" = "浅色时使用纸质替代日间";
-"Use Sepia in Light Mode" = "浅色时使用纸质替代日间";
-"深色|||Dark" = "深色";
 "Dark" = "深色";
 "深色外观|||Dark" = "深色外观";
 "添加书签|||Add Bookmark" = "添加书签";
@@ -243,7 +235,6 @@
 "Language" = "语言";
 "请尝试其他关键词|||Try another keyword" = "请尝试其他关键词";
 "Try another keyword" = "请尝试其他关键词";
-"跟随系统|||Auto" = "跟随系统";
 "跟随系统|||Follow System" = "跟随系统";
 "Follow System" = "跟随系统";
 "返回|||Back" = "返回";
@@ -286,3 +277,19 @@
 "The file may be damaged or isn't a PDF document." = "文件可能已损坏，或不是 PDF 文档。";
 "找不到该文件，它可能已被移动或删除。|||The file can't be found. It may have been moved or deleted." = "找不到该文件，它可能已被移动或删除。";
 "The file can't be found. It may have been moved or deleted." = "找不到该文件，它可能已被移动或删除。";
+"上一页|||Previous Page" = "上一页";
+"Previous Page" = "上一页";
+"下一页|||Next Page" = "下一页";
+"Next Page" = "下一页";
+"关闭窗口|||Close Window" = "关闭窗口";
+"Close Window" = "关闭窗口";
+"在 GitHub 上查看 Expert PDF Reader|||Expert PDF Reader on GitHub" = "在 GitHub 上查看 Expert PDF Reader";
+"Expert PDF Reader on GitHub" = "在 GitHub 上查看 Expert PDF Reader";
+"打开最近使用|||Open Recent" = "打开最近使用";
+"Open Recent" = "打开最近使用";
+"清除菜单|||Clear Menu" = "清除菜单";
+"Clear Menu" = "清除菜单";
+"立即重新启动|||Restart Now" = "立即重新启动";
+"Restart Now" = "立即重新启动";
+"重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。|||Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。";
+"Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。";

@@ -1,10 +1,6 @@
 /* Expert PDF Reader — uk Localizable.strings */
-"上一页 (←)|||Previous Page (←)" = "Попередня сторінка (←)";
-"Previous Page (←)" = "Попередня сторінка (←)";
 "上下|||Horizontal" = "Горизонт.";
 "Horizontal" = "Горизонт.";
-"下一页 (→)|||Next Page (→)" = "Наступна сторінка (→)";
-"Next Page (→)" = "Наступна сторінка (→)";
 "不分屏|||Off" = "Вимк.";
 "Off" = "Вимк.";
 "为当前页添加/移除书签|||Toggle Bookmark for Current Page" = "Перемкнути закладку для поточної сторінки";
@@ -177,14 +173,10 @@
 "Horizontal Split (Top/Bottom)" = "Горизонтальне розділення (зверху/знизу)";
 "没有匹配结果|||No Matches Found" = "Збігів не знайдено";
 "No Matches Found" = "Збігів не знайдено";
-"浅色|||Light" = "Світла";
 "Light" = "Світла";
 "浅色外观|||Light" = "Світле оформлення";
 "浅色时使用纸质替代日间|||Use Sepia Instead of Day in Light Mode" = "Використовувати «Сепія» замість «День» у світлій темі";
 "Use Sepia Instead of Day in Light Mode" = "Використовувати «Сепія» замість «День» у світлій темі";
-"浅色时使用纸质替代日间|||Use Sepia in Light Mode" = "Сепія у світлій темі";
-"Use Sepia in Light Mode" = "Сепія у світлій темі";
-"深色|||Dark" = "Темна";
 "Dark" = "Темна";
 "深色外观|||Dark" = "Темне оформлення";
 "添加书签|||Add Bookmark" = "Додати закладку";
@@ -243,7 +235,6 @@
 "Language" = "Мова";
 "请尝试其他关键词|||Try another keyword" = "Спробуйте інше ключове слово";
 "Try another keyword" = "Спробуйте інше ключове слово";
-"跟随系统|||Auto" = "Авто";
 "跟随系统|||Follow System" = "Як у системі";
 "Follow System" = "Як у системі";
 "返回|||Back" = "Назад";
@@ -286,3 +277,19 @@
 "The file may be damaged or isn't a PDF document." = "Можливо, файл пошкоджено або це не документ PDF.";
 "找不到该文件，它可能已被移动或删除。|||The file can't be found. It may have been moved or deleted." = "Файл не знайдено. Можливо, його переміщено або видалено.";
 "The file can't be found. It may have been moved or deleted." = "Файл не знайдено. Можливо, його переміщено або видалено.";
+"上一页|||Previous Page" = "Попередня сторінка";
+"Previous Page" = "Попередня сторінка";
+"下一页|||Next Page" = "Наступна сторінка";
+"Next Page" = "Наступна сторінка";
+"关闭窗口|||Close Window" = "Закрити вікно";
+"Close Window" = "Закрити вікно";
+"在 GitHub 上查看 Expert PDF Reader|||Expert PDF Reader on GitHub" = "Expert PDF Reader на GitHub";
+"Expert PDF Reader on GitHub" = "Expert PDF Reader на GitHub";
+"打开最近使用|||Open Recent" = "Відкрити недавні";
+"Open Recent" = "Відкрити недавні";
+"清除菜单|||Clear Menu" = "Очистити меню";
+"Clear Menu" = "Очистити меню";
+"立即重新启动|||Restart Now" = "Перезапустити зараз";
+"Restart Now" = "Перезапустити зараз";
+"重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。|||Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "Меню macOS («Файл», «Редагувати», «Вікно» тощо) перейдуть на цю мову після перезапуску.";
+"Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "Меню macOS («Файл», «Редагувати», «Вікно» тощо) перейдуть на цю мову після перезапуску.";

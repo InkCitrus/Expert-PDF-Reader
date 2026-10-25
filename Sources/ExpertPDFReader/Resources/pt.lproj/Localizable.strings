@@ -1,10 +1,6 @@
 /* Expert PDF Reader — pt Localizable.strings */
-"上一页 (←)|||Previous Page (←)" = "Página anterior (←)";
-"Previous Page (←)" = "Página anterior (←)";
 "上下|||Horizontal" = "Horizontal";
 "Horizontal" = "Horizontal";
-"下一页 (→)|||Next Page (→)" = "Próxima página (→)";
-"Next Page (→)" = "Próxima página (→)";
 "不分屏|||Off" = "Desativado";
 "Off" = "Desativado";
 "为当前页添加/移除书签|||Toggle Bookmark for Current Page" = "Alternar marcador na página atual";
@@ -177,14 +173,10 @@
 "Horizontal Split (Top/Bottom)" = "Divisão horizontal (superior/inferior)";
 "没有匹配结果|||No Matches Found" = "Nenhum resultado encontrado";
 "No Matches Found" = "Nenhum resultado encontrado";
-"浅色|||Light" = "Claro";
 "Light" = "Claro";
 "浅色外观|||Light" = "Aparência clara";
 "浅色时使用纸质替代日间|||Use Sepia Instead of Day in Light Mode" = "Usar Sépia em vez de Dia no modo claro";
 "Use Sepia Instead of Day in Light Mode" = "Usar Sépia em vez de Dia no modo claro";
-"浅色时使用纸质替代日间|||Use Sepia in Light Mode" = "Usar Sépia no modo claro";
-"Use Sepia in Light Mode" = "Usar Sépia no modo claro";
-"深色|||Dark" = "Escuro";
 "Dark" = "Escuro";
 "深色外观|||Dark" = "Aparência escura";
 "添加书签|||Add Bookmark" = "Adicionar marcador";
@@ -243,7 +235,6 @@
 "Language" = "Idioma";
 "请尝试其他关键词|||Try another keyword" = "Tente outra palavra-chave";
 "Try another keyword" = "Tente outra palavra-chave";
-"跟随系统|||Auto" = "Auto";
 "跟随系统|||Follow System" = "Seguir o sistema";
 "Follow System" = "Seguir o sistema";
 "返回|||Back" = "Voltar";
@@ -286,3 +277,19 @@
 "The file may be damaged or isn't a PDF document." = "O arquivo pode estar danificado ou não ser um documento PDF.";
 "找不到该文件，它可能已被移动或删除。|||The file can't be found. It may have been moved or deleted." = "Não foi possível encontrar o arquivo. Ele pode ter sido movido ou apagado.";
 "The file can't be found. It may have been moved or deleted." = "Não foi possível encontrar o arquivo. Ele pode ter sido movido ou apagado.";
+"上一页|||Previous Page" = "Página anterior";
+"Previous Page" = "Página anterior";
+"下一页|||Next Page" = "Próxima página";
+"Next Page" = "Próxima página";
+"关闭窗口|||Close Window" = "Fechar janela";
+"Close Window" = "Fechar janela";
+"在 GitHub 上查看 Expert PDF Reader|||Expert PDF Reader on GitHub" = "Expert PDF Reader no GitHub";
+"Expert PDF Reader on GitHub" = "Expert PDF Reader no GitHub";
+"打开最近使用|||Open Recent" = "Abrir Recente";
+"Open Recent" = "Abrir Recente";
+"清除菜单|||Clear Menu" = "Limpar menu";
+"Clear Menu" = "Limpar menu";
+"立即重新启动|||Restart Now" = "Reiniciar agora";
+"Restart Now" = "Reiniciar agora";
+"重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。|||Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "Os menus fornecidos pelo macOS (Arquivo, Editar, Janela…) mudam para este idioma após reiniciar.";
+"Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "Os menus fornecidos pelo macOS (Arquivo, Editar, Janela…) mudam para este idioma após reiniciar.";

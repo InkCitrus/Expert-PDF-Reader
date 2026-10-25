@@ -21,7 +21,7 @@ public enum SamplePDFGenerator {
         public let pages: [(title: String, subtitle: String, sections: [(heading: String, body: String)])]
     }
 
-    public static let guideDirectoryName = "Guides_v5"
+    public static let guideDirectoryName = "Guides_v6"
 
     public static func supportDirectory() -> URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -770,7 +770,7 @@ public enum SamplePDFGenerator {
                         subtitle: "macOS ネイティブ PDF リーダー＆ GPU リアルタイム読書テーマ",
                         sections: [
                             ("Expert PDF Reader へようこそ", "不要な編集機能や課金ウォールを省き、快適で鮮明な PDF 読書体験に特化した macOS ネイティブアプリです。マルチタブ、「最近の項目」と「お気に入り」を備えたホーム画面、ライト / ダークの外観、GPU で描画する昼 / セピア / 夜の読書テーマを搭載しています。"),
-                            ("4つの読書テーマモード：システム連動 / 昼 / セピア / 夜", "ツールバー中央または左パネルの「表示設定」から切り替え可能です。「システムに合わせる」を選択すると、ライト時は昼（設定オン時はセピア）、ダーク時は夜モードに自動切り替えされます。")
+                            ("4つの読書テーマモード：システムに合わせる / 昼 / セピア / 夜", "ツールバー中央または左パネルの「表示設定」から切り替え可能です。「システムに合わせる」を選択すると、ライト時は昼（設定オン時はセピア）、ダーク時は夜モードに自動切り替えされます。")
                         ]
                     ),
                     (

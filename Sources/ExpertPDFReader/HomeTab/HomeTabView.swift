@@ -96,7 +96,7 @@ public struct HomeTabRootView: View {
                             .font(.system(size: 20, weight: .bold))
                             .foregroundColor(AppPalette.labelPrimary(isDark))
                         Spacer()
-                        Toggle(L10n.tr("浅色时使用纸质替代日间", "Use Sepia in Light Mode"), isOn: $store.useSepiaForLightSystemTheme)
+                        Toggle(L10n.tr("浅色时使用纸质替代日间", "Use Sepia Instead of Day in Light Mode"), isOn: $store.useSepiaForLightSystemTheme)
                             .toggleStyle(.switch)
                             .controlSize(.mini)
                             .font(.system(size: 12))

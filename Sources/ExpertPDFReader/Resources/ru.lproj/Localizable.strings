@@ -1,10 +1,6 @@
 /* Expert PDF Reader — ru Localizable.strings */
-"上一页 (←)|||Previous Page (←)" = "Предыдущая страница (←)";
-"Previous Page (←)" = "Предыдущая страница (←)";
 "上下|||Horizontal" = "Горизонт.";
 "Horizontal" = "Горизонт.";
-"下一页 (→)|||Next Page (→)" = "Следующая страница (→)";
-"Next Page (→)" = "Следующая страница (→)";
 "不分屏|||Off" = "Выкл.";
 "Off" = "Выкл.";
 "为当前页添加/移除书签|||Toggle Bookmark for Current Page" = "Переключить закладку для текущей страницы";
@@ -177,14 +173,10 @@
 "Horizontal Split (Top/Bottom)" = "Горизонтальное разделение (сверху/снизу)";
 "没有匹配结果|||No Matches Found" = "Совпадений не найдено";
 "No Matches Found" = "Совпадений не найдено";
-"浅色|||Light" = "Светлая";
 "Light" = "Светлая";
 "浅色外观|||Light" = "Светлое оформление";
 "浅色时使用纸质替代日间|||Use Sepia Instead of Day in Light Mode" = "Использовать «Сепия» вместо «День» в светлой теме";
 "Use Sepia Instead of Day in Light Mode" = "Использовать «Сепия» вместо «День» в светлой теме";
-"浅色时使用纸质替代日间|||Use Sepia in Light Mode" = "Сепия в светлой теме";
-"Use Sepia in Light Mode" = "Сепия в светлой теме";
-"深色|||Dark" = "Темная";
 "Dark" = "Темная";
 "深色外观|||Dark" = "Темное оформление";
 "添加书签|||Add Bookmark" = "Добавить закладку";
@@ -243,7 +235,6 @@
 "Language" = "Язык";
 "请尝试其他关键词|||Try another keyword" = "Попробуйте другое ключевое слово";
 "Try another keyword" = "Попробуйте другое ключевое слово";
-"跟随系统|||Auto" = "Авто";
 "跟随系统|||Follow System" = "Как в системе";
 "Follow System" = "Как в системе";
 "返回|||Back" = "Назад";
@@ -286,3 +277,19 @@
 "The file may be damaged or isn't a PDF document." = "Возможно, файл поврежден или не является документом PDF.";
 "找不到该文件，它可能已被移动或删除。|||The file can't be found. It may have been moved or deleted." = "Файл не найден. Возможно, он был перемещен или удален.";
 "The file can't be found. It may have been moved or deleted." = "Файл не найден. Возможно, он был перемещен или удален.";
+"上一页|||Previous Page" = "Предыдущая страница";
+"Previous Page" = "Предыдущая страница";
+"下一页|||Next Page" = "Следующая страница";
+"Next Page" = "Следующая страница";
+"关闭窗口|||Close Window" = "Закрыть окно";
+"Close Window" = "Закрыть окно";
+"在 GitHub 上查看 Expert PDF Reader|||Expert PDF Reader on GitHub" = "Expert PDF Reader на GitHub";
+"Expert PDF Reader on GitHub" = "Expert PDF Reader на GitHub";
+"打开最近使用|||Open Recent" = "Открыть недавние";
+"Open Recent" = "Открыть недавние";
+"清除菜单|||Clear Menu" = "Очистить меню";
+"Clear Menu" = "Очистить меню";
+"立即重新启动|||Restart Now" = "Перезапустить";
+"Restart Now" = "Перезапустить";
+"重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。|||Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "Меню macOS («Файл», «Правка», «Окно» и т. д.) переключатся на этот язык после перезапуска.";
+"Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "Меню macOS («Файл», «Правка», «Окно» и т. д.) переключатся на этот язык после перезапуска.";

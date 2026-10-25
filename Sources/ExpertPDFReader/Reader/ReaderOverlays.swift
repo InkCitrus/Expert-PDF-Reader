@@ -234,8 +234,7 @@ struct PageIndicatorOverlay: View {
 
     var body: some View {
         Button {
-            goToPageInput = "\(tab.currentPageIndex + 1)"
-            showGoToPage = true
+            presentGoToPage()
         } label: {
             VStack(spacing: 1) {
                 Text(primaryLine)
@@ -266,6 +265,9 @@ struct PageIndicatorOverlay: View {
         .onAppear(perform: flash)
         .onChange(of: tab.currentPageIndex) { _, _ in
             flash()
+        }
+        .onChange(of: tab.goToPageRequestToken) { _, _ in
+            presentGoToPage()
         }
         .onDisappear {
             hideTask?.cancel()
@@ -315,11 +317,21 @@ struct PageIndicatorOverlay: View {
         }
     }
 
+    private func presentGoToPage() {
+        goToPageInput = "\(tab.currentPageIndex + 1)"
+        showGoToPage = true
+    }
+
     private func commitGoToPage() {
-        if let num = Int(goToPageInput.trimmingCharacters(in: .whitespaces)),
-           num >= 1 && num <= tab.pageCount {
+        guard let num = Int(goToPageInput.trimmingCharacters(in: .whitespaces)),
+              num >= 1 && num <= tab.pageCount else {
+            NSSound.beep()
+            return
+        }
+        // Close the popover first: navigating re-renders the canvas it is anchored to
+        showGoToPage = false
+        DispatchQueue.main.async {
             tab.navigateToPage(num - 1)
-            showGoToPage = false
         }
     }
 }
@@ -356,7 +368,9 @@ struct PageOverviewGridView: View {
                 }
                 .padding(28)
             }
-            .onAppear {
+            .task {
+                // Scrolling from onAppear runs before the lazy grid has a layout and is lost
+                try? await Task.sleep(nanoseconds: 60_000_000)
                 proxy.scrollTo(tab.currentPageIndex, anchor: .center)
             }
         }

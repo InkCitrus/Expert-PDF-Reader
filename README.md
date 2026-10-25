@@ -10,8 +10,8 @@ A native macOS PDF reader built for reading: tabs, Split View, and Day / Sepia /
 
 - **Reading Themes**
   - **Day**: original colors on a `#DCDCDE` / `#131314` canvas.
-  - **Sepia**: warm `#F5EFDC` paper, `#3F2A18` ink, `#E5DECF` canvas.
-  - **Night**: soft inversion ($`v = 0.75 - 0.25(R+G+B)`$): `#000000` paper and `#BFBFBF` ink to avoid glare in the dark, `#202223` canvas.
+  - **Sepia**: warm `#F5EFDC` paper, `#3F2A18` ink, `#E5DECF` canvas; colors keep their hue, so figures and highlights stay distinguishable.
+  - **Night**: soft inversion of lightness ($`L' = 0.75(1 - L)`$) that keeps hues: `#000000` paper and `#BFBFBF` ink to avoid glare in the dark, colored figures stay recognizable, `#202223` canvas.
   - **Follow System** switches between Day and Night with the system appearance, optionally using Sepia instead of Day.
   - Pages stay sharp at every zoom level: the color matrix is applied above `NSClipView`'s magnification, so PDFKit's tiles render at full Retina resolution.
 - **12 Languages**: **简体中文**, **繁體中文**, **English**, **日本語**, **한국어**, **Français**, **Deutsch**, **Español**, **Italiano**, **Português**, **Русский** and **Українська**, or Follow System; switchable live from Settings (`⌘,`), the View menu or the View Settings panel. The built-in Reading Guide PDF is localized too.
@@ -19,10 +19,10 @@ A native macOS PDF reader built for reading: tabs, Split View, and Day / Sepia /
   - **Unified 40pt title bar**: traffic lights centered on the tab strip, icon-only Home tab, document tabs (close on hover, context menu) and `+` to open files.
   - **Toolbar**: Document Summary / Page Overview / View Settings toggles, zoom pop-up with presets and `−` / `+`, theme switcher, Clear Margins, Rotate, Share, Bookmark and a search field.
   - **Left dock (240pt)**: Thumbnails / Outline (highlights the section you are reading) / Bookmarks, or the View Settings panel (page layout, split view, reading theme, clear margins, rotation, appearance, language).
-  - **Right search dock**, bottom-right **page counter** (click → Go to Page) and a **Page Overview** grid (`⌃⌘1`).
+  - **Right search dock**, bottom-right **page counter** (click or `⌥⌘G` → Go to Page) and a **Page Overview** grid (`⌃⌘1`).
   - Tab strip, toolbar and panels follow the **System / Light / Dark** appearance.
-- **Home Tab**: sidebar with Home, Recents and Favorites (plus Open File…, Reading Guide and Settings), a drag-and-drop area, reading-theme cards and document grids with locale-aware dates.
-- **Tabs & Split View**: vertical (left / right) or horizontal (top / bottom) Split View with Swap Sides, Sync Scroll & Zoom, and the Home tab as a picker for the second document.
+- **Home Tab**: sidebar with Home, Recents and Favorites (plus Open File…, Reading Guide and Settings; Help › Reading Guide, `⌘?`, opens the guide from anywhere), a drag-and-drop area, reading-theme cards and document grids with locale-aware dates.
+- **Tabs & Split View**: `⌃⇥` / `⌃⇧⇥` (or `⇧⌘]` / `⇧⌘[`) switch tabs; vertical (left / right) or horizontal (top / bottom) Split View with Swap Sides, Sync Scroll & Zoom, and the Home tab as a picker for the second document.
 - **Reading**
   - Single Page, Two Pages and Two Pages with Single Cover (`⌘1`, `⌘2`, `⌘3`).
   - **`←` / `→`** turn the page in the focused pane.
@@ -32,7 +32,7 @@ A native macOS PDF reader built for reading: tabs, Split View, and Day / Sepia /
   - **Picks up where you left off**: every document reopens at its last page, zoom and layout, and the last session's tabs are restored on launch.
   - **Password-protected PDFs** ask for their password; files that can't be opened say why.
   - Drop PDFs anywhere on the window or on the Dock icon; `⌘=` zooms in as well as `⌘+`.
-- **Fast Home Tab**: Recents keep up to 50 documents, cover thumbnails load in the background and are cached on disk, and moved or renamed files stay in Recents / Favorites with their bookmarks and reading position.
+- **Fast Home Tab**: Recents keep up to 50 documents (the latest 10 also under File › Open Recent), cover thumbnails load in the background and are cached on disk, and moved or renamed files stay in Recents / Favorites with their bookmarks and reading position.
 - **Original App Icon**: a dog-eared page shifting diagonally through Day → Sepia → Night, drawn in code by `scripts/make_app_icon.swift`.
 
 ---

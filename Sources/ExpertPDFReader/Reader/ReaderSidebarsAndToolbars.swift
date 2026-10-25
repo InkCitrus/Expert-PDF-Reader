@@ -789,7 +789,7 @@ struct PageThumbnailCell: View {
     @State private var thumbnail: NSImage?
 
     private static func aspectRatio(of page: PDFPage) -> CGFloat {
-        let size = page.bounds(for: .mediaBox).size
+        let size = page.bounds(for: .cropBox).size
         guard size.width > 0, size.height > 0 else { return 0.75 }
         return page.rotation % 180 == 0 ? size.width / size.height : size.height / size.width
     }

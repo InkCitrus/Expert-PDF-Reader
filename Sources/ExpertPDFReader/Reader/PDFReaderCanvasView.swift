@@ -31,12 +31,16 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
     public let isAutoScaling: Bool
     /// Changing it re-lays out pages whose crop boxes changed (Clear Margins computed in the background)
     public let layoutToken: Int
+    /// Where to return to after that; only the primary pane knows
+    public let readingSpot: DocumentTabState.ReadingSpot?
     /// The primary pane also turns pages when the keyboard focus is outside every PDF view
     public let handlesUnfocusedArrowKeys: Bool
     public let onAutoScalesChange: ((Bool) -> Void)?
     public let onStepPage: ((Int) -> Void)?
     /// Page index and reading line (page space) while scrolling; only the primary pane reports it
     public let onReadingLocationChange: ((Int, CGFloat) -> Void)?
+    /// The text at the top of the view while scrolling, to return to after the crop boxes change
+    public let onReadingSpotChange: ((DocumentTabState.ReadingSpot) -> Void)?
 
     public init(
         pdfDocument: PDFDocument,
@@ -54,10 +58,12 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         pendingZoomAction: DocumentTabState.ZoomAction? = nil,
         isAutoScaling: Bool = true,
         layoutToken: Int = 0,
+        readingSpot: DocumentTabState.ReadingSpot? = nil,
         handlesUnfocusedArrowKeys: Bool = true,
         onAutoScalesChange: ((Bool) -> Void)? = nil,
         onStepPage: ((Int) -> Void)? = nil,
-        onReadingLocationChange: ((Int, CGFloat) -> Void)? = nil
+        onReadingLocationChange: ((Int, CGFloat) -> Void)? = nil,
+        onReadingSpotChange: ((DocumentTabState.ReadingSpot) -> Void)? = nil
     ) {
         self.pdfDocument = pdfDocument
         self._currentPageIndex = currentPageIndex
@@ -74,10 +80,12 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         self.pendingZoomAction = pendingZoomAction
         self.isAutoScaling = isAutoScaling
         self.layoutToken = layoutToken
+        self.readingSpot = readingSpot
         self.handlesUnfocusedArrowKeys = handlesUnfocusedArrowKeys
         self.onAutoScalesChange = onAutoScalesChange
         self.onStepPage = onStepPage
         self.onReadingLocationChange = onReadingLocationChange
+        self.onReadingSpotChange = onReadingSpotChange
     }
 
     private static let pageBreakMargins = NSEdgeInsets(top: 10, left: 12, bottom: 10, right: 12)
@@ -146,7 +154,9 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
             targetDisplayMode = .twoUpContinuous
             targetDisplaysAsBook = true
         }
-        let targetBox: PDFDisplayBox = isClearMarginsEnabled ? .cropBox : .mediaBox
+        // The crop box, like other readers: a print proof's marks and slug outside it stay hidden.
+        // Clear Margins narrows the crop boxes themselves
+        let targetBox: PDFDisplayBox = .cropBox
 
         let layoutChanged = (pdfView.displayMode != targetDisplayMode)
             || (pdfView.displaysAsBook != targetDisplaysAsBook)
@@ -178,7 +188,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                 ? SpreadAlignment.Spread(isBook: targetDisplaysAsBook, readsRightToLeft: readsRightToLeft)
                 : nil
             pdfView.pageBreakMargins = spread == nil ? Self.pageBreakMargins : Self.spreadPageBreakMargins
-            SpreadAlignment.apply(to: pdfDocument, box: targetBox, spread: spread)
+            SpreadAlignment.apply(to: pdfDocument, holdsContent: isClearMarginsEnabled, spread: spread)
             coordinator.spread = spread
             pdfView.layoutDocumentView()
             // Switching between single and two-page layouts refits the width so a spread is never cut off;
@@ -194,6 +204,8 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
             DispatchQueue.main.async {
                 // A view without a size yet (just created) has no meaningful zoom to report
                 guard Coordinator.isLive(pdfView) else { return }
+                // A pane just opened has not scrolled yet: note where it is
+                coordinator.reportReadingLocation(of: pdfView)
                 // Auto scaling settles on the next pass; return to the same spot once more
                 if let savedDestination {
                     pdfView.go(to: savedDestination)
@@ -210,11 +222,23 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         // Crop boxes changed after layout: re-lay out without moving away from what is being read
         if coordinator.lastLayoutToken != layoutToken {
             coordinator.lastLayoutToken = layoutToken
-            let destination = pdfView.currentDestination
-            SpreadAlignment.apply(to: pdfDocument, box: pdfView.displayBox, spread: coordinator.spread)
+            // Where the reader was before the boxes changed: the view's own idea of it already mixes the old
+            // layout with the new page sizes
+            let destination = readingSpot == nil ? (coordinator.lastDestination ?? pdfView.currentDestination) : nil
+            SpreadAlignment.apply(to: pdfDocument, holdsContent: isClearMarginsEnabled, spread: coordinator.spread)
             pdfView.layoutDocumentView()
-            if let destination {
+            if let readingSpot {
+                Coordinator.scroll(pdfView, toTop: readingSpot)
+            } else if let destination {
                 pdfView.go(to: destination)
+            }
+            // Fitting the width settles a moment later and zooms around the middle of the view:
+            // return to the spot once the new zoom is in
+            coordinator.pendingReadingSpot = readingSpot
+            coordinator.pendingDestination = destination
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak coordinator] in
+                coordinator?.pendingReadingSpot = nil
+                coordinator?.pendingDestination = nil
             }
         }
 
@@ -334,6 +358,11 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         /// The spread layout last applied, so pages whose boxes change later (Clear Margins) are aligned too
         var spread: SpreadAlignment.Spread?
         var lastHighlightedMatchID: UUID?
+        /// The spot being read, kept up to date while scrolling
+        var lastDestination: PDFDestination?
+        /// Where to stay while the zoom settles after the crop boxes changed
+        var pendingDestination: PDFDestination?
+        var pendingReadingSpot: DocumentTabState.ReadingSpot?
         var hasAppliedLayout = false
         private var observers: [NSObjectProtocol] = []
         nonisolated(unsafe) private var keyMonitor: Any?
@@ -388,6 +417,11 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                 }
                 self.parent.onAutoScalesChange?(pdfView.autoScales)
                 (pdfView as? ThemedPDFView)?.applyThemeLayers()
+                if let spot = self.pendingReadingSpot {
+                    Self.scroll(pdfView, toTop: spot)
+                } else if let pending = self.pendingDestination {
+                    pdfView.go(to: pending)
+                }
             }
 
             observers.append(contentsOf: [pageObs, scaleObs])
@@ -402,6 +436,9 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                     guard let pdfView else { return }
                     (pdfView as? ThemedPDFView)?.applyThemeLayers()
                     self?.reportReadingLocation(of: pdfView)
+                    if Self.isLive(pdfView) {
+                        self?.lastDestination = pdfView.currentDestination
+                    }
                 }
                 observers.append(scrollObs)
             }
@@ -424,13 +461,42 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         /// The reading line sits a quarter of the view below the top edge, so a heading in the upper part
         /// of the view already counts as the section being read
         func reportReadingLocation(of pdfView: PDFView) {
-            guard Self.isLive(pdfView),
-                  let handler = parent.onReadingLocationChange,
-                  let destination = pdfView.currentDestination,
-                  let page = destination.page,
-                  let document = pdfView.document else { return }
-            let quarterView = pdfView.bounds.height / max(pdfView.scaleFactor, 0.01) / 4
-            handler(document.index(for: page), destination.point.y - quarterView)
+            guard Self.isLive(pdfView), let document = pdfView.document else { return }
+            if let handler = parent.onReadingLocationChange,
+               let destination = pdfView.currentDestination,
+               let page = destination.page {
+                let quarterView = pdfView.bounds.height / max(pdfView.scaleFactor, 0.01) / 4
+                handler(document.index(for: page), destination.point.y - quarterView)
+            }
+            if let handler = parent.onReadingSpotChange {
+                let top = Self.topEdge(of: pdfView)
+                if let page = pdfView.page(for: top, nearest: true) {
+                    handler(DocumentTabState.ReadingSpot(pageIndex: document.index(for: page), point: pdfView.convert(top, to: page)))
+                }
+            }
+        }
+
+        /// The middle of the view's top edge, in the view's coordinates
+        static func topEdge(of pdfView: PDFView) -> CGPoint {
+            let bounds = pdfView.bounds
+            return CGPoint(x: bounds.midX, y: pdfView.isFlipped ? bounds.minY : bounds.maxY)
+        }
+
+        /// Scrolls vertically so `spot` is at the top of the view again; a spot in a margin the crop boxes now
+        /// leave out moves to the edge of what is shown
+        static func scroll(_ pdfView: PDFView, toTop spot: DocumentTabState.ReadingSpot) {
+            guard let document = pdfView.document, let page = document.page(at: spot.pageIndex),
+                  let scrollView = pdfView.subviews.compactMap({ $0 as? NSScrollView }).first,
+                  let documentView = scrollView.documentView else { return }
+            let shown = page.bounds(for: pdfView.displayBox)
+            let point = CGPoint(x: spot.point.x, y: min(max(spot.point.y, shown.minY), shown.maxY))
+            let target = documentView.convert(pdfView.convert(point, from: page), from: pdfView)
+            let top = documentView.convert(topEdge(of: pdfView), from: pdfView)
+            let clipView = scrollView.contentView
+            var origin = clipView.bounds.origin
+            origin.y += target.y - top.y
+            clipView.scroll(to: clipView.constrainBoundsRect(NSRect(origin: origin, size: clipView.bounds.size)).origin)
+            scrollView.reflectScrolledClipView(clipView)
         }
     }
 }
@@ -638,7 +704,8 @@ enum SpreadAlignment {
     }
 
     private final class Adjustments {
-        var byPage: [Int: Adjustment] = [:]
+        /// In the order they were made, per page
+        var byPage: [Int: [Adjustment]] = [:]
     }
 
     private static let adjustments = NSMapTable<PDFDocument, Adjustments>.weakToStrongObjects()
@@ -646,17 +713,21 @@ enum SpreadAlignment {
     /// Pages further than this from the common width (fold-outs, inserts) are left as they are
     private static let tolerance: CGFloat = 0.15
 
-    static func apply(to document: PDFDocument, box: PDFDisplayBox, spread: Spread?) {
+    /// Aligns the crop boxes the view shows. `holdsContent`: Clear Margins set them to the content, which is never
+    /// cut; otherwise they are the paper, which a slightly oversized cover can lose a sliver of.
+    static func apply(to document: PDFDocument, holdsContent: Bool, spread: Spread?) {
         let record = adjustments.object(forKey: document) ?? {
             let record = Adjustments()
             adjustments.setObject(record, forKey: document)
             return record
         }()
         // Undo the previous alignment, except where the box has been set since (Clear Margins)
-        for (index, adjustment) in record.byPage {
-            guard let page = document.page(at: index),
-                  page.bounds(for: adjustment.box).isAlmostEqual(to: adjustment.applied) else { continue }
-            page.setBounds(adjustment.original, for: adjustment.box)
+        for (index, pageAdjustments) in record.byPage {
+            guard let page = document.page(at: index) else { continue }
+            for adjustment in pageAdjustments.reversed()
+            where page.bounds(for: adjustment.box).isAlmostEqual(to: adjustment.applied) {
+                page.setBounds(adjustment.original, for: adjustment.box)
+            }
         }
         record.byPage.removeAll()
         guard let spread else { return }
@@ -665,29 +736,35 @@ enum SpreadAlignment {
         for index in 0..<document.pageCount {
             // A quarter-turned page shows its height across the spread; leave it be
             guard let page = document.page(at: index), page.rotation % 180 == 0 else { continue }
-            widths[index] = page.bounds(for: box).width
+            widths[index] = page.bounds(for: .cropBox).width
         }
-        guard let target = commonWidth(of: Array(widths.values), mayTrim: box == .mediaBox) else { return }
+        guard let target = commonWidth(of: Array(widths.values), mayTrim: !holdsContent) else { return }
 
         for (index, width) in widths where abs(width - target) > 0.5 && abs(width - target) <= target * tolerance {
             guard let page = document.page(at: index) else { continue }
-            let original = page.bounds(for: box)
+            let original = page.bounds(for: .cropBox)
             var aligned = original
+            var pageAdjustments: [Adjustment] = []
             if width > target {
-                // Only the paper box is trimmed; a Clear Margins box holds the content and is never cut
-                guard box == .mediaBox else { continue }
+                guard !holdsContent else { continue }
                 aligned = original.insetBy(dx: (width - target) / 2, dy: 0)
             } else {
                 if isInLeftColumn(index, spread: spread) {
                     aligned.origin.x -= target - width
                 }
                 aligned.size.width = target
-                if box != .mediaBox {
-                    aligned = aligned.intersection(page.bounds(for: .mediaBox))
+                let paper = page.bounds(for: .mediaBox)
+                if holdsContent {
+                    aligned = aligned.intersection(paper)
+                } else if !paper.contains(aligned) {
+                    // Blank paper beyond the page's edge: the media box grows with it
+                    page.setBounds(paper.union(aligned), for: .mediaBox)
+                    pageAdjustments.append(Adjustment(box: .mediaBox, original: paper, applied: page.bounds(for: .mediaBox)))
                 }
             }
-            page.setBounds(aligned, for: box)
-            record.byPage[index] = Adjustment(box: box, original: original, applied: page.bounds(for: box))
+            page.setBounds(aligned, for: .cropBox)
+            pageAdjustments.append(Adjustment(box: .cropBox, original: original, applied: page.bounds(for: .cropBox)))
+            record.byPage[index] = pageAdjustments
         }
     }
 

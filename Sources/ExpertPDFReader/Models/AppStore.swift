@@ -487,6 +487,98 @@ extension PDFPage {
     }
 }
 
+/// Clear Margins for one document: the crop boxes it came with, the content boxes found for it, and the work
+/// finding them on a private copy of the document off the main thread
+@MainActor
+final class ClearMarginsCropper {
+    let document: PDFDocument
+    private let url: URL
+    private let password: String?
+    private var originalCropBoxes: [Int: CGRect] = [:]
+    private var tightCropBoxes: [Int: CGRect] = [:]
+    private var task: Task<Void, Never>?
+    private var isEnabled = false
+    /// Called before crop boxes found in the background change, and after any change
+    var willChange: () -> Void = {}
+    var didChange: () -> Void = {}
+
+    init(document: PDFDocument, url: URL, password: String?) {
+        self.document = document
+        self.url = url
+        self.password = password
+        for index in 0..<document.pageCount {
+            originalCropBoxes[index] = document.page(at: index)?.bounds(for: .cropBox)
+        }
+    }
+
+    /// Sets the content boxes known so far (or puts the original ones back) and finds the others, pages around
+    /// `focus` first
+    func apply(enabled: Bool, around focus: Int) {
+        task?.cancel()
+        task = nil
+        isEnabled = enabled
+        var missing: [Int] = []
+        for index in 0..<document.pageCount {
+            guard let page = document.page(at: index) else { continue }
+            if enabled {
+                if let tight = tightCropBoxes[index] {
+                    page.setBounds(tight, for: .cropBox)
+                } else {
+                    missing.append(index)
+                }
+            } else if let original = originalCropBoxes[index] {
+                page.setBounds(original, for: .cropBox)
+            }
+        }
+        didChange()
+        guard enabled, !missing.isEmpty else { return }
+
+        let order = missing.sorted { abs($0 - focus) < abs($1 - focus) }
+        let url = self.url
+        let password = self.password
+        task = Task.detached(priority: .userInitiated) { [weak self] in
+            guard let copy = PDFDocumentLoader.openCopy(of: url, password: password) else {
+                await self?.computeOnMainThread(order)
+                return
+            }
+            var batch: [(Int, CGRect)] = []
+            var lastFlush = Date()
+            for index in order {
+                if Task.isCancelled { return }
+                guard let page = copy.page(at: index) else { continue }
+                batch.append((index, DocumentTabState.computeTightCropBox(for: page)))
+                if batch.count >= 24 || Date().timeIntervalSince(lastFlush) > 0.25 {
+                    await self?.receive(batch)
+                    batch.removeAll()
+                    lastFlush = Date()
+                }
+            }
+            await self?.receive(batch)
+        }
+    }
+
+    private func receive(_ boxes: [(Int, CGRect)]) {
+        guard !boxes.isEmpty else { return }
+        for (index, box) in boxes {
+            tightCropBoxes[index] = box
+        }
+        // Clear Margins may have been turned off while this batch was on its way
+        guard isEnabled else { return }
+        willChange()
+        for (index, box) in boxes {
+            document.page(at: index)?.setBounds(box, for: .cropBox)
+        }
+        didChange()
+    }
+
+    /// Fallback when the file cannot be reopened (e.g. it was moved after opening)
+    private func computeOnMainThread(_ indices: [Int]) {
+        receive(indices.compactMap { index in
+            document.page(at: index).map { (index, DocumentTabState.computeTightCropBox(for: $0, within: originalCropBoxes[index])) }
+        })
+    }
+}
+
 @MainActor
 public final class DocumentTabState: ObservableObject, Identifiable {
     public let id: UUID = UUID()
@@ -565,9 +657,9 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     }
 
     // Cached original mediaBox and computed tight cropBox per page index
-    private var originalCropBoxes: [Int: CGRect] = [:]
-    private var computedTightCropBoxes: [Int: CGRect] = [:]
-    private var clearMarginsTask: Task<Void, Never>?
+    private var primaryCropper: ClearMarginsCropper!
+    /// For a different document picked for Split View
+    private var secondaryCropper: ClearMarginsCropper?
 
     private var searchTask: Task<Void, Never>?
     private var searchGeneration = 0
@@ -583,6 +675,8 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         self.secondaryDocumentURL = url
         self.secondaryPDFDocument = pdfDocument
         self.declaresRightToLeft = pdfDocument.declaresRightToLeft
+        // Takes the crop boxes before anything (two-page layouts, Clear Margins) changes them
+        self.primaryCropper = makeCropper(for: pdfDocument, url: url, password: password)
     }
 
     /// The direction the PDF declares, else the one read from its pages, unless chosen for this book
@@ -798,84 +892,63 @@ public final class DocumentTabState: ObservableObject, Identifiable {
             self.secondaryPDFDocument = loaded.document
             self.secondaryPageIndex = 0
             self.showSplitDocumentPicker = false
+            secondaryCropper = makeCropper(for: loaded.document, url: url, password: loaded.password)
+            if isClearMarginsEnabled {
+                secondaryCropper?.apply(enabled: true, around: 0)
+            }
         }
     }
 
     // MARK: - Clear Margins (智能去白边)
 
-    /// Applies the crop boxes already known right away; the others are computed on a private copy of the
-    /// document off the main thread (pages around the current one first) and applied in batches.
+    /// Applies the crop boxes already known right away; the others are computed off the main thread (pages
+    /// around the current one first) and applied in batches. The Split View's other document is cropped too.
     public func applyClearMarginsIfNeeded() {
-        clearMarginsTask?.cancel()
-        clearMarginsTask = nil
+        // Once for both documents: after the first one changes, its pane's spot no longer holds
+        rememberReadingSpots()
+        primaryCropper.apply(enabled: isClearMarginsEnabled, around: currentPageIndex)
+        secondaryCropper?.apply(enabled: isClearMarginsEnabled, around: secondaryPageIndex)
+    }
 
-        var missing: [Int] = []
-        for idx in 0..<pdfDocument.pageCount {
-            guard let page = pdfDocument.page(at: idx) else { continue }
-            if originalCropBoxes[idx] == nil {
-                originalCropBoxes[idx] = page.bounds(for: .cropBox)
-            }
-            if isClearMarginsEnabled {
-                if let tight = computedTightCropBoxes[idx] {
-                    page.setBounds(tight, for: .cropBox)
-                } else {
-                    missing.append(idx)
-                }
-            } else if let orig = originalCropBoxes[idx] {
-                page.setBounds(orig, for: .cropBox)
-            }
-        }
-        guard isClearMarginsEnabled, !missing.isEmpty else { return }
+    private func makeCropper(for document: PDFDocument, url: URL, password: String?) -> ClearMarginsCropper {
+        let cropper = ClearMarginsCropper(document: document, url: url, password: password)
+        cropper.willChange = { [weak self] in self?.rememberReadingSpots() }
+        // Pages showing the crop boxes just set (or put back) need laying out again
+        cropper.didChange = { [weak self] in self?.clearMarginsLayoutToken &+= 1 }
+        return cropper
+    }
 
-        let current = currentPageIndex
-        let order = missing.sorted { abs($0 - current) < abs($1 - current) }
-        let url = documentID.url
-        let password = self.password
-        clearMarginsTask = Task.detached(priority: .userInitiated) { [weak self] in
-            guard let document = PDFDocumentLoader.openCopy(of: url, password: password) else {
-                await self?.computeTightCropBoxesOnMainThread(order)
-                return
-            }
-            var batch: [(Int, CGRect)] = []
-            var lastFlush = Date()
-            for idx in order {
-                if Task.isCancelled { return }
-                guard let page = document.page(at: idx) else { continue }
-                batch.append((idx, DocumentTabState.computeTightCropBox(for: page)))
-                if batch.count >= 24 || Date().timeIntervalSince(lastFlush) > 0.25 {
-                    await self?.applyTightCropBoxes(batch)
-                    batch.removeAll()
-                    lastFlush = Date()
-                }
-            }
-            await self?.applyTightCropBoxes(batch)
+    /// The point of the page at the top of a pane
+    public struct ReadingSpot: Equatable {
+        public let pageIndex: Int
+        public let point: CGPoint
+
+        public init(pageIndex: Int, point: CGPoint) {
+            self.pageIndex = pageIndex
+            self.point = point
         }
     }
 
-    private func applyTightCropBoxes(_ boxes: [(Int, CGRect)]) {
-        guard !boxes.isEmpty else { return }
-        for (idx, box) in boxes {
-            computedTightCropBoxes[idx] = box
-        }
-        // Clear Margins may have been turned off while this batch was on its way
-        guard isClearMarginsEnabled else { return }
-        for (idx, box) in boxes {
-            pdfDocument.page(at: idx)?.setBounds(box, for: .cropBox)
-        }
-        clearMarginsLayoutToken &+= 1
+    /// Kept up to date by the panes while scrolling
+    public var readingSpot: ReadingSpot?
+    public var secondaryReadingSpot: ReadingSpot?
+    /// Taken before the crop boxes change: once they do, the views lay the pages out anew and their own idea of
+    /// the scroll position no longer points at the same text
+    public private(set) var readingSpotBeforeCropChange: ReadingSpot?
+    public private(set) var secondaryReadingSpotBeforeCropChange: ReadingSpot?
+
+    private func rememberReadingSpots() {
+        readingSpotBeforeCropChange = readingSpot
+        secondaryReadingSpotBeforeCropChange = secondaryReadingSpot
     }
 
-    /// Fallback when the file cannot be reopened (e.g. it was moved after opening)
-    private func computeTightCropBoxesOnMainThread(_ indices: [Int]) {
-        let boxes = indices.compactMap { idx in
-            pdfDocument.page(at: idx).map { (idx, Self.computeTightCropBox(for: $0)) }
-        }
-        applyTightCropBoxes(boxes)
-    }
-
-    nonisolated static func computeTightCropBox(for page: PDFPage) -> CGRect {
+    /// The bounding box of the page's ink within `region` (its own crop box by default, so a print proof's crop
+    /// marks and slug outside the trim are not content), with a little margin. The page is drawn unrotated:
+    /// crop boxes live in that space whatever way the page is turned.
+    nonisolated static func computeTightCropBox(for page: PDFPage, within region: CGRect? = nil) -> CGRect {
         let mediaBounds = page.bounds(for: .mediaBox)
-        guard mediaBounds.width > 40, mediaBounds.height > 40 else { return mediaBounds }
+        let area = (region ?? page.bounds(for: .cropBox)).intersection(mediaBounds)
+        guard !area.isNull, area.width > 40, area.height > 40 else { return region ?? mediaBounds }
 
         // Render low-res bitmap (150 x 200) to detect non-white ink bounding box (works for both text & scans)
         let sampleW = 150
@@ -892,15 +965,20 @@ public final class DocumentTabState: ObservableObject, Identifiable {
             space: graySpace,
             bitmapInfo: CGImageAlphaInfo.none.rawValue
         ) else {
-            return mediaBounds.insetBy(dx: mediaBounds.width * 0.08, dy: mediaBounds.height * 0.08)
+            return area.insetBy(dx: area.width * 0.08, dy: area.height * 0.08)
         }
 
         ctx.setFillColor(gray: 1.0, alpha: 1.0)
         ctx.fill(CGRect(x: 0, y: 0, width: sampleW, height: sampleH))
         ctx.saveGState()
-        ctx.scaleBy(x: CGFloat(sampleW) / mediaBounds.width, y: CGFloat(sampleH) / mediaBounds.height)
-        ctx.translateBy(x: -mediaBounds.minX, y: -mediaBounds.minY)
-        page.draw(with: .mediaBox, to: ctx)
+        ctx.scaleBy(x: CGFloat(sampleW) / area.width, y: CGFloat(sampleH) / area.height)
+        ctx.translateBy(x: -area.minX, y: -area.minY)
+        if let pageRef = page.pageRef {
+            // The page's content in its own space: `PDFPage.draw(with:to:)` would apply its rotation
+            ctx.drawPDFPage(pageRef)
+        } else {
+            page.draw(with: .mediaBox, to: ctx)
+        }
         ctx.restoreGState()
 
         var minX = sampleW
@@ -908,9 +986,11 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         var minY = sampleH
         var maxY = 0
         let threshold: UInt8 = 246
+        // Ink right at the edge is a scanner's shadow or a trim line, not content
+        let edge = 2
 
-        for y in 0..<sampleH {
-            for x in 0..<sampleW {
+        for y in edge..<(sampleH - edge) {
+            for x in edge..<(sampleW - edge) {
                 // Note: CGContext row 0 in memory is top row
                 let val = pixels[y * sampleW + x]
                 if val < threshold {
@@ -925,17 +1005,17 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         }
 
         guard minX <= maxX, minY <= maxY else {
-            return mediaBounds
+            return area
         }
 
-        let scaleX = mediaBounds.width / CGFloat(sampleW)
-        let scaleY = mediaBounds.height / CGFloat(sampleH)
+        let scaleX = area.width / CGFloat(sampleW)
+        let scaleY = area.height / CGFloat(sampleH)
         let pad: CGFloat = 14.0
 
-        let rx = max(mediaBounds.minX, mediaBounds.minX + CGFloat(minX) * scaleX - pad)
-        let ry = max(mediaBounds.minY, mediaBounds.minY + CGFloat(minY) * scaleY - pad)
-        let rMaxX = min(mediaBounds.maxX, mediaBounds.minX + CGFloat(maxX + 1) * scaleX + pad)
-        let rMaxY = min(mediaBounds.maxY, mediaBounds.minY + CGFloat(maxY + 1) * scaleY + pad)
+        let rx = max(area.minX, area.minX + CGFloat(minX) * scaleX - pad)
+        let ry = max(area.minY, area.minY + CGFloat(minY) * scaleY - pad)
+        let rMaxX = min(area.maxX, area.minX + CGFloat(maxX + 1) * scaleX + pad)
+        let rMaxY = min(area.maxY, area.minY + CGFloat(maxY + 1) * scaleY + pad)
 
         return CGRect(x: rx, y: ry, width: max(40, rMaxX - rx), height: max(40, rMaxY - ry))
     }
@@ -1170,7 +1250,7 @@ public final class PDFThumbnailCache: ObservableObject {
         }
         guard let page = document.page(at: request.pageIndex) else { return nil }
         page.rotation = request.rotation
-        return themedImage(page.thumbnail(of: request.size, for: .mediaBox), theme: request.theme)
+        return themedImage(page.thumbnail(of: request.size, for: .cropBox), theme: request.theme)
     }
 
     /// HomeTab cover thumbnails: shader output cached per document + theme so hover redraws stay cheap.

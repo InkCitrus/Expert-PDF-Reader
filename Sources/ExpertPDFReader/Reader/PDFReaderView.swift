@@ -95,6 +95,7 @@ public struct PDFReaderView: View {
             currentPageIndex: $tab.currentPageIndex,
             zoomScale: $tab.zoomScale,
             layoutMode: tab.layoutMode,
+            readsRightToLeft: tab.readsRightToLeft,
             isClearMarginsEnabled: tab.isClearMarginsEnabled,
             pdfTheme: store.resolvedPDFTheme(isDark: isDark),
             isDarkUI: isDark,
@@ -223,6 +224,8 @@ public struct PDFReaderView: View {
                         }
                     ),
                     layoutMode: tab.layoutMode,
+                    // The other document of a comparison keeps its own direction (left to right)
+                    readsRightToLeft: secDoc === tab.pdfDocument && tab.readsRightToLeft,
                     isClearMarginsEnabled: tab.isClearMarginsEnabled,
                     pdfTheme: store.resolvedPDFTheme(isDark: isDark),
                     isDarkUI: isDark,

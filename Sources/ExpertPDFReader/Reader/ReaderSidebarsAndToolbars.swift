@@ -786,6 +786,13 @@ struct PageThumbnailCell: View {
     let action: () -> Void
 
     @State private var isHovered = false
+    @State private var thumbnail: NSImage?
+
+    private static func aspectRatio(of page: PDFPage) -> CGFloat {
+        let size = page.bounds(for: .mediaBox).size
+        guard size.width > 0, size.height > 0 else { return 0.75 }
+        return page.rotation % 180 == 0 ? size.width / size.height : size.height / size.width
+    }
 
     var body: some View {
         let isCurrent = (tab.currentPageIndex == pageIndex)
@@ -795,18 +802,29 @@ struct PageThumbnailCell: View {
         Button(action: action) {
             VStack(spacing: 7) {
                 if let page {
-                    let thumb = PDFThumbnailCache.shared.thumbnail(
-                        for: page,
-                        documentID: tab.documentID.id,
+                    let request = PDFThumbnailCache.ThumbnailRequest(
+                        tab: tab,
                         pageIndex: pageIndex,
                         theme: store.resolvedPDFTheme(isDark: isDark),
                         size: CGSize(width: maxSize.width * 2, height: maxSize.height * 2)
                     )
-                    Image(nsImage: thumb)
-                        .resizable()
-                        .interpolation(.high)
-                        .aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: maxSize.width, maxHeight: maxSize.height)
+                    Group {
+                        if let image = PDFThumbnailCache.shared.cachedThumbnail(for: request) ?? thumbnail {
+                            Image(nsImage: image)
+                                .resizable()
+                                .interpolation(.high)
+                                .aspectRatio(contentMode: .fit)
+                        } else {
+                            // The page's shape until its thumbnail arrives
+                            Rectangle()
+                                .fill(Color.white.opacity(isDark ? 0.08 : 0.9))
+                                .aspectRatio(Self.aspectRatio(of: page), contentMode: .fit)
+                        }
+                    }
+                    .frame(maxWidth: maxSize.width, maxHeight: maxSize.height)
+                    .task(id: request) {
+                        thumbnail = await PDFThumbnailCache.shared.thumbnail(for: request) ?? thumbnail
+                    }
                         .overlay(
                             Rectangle()
                                 .stroke(Color.black.opacity(isDark ? 0.4 : 0.12), lineWidth: 0.5)
@@ -834,7 +852,7 @@ struct PageThumbnailCell: View {
                         )
                 }
 
-                Text(page?.label ?? "\(pageIndex + 1)")
+                Text(tab.displayPageNumber(at: pageIndex))
                     .font(.system(size: 11, weight: isCurrent ? .semibold : .regular))
                     .monospacedDigit()
                     .foregroundColor(isCurrent ? .white : AppPalette.labelSecondary(isDark))
@@ -1005,7 +1023,7 @@ struct PDFOutlinePanel: View {
                 let idx = tab.pdfDocument.index(for: page)
                 if idx >= 0 && idx < tab.pageCount {
                     pageIdx = idx
-                    pageLabel = page.label ?? "\(idx + 1)"
+                    pageLabel = tab.displayPageNumber(at: idx)
                 }
             }
             // kPDFDestinationUnspecifiedValue (FLT_MAX) leaves the position on the page open
@@ -1113,7 +1131,7 @@ struct PDFBookmarksPanel: View {
                     ForEach(items) { bm in
                         BookmarkRowView(
                             bookmark: bm,
-                            pageLabel: tab.pdfDocument.page(at: bm.pageIndex)?.label ?? "\(bm.pageIndex + 1)",
+                            pageLabel: tab.displayPageNumber(at: bm.pageIndex),
                             isCurrent: bm.pageIndex == tab.currentPageIndex,
                             isDark: isDark,
                             onSelect: { tab.navigateToPage(bm.pageIndex) },
@@ -1305,51 +1323,6 @@ struct DocumentViewSettingsPanel: View {
                         }
                     }
                 }
-
-                // 6. Language (Follow System + 12 Languages)
-                settingsSection(L10n.tr("语言", "Language")) {
-                    Menu {
-                        // An inline Picker gives the menu a checkmark on the current language
-                        Picker(selection: $store.appLanguage) {
-                            ForEach(AppLanguage.allCases) { lang in
-                                Text(lang.title).tag(lang)
-                            }
-                        } label: {
-                            EmptyView()
-                        }
-                        .pickerStyle(.inline)
-                        .labelsHidden()
-                        .id(store.appLanguage)
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "globe")
-                                .font(.system(size: 11.5, weight: .medium))
-                                .foregroundColor(AppPalette.labelSecondary(isDark))
-                            Text(store.appLanguage.title)
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(AppPalette.labelPrimary(isDark))
-                            Spacer()
-                            Image(systemName: "chevron.up.chevron.down")
-                                .font(.system(size: 9.5, weight: .semibold))
-                                .foregroundColor(AppPalette.labelTertiary(isDark))
-                        }
-                        .padding(.horizontal, 10)
-                        .frame(height: 28)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(AppPalette.panelListBackground(isDark))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .stroke(AppPalette.panelSeparator(isDark), lineWidth: 1)
-                        )
-                    }
-                    .menuStyle(.borderlessButton)
-
-                    if store.menuBarNeedsRestartForLanguage {
-                        LanguageRestartNote(store: store, isDark: isDark)
-                    }
-                }
             }
             .padding(14)
         }
@@ -1402,26 +1375,6 @@ struct OptionTile: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-    }
-}
-
-/// Shown under a language picker while the language differs from the one macOS used for its own menus
-/// (File, Edit, Window…), which only switch when the app starts.
-struct LanguageRestartNote: View {
-    @ObservedObject var store: AppStore
-    let isDark: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(L10n.tr("重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。", "Menus provided by macOS (File, Edit, Window…) switch to this language after a restart."))
-                .font(.system(size: 10.5))
-                .foregroundColor(AppPalette.labelTertiary(isDark))
-                .fixedSize(horizontal: false, vertical: true)
-            PanelTextButton(title: L10n.tr("立即重新启动", "Restart Now"), icon: "arrow.clockwise", isDark: isDark) {
-                store.relaunchApp()
-            }
-        }
-        .padding(.top, 2)
     }
 }
 

@@ -166,8 +166,7 @@ struct SearchResultsPanel: View {
     }
 
     private func pageTitle(for pageIndex: Int) -> String {
-        let label = tab.pdfDocument.page(at: pageIndex)?.label ?? "\(pageIndex + 1)"
-        return L10n.pageTitle(label)
+        L10n.pageTitle(tab.displayPageNumber(at: pageIndex))
     }
 }
 
@@ -269,6 +268,11 @@ struct PageIndicatorOverlay: View {
         .onChange(of: tab.goToPageRequestToken) { _, _ in
             presentGoToPage()
         }
+        .onChange(of: showGoToPage) { _, isShown in
+            if !isShown {
+                flash()
+            }
+        }
         .onDisappear {
             hideTask?.cancel()
         }
@@ -276,7 +280,7 @@ struct PageIndicatorOverlay: View {
             HStack(spacing: 8) {
                 Text(L10n.tr("前往页码", "Go to Page"))
                     .font(.system(size: 12))
-                TextField("1–\(tab.pageCount)", text: $goToPageInput)
+                TextField(goToPagePlaceholder, text: $goToPageInput)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 64)
                     .onSubmit(commitGoToPage)
@@ -288,23 +292,43 @@ struct PageIndicatorOverlay: View {
         }
     }
 
-    private var pageLabel: String? {
-        tab.pdfDocument.page(at: tab.currentPageIndex)?.label
+    /// Books (scans especially) number their pages differently from the PDF, with the cover and front matter
+    /// first: Go to Page then takes the number printed on the page, or "(n)" for the n-th page
+    private var hasPrintedPageNumbers: Bool {
+        !tab.pageIndicesByLabel.isEmpty
     }
 
-    /// Page label when the PDF defines one (e.g. roman front matter), otherwise "n / total"
-    private var primaryLine: String {
-        if let label = pageLabel, label != "\(tab.currentPageIndex + 1)" {
-            return label
+    private var currentPageInput: String {
+        tab.displayPageNumber(at: tab.currentPageIndex)
+    }
+
+    private var goToPagePlaceholder: String {
+        let indices = 0..<tab.pageCount
+        guard hasPrintedPageNumbers,
+              let first = indices.lazy.compactMap({ tab.printedNumber(at: $0) }).first,
+              let last = indices.reversed().lazy.compactMap({ tab.printedNumber(at: $0) }).first else {
+            return "1–\(tab.pageCount)"
         }
-        return "\(tab.currentPageIndex + 1) / \(tab.pageCount)"
+        return "\(first)–\(last)"
+    }
+
+    /// The printed numbers of the pages in view when the book has its own numbering, then their positions:
+    /// "16, 17" over "18, 19 / 114" for a spread, "n / total" alone otherwise
+    private var primaryLine: String {
+        let pages = tab.visiblePageIndices
+        let printed = pages.compactMap { tab.printedNumber(at: $0) }
+        if !printed.isEmpty, printed != pages.map({ "\($0 + 1)" }) {
+            return printed.joined(separator: ", ")
+        }
+        return positionLine
     }
 
     private var secondaryLine: String? {
-        if let label = pageLabel, label != "\(tab.currentPageIndex + 1)" {
-            return "\(tab.currentPageIndex + 1) / \(tab.pageCount)"
-        }
-        return nil
+        primaryLine == positionLine ? nil : positionLine
+    }
+
+    private var positionLine: String {
+        "\(tab.visiblePageIndices.map { "\($0 + 1)" }.joined(separator: ", ")) / \(tab.pageCount)"
     }
 
     private func flash() {
@@ -318,20 +342,36 @@ struct PageIndicatorOverlay: View {
     }
 
     private func presentGoToPage() {
-        goToPageInput = "\(tab.currentPageIndex + 1)"
-        showGoToPage = true
+        goToPageInput = currentPageInput
+        // A popover can't be anchored to the faded-out counter: show the counter first (⌥⌘G, Go › Go to Page…)
+        isVisible = true
+        hideTask?.cancel()
+        DispatchQueue.main.async {
+            showGoToPage = true
+        }
     }
 
     private func commitGoToPage() {
-        guard let num = Int(goToPageInput.trimmingCharacters(in: .whitespaces)),
-              num >= 1 && num <= tab.pageCount else {
+        // Full-width digits typed with a Chinese or Japanese input method count too
+        let input = (goToPageInput.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? goToPageInput)
+            .trimmingCharacters(in: .whitespaces)
+        let position = { (text: Substring) in Int(text).flatMap { (1...tab.pageCount).contains($0) ? $0 - 1 : nil } }
+        let target: Int?
+        if hasPrintedPageNumbers {
+            target = input.hasPrefix("(") && input.hasSuffix(")") && input.count > 2
+                ? position(input.dropFirst().dropLast())
+                : tab.pageIndex(forLabel: input)
+        } else {
+            target = position(Substring(input))
+        }
+        guard let target else {
             NSSound.beep()
             return
         }
         // Close the popover first: navigating re-renders the canvas it is anchored to
         showGoToPage = false
         DispatchQueue.main.async {
-            tab.navigateToPage(num - 1)
+            tab.navigateToPage(target)
         }
     }
 }

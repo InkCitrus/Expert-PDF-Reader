@@ -32,6 +32,8 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
     public let handlesUnfocusedArrowKeys: Bool
     public let onAutoScalesChange: ((Bool) -> Void)?
     public let onStepPage: ((Int) -> Void)?
+    /// Page index and reading line (page space) while scrolling; only the primary pane reports it
+    public let onReadingLocationChange: ((Int, CGFloat) -> Void)?
 
     public init(
         pdfDocument: PDFDocument,
@@ -50,7 +52,8 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         layoutToken: Int = 0,
         handlesUnfocusedArrowKeys: Bool = true,
         onAutoScalesChange: ((Bool) -> Void)? = nil,
-        onStepPage: ((Int) -> Void)? = nil
+        onStepPage: ((Int) -> Void)? = nil,
+        onReadingLocationChange: ((Int, CGFloat) -> Void)? = nil
     ) {
         self.pdfDocument = pdfDocument
         self._currentPageIndex = currentPageIndex
@@ -69,6 +72,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         self.handlesUnfocusedArrowKeys = handlesUnfocusedArrowKeys
         self.onAutoScalesChange = onAutoScalesChange
         self.onStepPage = onStepPage
+        self.onReadingLocationChange = onReadingLocationChange
     }
 
     public func makeCoordinator() -> Coordinator {
@@ -87,10 +91,11 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         pdfView.backgroundColor = .clear
         pdfView.document = pdfDocument
 
-        // Reopen where the document was left (see `AppStore.openDocument` / `DocumentTabState.restore`)
+        // Reopen where the document was left (see `AppStore.openDocument` / `DocumentTabState.restore`).
+        // The zoom is applied once the view has a size: before that PDFKit clamps it to its minimum.
         if !isAutoScaling {
             pdfView.autoScales = false
-            pdfView.scaleFactor = max(0.1, min(10, zoomScale))
+            pdfView.pendingInitialScale = max(0.1, min(10, zoomScale))
         }
         if currentPageIndex > 0, let page = pdfDocument.page(at: currentPageIndex) {
             pdfView.pendingInitialPage = page
@@ -99,6 +104,12 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         context.coordinator.setupNotifications(for: pdfView)
         applyConfiguration(to: pdfView, coordinator: context.coordinator)
         return pdfView
+    }
+
+    public static func dismantleNSView(_ pdfView: PDFView, coordinator: Coordinator) {
+        // A view being torn down (switching tabs, closing Split View) reports a collapsing scale and
+        // a different page; those must not overwrite the tab's saved zoom and page
+        coordinator.stopObserving()
     }
 
     public func updateNSView(_ pdfView: PDFView, context: Context) {
@@ -134,8 +145,13 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
             || (pdfView.displayBox != targetBox)
 
         if layoutChanged {
+            let isInitialLayout = !coordinator.hasAppliedLayout
+            coordinator.hasAppliedLayout = true
             let wasAutoScaling = pdfView.autoScales
-            let savedPage = pdfView.currentPage
+            let pageModeChanged = pdfView.displayMode != targetDisplayMode || pdfView.displaysAsBook != targetDisplaysAsBook
+            // Captured before the change: after a display box change `pdfView.currentPage` still names the old
+            // page while the same scroll offset already shows an earlier (taller) or later (shorter) one
+            let savedDestination = isInitialLayout ? nil : pdfView.currentDestination
             if pdfView.displayMode != targetDisplayMode {
                 pdfView.displayMode = targetDisplayMode
             }
@@ -146,14 +162,26 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                 pdfView.displayBox = targetBox
             }
             pdfView.layoutDocumentView()
-            if wasAutoScaling {
+            // Switching between single and two-page layouts refits the width so a spread is never cut off;
+            // the first layout keeps the zoom a document reopens with
+            let refitsWidth = pageModeChanged && !isInitialLayout
+            if wasAutoScaling || refitsWidth {
                 pdfView.autoScales = true
             }
-            if let savedPage, pdfView.currentPage !== savedPage {
-                pdfView.go(to: savedPage)
+            if let savedDestination {
+                pdfView.go(to: savedDestination)
             }
             pdfView.needsDisplay = true
             DispatchQueue.main.async {
+                // A view without a size yet (just created) has no meaningful zoom to report
+                guard Coordinator.isLive(pdfView) else { return }
+                // Auto scaling settles on the next pass; return to the same spot once more
+                if let savedDestination {
+                    pdfView.go(to: savedDestination)
+                }
+                if refitsWidth {
+                    self.onAutoScalesChange?(true)
+                }
                 if abs(pdfView.scaleFactor - self.zoomScale) > 0.005 {
                     self.zoomScale = pdfView.scaleFactor
                 }
@@ -214,12 +242,18 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                 case .fitPage:
                     pdfView.autoScales = false
                     if let page = pdfView.currentPage {
-                        let pageBounds = page.bounds(for: pdfView.displayBox)
+                        let bounds = page.bounds(for: pdfView.displayBox)
+                        let isQuarterTurned = (page.rotation / 90) % 2 != 0
+                        let pageSize = isQuarterTurned ? CGSize(width: bounds.height, height: bounds.width) : bounds.size
+                        let isSpread = pdfView.displayMode == .twoUp || pdfView.displayMode == .twoUpContinuous
+                        let contentWidth = isSpread ? pageSize.width * 2 + 12 : pageSize.width
                         let viewBounds = pdfView.bounds.insetBy(dx: 24, dy: 24)
-                        if pageBounds.width > 0 && pageBounds.height > 0 {
-                            let scaleW = viewBounds.width / pageBounds.width
-                            let scaleH = viewBounds.height / pageBounds.height
-                            pdfView.scaleFactor = max(0.25, min(scaleW, scaleH))
+                        if contentWidth > 0 && pageSize.height > 0 {
+                            let scaleW = viewBounds.width / contentWidth
+                            let scaleH = viewBounds.height / pageSize.height
+                            pdfView.scaleFactor = max(pdfView.minScaleFactor, min(scaleW, scaleH))
+                            // Show the whole page, not the bottom of the previous one and half of this one
+                            pdfView.go(to: page)
                         }
                     }
                 case .scale(let value):
@@ -227,6 +261,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                     pdfView.scaleFactor = max(pdfView.minScaleFactor, min(pdfView.maxScaleFactor, value))
                 }
                 DispatchQueue.main.async {
+                    guard Coordinator.isLive(pdfView) else { return }
                     self.zoomScale = pdfView.scaleFactor
                 }
             }
@@ -242,11 +277,13 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
             let selections = searchMatches.enumerated().map { idx, item -> PDFSelection in
                 let sel = item.selection.copy() as! PDFSelection
                 if isNight {
-                    // Since scrollView.layer applies nightFilter (v = 0.75 - 0.25*(R+G+B)),
-                    // a dark selection color inverts into a bright, crisp highlight on dark pages.
+                    // PDFKit multiplies highlights onto the page, so the text stays black underneath and the
+                    // Night filter turns it into #BFBFBF ink. These warm colors become amber boxes there
+                    // (#563D05 for the current match, #392905 for the others), keeping the found word readable
+                    // (5:1 or more); dark colors would invert into light boxes behind light text.
                     sel.color = (idx == selectedMatchIndex)
-                        ? NSColor(calibratedWhite: 0.08, alpha: 0.65)
-                        : NSColor(calibratedWhite: 0.22, alpha: 0.45)
+                        ? NSColor(srgbRed: 0.81, green: 0.67, blue: 0.36, alpha: 1.0)
+                        : NSColor(srgbRed: 0.87, green: 0.78, blue: 0.58, alpha: 1.0)
                 } else {
                     sel.color = (idx == selectedMatchIndex)
                         ? NSColor.systemOrange.withAlphaComponent(0.65)
@@ -274,6 +311,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         var lastZoomCommandToken: Int = -1
         var lastLayoutToken: Int
         var lastHighlightedMatchID: UUID?
+        var hasAppliedLayout = false
         private var observers: [NSObjectProtocol] = []
         nonisolated(unsafe) private var keyMonitor: Any?
 
@@ -283,23 +321,36 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         }
 
         deinit {
+            stopObserving()
+        }
+
+        func stopObserving() {
             for obs in observers {
                 NotificationCenter.default.removeObserver(obs)
             }
+            observers.removeAll()
             if let keyMonitor {
                 NSEvent.removeMonitor(keyMonitor)
+                self.keyMonitor = nil
             }
+        }
+
+        /// Only a view on screen with a real size, done applying the zoom and page it opened with,
+        /// reports its page and zoom back to the tab
+        static func isLive(_ pdfView: PDFView) -> Bool {
+            if let themed = pdfView as? ThemedPDFView, themed.isRestoringInitialState {
+                return false
+            }
+            return pdfView.window != nil && pdfView.bounds.width > 1 && pdfView.bounds.height > 1
         }
 
         func setupNotifications(for pdfView: PDFView) {
             let nc = NotificationCenter.default
 
             let pageObs = nc.addObserver(forName: .PDFViewPageChanged, object: pdfView, queue: .main) { [weak self, weak pdfView] _ in
-                guard let self = self, let pdfView = pdfView,
+                guard let self = self, let pdfView = pdfView, Self.isLive(pdfView),
                       let doc = pdfView.document,
                       let page = pdfView.currentPage else { return }
-                // Until the saved page is shown, PDFKit reports page 1 of the fresh layout: keep the saved index
-                if (pdfView as? ThemedPDFView)?.pendingInitialPage != nil { return }
                 let idx = doc.index(for: page)
                 if idx != self.parent.currentPageIndex {
                     self.parent.currentPageIndex = idx
@@ -308,7 +359,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
             }
 
             let scaleObs = nc.addObserver(forName: .PDFViewScaleChanged, object: pdfView, queue: .main) { [weak self, weak pdfView] _ in
-                guard let self = self, let pdfView = pdfView else { return }
+                guard let self = self, let pdfView = pdfView, Self.isLive(pdfView) else { return }
                 if abs(pdfView.scaleFactor - self.parent.zoomScale) > 0.005 {
                     self.parent.zoomScale = pdfView.scaleFactor
                 }
@@ -324,11 +375,15 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                     forName: NSView.boundsDidChangeNotification,
                     object: scrollView.contentView,
                     queue: .main
-                ) { [weak pdfView] _ in
+                ) { [weak self, weak pdfView] _ in
+                    guard let pdfView else { return }
                     (pdfView as? ThemedPDFView)?.applyThemeLayers()
+                    self?.reportReadingLocation(of: pdfView)
                 }
                 observers.append(scrollObs)
             }
+
+            reportReadingLocation(of: pdfView)
 
             // Local keyDown monitor so ←/→ turn pages even when a toolbar control has the focus;
             // `ThemedPDFView.pageStep(for:)` decides which pane (if any) handles the key.
@@ -342,6 +397,18 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                 return nil
             }
         }
+
+        /// The reading line sits a quarter of the view below the top edge, so a heading in the upper part
+        /// of the view already counts as the section being read
+        func reportReadingLocation(of pdfView: PDFView) {
+            guard Self.isLive(pdfView),
+                  let handler = parent.onReadingLocationChange,
+                  let destination = pdfView.currentDestination,
+                  let page = destination.page,
+                  let document = pdfView.document else { return }
+            let quarterView = pdfView.bounds.height / max(pdfView.scaleFactor, 0.01) / 4
+            handler(document.index(for: page), destination.point.y - quarterView)
+        }
     }
 }
 
@@ -353,9 +420,15 @@ final class ThemedPDFView: PDFView {
     var onStepPage: ((Int) -> Void)?
     var handlesUnfocusedArrowKeys = true
 
-    /// Page to show once the view has a size: `go(to:)` before the first layout is lost.
+    /// Page and zoom to show once the view has a size: `go(to:)` and `scaleFactor` before the first layout are lost.
     var pendingInitialPage: PDFPage?
+    var pendingInitialScale: CGFloat?
     private var isShowingInitialPage = false
+
+    /// Until the saved page and zoom are shown, PDFKit reports page 1 and a clamped zoom of the fresh layout
+    var isRestoringInitialState: Bool {
+        pendingInitialPage != nil || pendingInitialScale != nil
+    }
 
     override func keyDown(with event: NSEvent) {
         if let delta = pageStep(for: event), let onStepPage {
@@ -409,13 +482,23 @@ final class ThemedPDFView: PDFView {
 
     override func layout() {
         super.layout()
-        if let page = pendingInitialPage, !isShowingInitialPage, bounds.width > 0, bounds.height > 0 {
+        if isRestoringInitialState, !isShowingInitialPage, bounds.width > 0, bounds.height > 0 {
             isShowingInitialPage = true
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.go(to: page)
+                if let scale = self.pendingInitialScale {
+                    self.autoScales = false
+                    self.scaleFactor = scale
+                }
+                if let page = self.pendingInitialPage {
+                    self.go(to: page)
+                }
+                self.pendingInitialScale = nil
                 self.pendingInitialPage = nil
                 self.isShowingInitialPage = false
+                // Scale changes were ignored while restoring: report the zoom the view settled on
+                // (e.g. fit width), so the toolbar's percentage matches the page
+                NotificationCenter.default.post(name: .PDFViewScaleChanged, object: self)
             }
         }
         applyThemeLayers()
@@ -424,6 +507,17 @@ final class ThemedPDFView: PDFView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyThemeLayers()
+        // A newly shown document (opened, or its tab selected) takes the keyboard so ←/→ turn pages right away;
+        // otherwise AppKit hands it to the toolbar's search field and the arrows move its caret. Only the
+        // primary pane does this, and only while nothing else holds the focus.
+        guard handlesUnfocusedArrowKeys, let window else { return }
+        DispatchQueue.main.async { [weak self, weak window] in
+            guard let self, let window, self.window === window else { return }
+            let responder = window.firstResponder
+            if responder == nil || responder === window || responder is NSText {
+                window.makeFirstResponder(self)
+            }
+        }
     }
 
     func applyThemeLayers() {

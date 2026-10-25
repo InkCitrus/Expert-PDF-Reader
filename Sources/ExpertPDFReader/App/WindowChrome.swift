@@ -40,6 +40,9 @@ struct WindowChromeConfigurator: NSViewRepresentable {
 }
 
 final class WindowChromeView: NSView {
+    /// The reader window (as opposed to Settings, alerts or panels), for commands such as ⌘W
+    static weak var readerWindow: NSWindow?
+
     var titleBarHeight: CGFloat = 40
     var onMetricsChange: ((WindowChromeMetrics) -> Void)?
 
@@ -55,6 +58,7 @@ final class WindowChromeView: NSView {
         super.viewDidMoveToWindow()
         removeObservers()
         guard let window else { return }
+        Self.readerWindow = window
 
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true

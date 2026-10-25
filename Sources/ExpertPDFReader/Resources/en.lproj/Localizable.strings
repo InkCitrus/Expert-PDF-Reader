@@ -1,10 +1,6 @@
 /* Expert PDF Reader — en Localizable.strings */
-"上一页 (←)|||Previous Page (←)" = "Previous Page (←)";
-"Previous Page (←)" = "Previous Page (←)";
 "上下|||Horizontal" = "Horizontal";
 "Horizontal" = "Horizontal";
-"下一页 (→)|||Next Page (→)" = "Next Page (→)";
-"Next Page (→)" = "Next Page (→)";
 "不分屏|||Off" = "Off";
 "Off" = "Off";
 "为当前页添加/移除书签|||Toggle Bookmark for Current Page" = "Toggle Bookmark for Current Page";
@@ -177,14 +173,10 @@
 "Horizontal Split (Top/Bottom)" = "Horizontal Split (Top/Bottom)";
 "没有匹配结果|||No Matches Found" = "No Matches Found";
 "No Matches Found" = "No Matches Found";
-"浅色|||Light" = "Light";
 "Light" = "Light";
 "浅色外观|||Light" = "Light";
 "浅色时使用纸质替代日间|||Use Sepia Instead of Day in Light Mode" = "Use Sepia Instead of Day in Light Mode";
 "Use Sepia Instead of Day in Light Mode" = "Use Sepia Instead of Day in Light Mode";
-"浅色时使用纸质替代日间|||Use Sepia in Light Mode" = "Use Sepia in Light Mode";
-"Use Sepia in Light Mode" = "Use Sepia in Light Mode";
-"深色|||Dark" = "Dark";
 "Dark" = "Dark";
 "深色外观|||Dark" = "Dark";
 "添加书签|||Add Bookmark" = "Add Bookmark";
@@ -243,7 +235,6 @@
 "Language" = "Language";
 "请尝试其他关键词|||Try another keyword" = "Try another keyword";
 "Try another keyword" = "Try another keyword";
-"跟随系统|||Auto" = "Auto";
 "跟随系统|||Follow System" = "Follow System";
 "Follow System" = "Follow System";
 "返回|||Back" = "Back";
@@ -286,3 +277,19 @@
 "The file may be damaged or isn't a PDF document." = "The file may be damaged or isn't a PDF document.";
 "找不到该文件，它可能已被移动或删除。|||The file can't be found. It may have been moved or deleted." = "The file can't be found. It may have been moved or deleted.";
 "The file can't be found. It may have been moved or deleted." = "The file can't be found. It may have been moved or deleted.";
+"上一页|||Previous Page" = "Previous Page";
+"Previous Page" = "Previous Page";
+"下一页|||Next Page" = "Next Page";
+"Next Page" = "Next Page";
+"关闭窗口|||Close Window" = "Close Window";
+"Close Window" = "Close Window";
+"在 GitHub 上查看 Expert PDF Reader|||Expert PDF Reader on GitHub" = "Expert PDF Reader on GitHub";
+"Expert PDF Reader on GitHub" = "Expert PDF Reader on GitHub";
+"打开最近使用|||Open Recent" = "Open Recent";
+"Open Recent" = "Open Recent";
+"清除菜单|||Clear Menu" = "Clear Menu";
+"Clear Menu" = "Clear Menu";
+"立即重新启动|||Restart Now" = "Restart Now";
+"Restart Now" = "Restart Now";
+"重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。|||Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "Menus provided by macOS (File, Edit, Window…) switch to this language after a restart.";
+"Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "Menus provided by macOS (File, Edit, Window…) switch to this language after a restart.";

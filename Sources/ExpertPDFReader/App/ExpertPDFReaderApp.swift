@@ -9,22 +9,38 @@ public final class ExpertPDFReaderAppDelegate: NSObject, NSApplicationDelegate {
     /// Files handed to the app before the window has set `store` (e.g. double-clicking a PDF in Finder
     /// while the app is not running); opened as soon as `store` is available.
     private var pendingURLs: [URL] = []
-    private var zoomKeyMonitor: Any?
+    private var keyMonitor: Any?
+
+    public func applicationWillFinishLaunching(_ notification: Notification) {
+        // The app draws its own tab strip; macOS window tabs would add a second tab bar and
+        // duplicate Show Next / Previous Tab, Merge All Windows, … in the View and Window menus
+        NSWindow.allowsAutomaticWindowTabbing = false
+    }
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
 
-        // ⌘= zooms in like the menu's ⌘+, which needs Shift on many keyboard layouts
-        zoomKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-                  event.charactersIgnoringModifiers == "=" else {
-                return event
-            }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             let handled = MainActor.assumeIsolated { () -> Bool in
-                guard let tab = self?.store?.activeDocumentTab else { return false }
-                tab.triggerZoom(.zoomIn)
-                return true
+                guard let store = self?.store else { return false }
+                // ⌘= zooms in like the menu's ⌘+, which needs Shift on many keyboard layouts
+                if modifiers == .command, event.charactersIgnoringModifiers == "=" {
+                    guard let tab = store.activeDocumentTab else { return false }
+                    tab.triggerZoom(.zoomIn)
+                    return true
+                }
+                // ⌃⇥ / ⌃⇧⇥ switch tabs as in Safari and Finder (the Go menu shows ⇧⌘] / ⇧⌘[)
+                if event.keyCode == 48, modifiers == .control || modifiers == [.control, .shift] {
+                    if modifiers.contains(.shift) {
+                        store.selectPreviousTab()
+                    } else {
+                        store.selectNextTab()
+                    }
+                    return true
+                }
+                return false
             }
             return handled ? nil : event
         }
@@ -39,6 +55,12 @@ public final class ExpertPDFReaderAppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         openPendingURLs()
+    }
+
+    /// Stays open without a window like Preview (a single `Window` scene would quit when it closes);
+    /// opening a PDF or clicking the Dock icon brings the window back.
+    public func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
     }
 
     public func applicationWillTerminate(_ notification: Notification) {
@@ -70,7 +92,9 @@ public struct ExpertPDFReaderApp: App {
     public init() {}
 
     public var body: some Scene {
-        WindowGroup("Expert PDF Reader") {
+        // A single window: a `WindowGroup` opened (and restored on launch) one more window, mirroring the
+        // same tabs, for every PDF opened from Finder while the app was running
+        Window("Expert PDF Reader", id: "main") {
             MainWindowView(store: store)
                 .onAppear {
                     appDelegate.store = store
@@ -90,37 +114,62 @@ public struct ExpertPDFReaderApp: App {
         Settings {
             SettingsView(store: store)
         }
+        .windowResizability(.contentSize)
     }
 }
 
-// MARK: - MainMenu Commands (Localized zh-Hans / en)
+// MARK: - Main Menu Commands (localized through L10n)
 
 struct ReaderMenuCommands: Commands {
     @ObservedObject var store: AppStore
 
+    private static let projectURL = URL(string: "https://github.com/InkCitrus/Expert-PDF-Reader")!
+
     var body: some Commands {
-        // File Menu Additions
+        // File Menu
         CommandGroup(replacing: .newItem) {
             Button(L10n.tr("打开...", "Open...")) {
                 store.openFilePicker()
             }
             .keyboardShortcut("o", modifiers: [.command])
 
+            Menu(L10n.tr("打开最近使用", "Open Recent")) {
+                ForEach(store.recentDocuments.prefix(10)) { item in
+                    Button(item.title) {
+                        store.openDocument(at: item.url)
+                    }
+                }
+                if !store.recentDocuments.isEmpty {
+                    Divider()
+                }
+                Button(L10n.tr("清除菜单", "Clear Menu")) {
+                    store.clearAllRecents()
+                }
+                .disabled(store.recentDocuments.isEmpty)
+            }
+
             Button(L10n.tr("新建主页标签", "New Home Tab")) {
                 store.openNewHomeTab()
             }
             .keyboardShortcut("t", modifiers: [.command])
-
-            Divider()
-
-            Button(L10n.tr("关闭标签", "Close Tab")) {
-                store.closeCurrentTab()
-            }
-            .keyboardShortcut("w", modifiers: [.command])
         }
 
-        // View Menu (视图 / View)
-        CommandMenu(L10n.tr("视图", "View")) {
+        // Replaces File › Close / Close All, whose ⌘W clashed with Close Tab
+        CommandGroup(replacing: .saveItem) {
+            Button(L10n.tr("关闭标签", "Close Tab")) {
+                closeTabOrWindow()
+            }
+            .keyboardShortcut("w", modifiers: [.command])
+
+            Button(L10n.tr("关闭窗口", "Close Window")) {
+                (NSApp.keyWindow ?? NSApp.mainWindow)?.performClose(nil)
+            }
+            .keyboardShortcut("w", modifiers: [.command, .shift])
+        }
+
+        // View Menu: the reader's commands join the system View menu (above Enter Full Screen)
+        // instead of a second menu titled View
+        CommandGroup(before: .toolbar) {
             Button(store.activeDocumentTab?.isLeftSidebarVisible == true ? L10n.tr("隐藏左边面板", "Hide Left Panel") : L10n.tr("显示左边面板", "Show Left Panel")) {
                 guard let tab = store.activeDocumentTab else { return }
                 if tab.isLeftSidebarVisible {
@@ -163,57 +212,30 @@ struct ReaderMenuCommands: Commands {
 
             Divider()
 
-            // Theme Submenu (主题 -> 跟随系统 / 日间 / 纸质 / 夜间 + 浅色时使用纸质替代日间)
-            Menu(L10n.tr("主题", "Theme")) {
+            // Pickers render as submenus with a checkmark on the current choice. Their items keep the old
+            // language after a live switch unless rebuilt, hence an id that changes with the language.
+            Picker(L10n.tr("主题", "Theme"), selection: $store.readingThemeMode) {
                 ForEach(PDFReadingThemeMode.allCases) { mode in
-                    Button {
-                        store.readingThemeMode = mode
-                    } label: {
-                        HStack {
-                            if store.readingThemeMode == mode {
-                                Image(systemName: "checkmark")
-                            }
-                            Text(mode.title)
-                        }
-                    }
+                    Text(mode.title).tag(mode)
                 }
-
-                Divider()
-
-                Toggle(L10n.tr("浅色时使用纸质替代日间", "Use Sepia in Light Mode"), isOn: $store.useSepiaForLightSystemTheme)
             }
+            .id("theme.\(store.appLanguage.rawValue)")
 
-            // App UI Appearance Submenu
-            Menu(L10n.tr("界面外观", "Appearance")) {
+            Toggle(L10n.tr("浅色时使用纸质替代日间", "Use Sepia Instead of Day in Light Mode"), isOn: $store.useSepiaForLightSystemTheme)
+
+            Picker(L10n.tr("界面外观", "App Appearance"), selection: $store.appearanceMode) {
                 ForEach(AppAppearanceMode.allCases) { mode in
-                    Button {
-                        store.appearanceMode = mode
-                    } label: {
-                        HStack {
-                            if store.appearanceMode == mode {
-                                Image(systemName: "checkmark")
-                            }
-                            Text(mode.title)
-                        }
-                    }
+                    Text(mode.title).tag(mode)
                 }
             }
+            .id("appearance.\(store.appLanguage.rawValue)")
 
-            // Language Submenu
-            Menu(L10n.tr("语言", "Language")) {
+            Picker(L10n.tr("语言", "Language"), selection: $store.appLanguage) {
                 ForEach(AppLanguage.allCases) { lang in
-                    Button {
-                        store.appLanguage = lang
-                    } label: {
-                        HStack {
-                            if store.appLanguage == lang {
-                                Image(systemName: "checkmark")
-                            }
-                            Text(lang.title)
-                        }
-                    }
+                    Text(lang.title).tag(lang)
                 }
             }
+            .id("language.\(store.appLanguage.rawValue)")
 
             Divider()
 
@@ -246,7 +268,7 @@ struct ReaderMenuCommands: Commands {
 
             Divider()
 
-            // Split View Submenu (分屏视图 / Split View)
+            // Split View Submenu
             Menu(L10n.tr("分屏视图", "Split View")) {
                 Button(L10n.tr("禁用分屏视图", "Disable Split View")) {
                     store.activeDocumentTab?.splitMode = .disabled
@@ -301,18 +323,21 @@ struct ReaderMenuCommands: Commands {
             }
             .keyboardShortcut("9", modifiers: [.command])
             .disabled(store.activeDocumentTab == nil)
+
+            Divider()
         }
 
-        // Go Menu (前往 / Go)
+        // Go Menu
         CommandMenu(L10n.tr("前往", "Go")) {
-            Button(L10n.tr("上一页 (←)", "Previous Page (←)")) {
+            // ←/→ also turn pages (handled by the reader so text fields keep the arrow keys); the menu shows ⌥↑ / ⌥↓
+            Button(L10n.tr("上一页", "Previous Page")) {
                 guard let tab = store.activeDocumentTab else { return }
                 tab.navigateToPage(tab.currentPageIndex - 1)
             }
             .keyboardShortcut(.upArrow, modifiers: [.option])
             .disabled(store.activeDocumentTab == nil)
 
-            Button(L10n.tr("下一页 (→)", "Next Page (→)")) {
+            Button(L10n.tr("下一页", "Next Page")) {
                 guard let tab = store.activeDocumentTab else { return }
                 tab.navigateToPage(tab.currentPageIndex + 1)
             }
@@ -330,6 +355,12 @@ struct ReaderMenuCommands: Commands {
                 tab.navigateToPage(max(0, tab.pageCount - 1))
             }
             .keyboardShortcut(.end, modifiers: [])
+            .disabled(store.activeDocumentTab == nil)
+
+            Button(L10n.tr("前往页码…", "Go to Page…")) {
+                store.activeDocumentTab?.goToPageRequestToken &+= 1
+            }
+            .keyboardShortcut("g", modifiers: [.option, .command])
             .disabled(store.activeDocumentTab == nil)
 
             Divider()
@@ -386,6 +417,29 @@ struct ReaderMenuCommands: Commands {
                 store.selectPreviousTab()
             }
             .keyboardShortcut("{", modifiers: [.shift, .command])
+        }
+
+        // Help Menu: the built-in Reading Guide instead of "Help isn't available"
+        CommandGroup(replacing: .help) {
+            Button(L10n.tr("阅读指南", "Reading Guide")) {
+                store.openGettingStartedGuide()
+            }
+            .keyboardShortcut("?", modifiers: [.command])
+
+            Button(L10n.tr("在 GitHub 上查看 Expert PDF Reader", "Expert PDF Reader on GitHub")) {
+                NSWorkspace.shared.open(Self.projectURL)
+            }
+        }
+    }
+
+    /// ⌘W closes the selected document tab; on the Home tab, and in other windows such as Settings,
+    /// it closes the window, like closing the last tab in Safari
+    private func closeTabOrWindow() {
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        if window === WindowChromeView.readerWindow, store.activeDocumentTab != nil {
+            store.closeCurrentTab()
+        } else {
+            window.performClose(nil)
         }
     }
 }

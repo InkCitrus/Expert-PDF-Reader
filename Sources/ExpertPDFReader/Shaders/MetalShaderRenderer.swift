@@ -13,8 +13,8 @@ public final class MetalShaderRenderer {
     private let commandQueue: MTLCommandQueue?
     private var pipelineStates: [PDFViewTheme: MTLRenderPipelineState] = [:]
 
-    /// Cached CoreImage layer filters for live `PDFPageLayer` tile containers
-    private var layerFilters: [PDFViewTheme: CIFilter] = [:]
+    /// Cached CoreImage layer filter chains for live `PDFPageLayer` tile containers
+    private var layerFilters: [PDFViewTheme: [CIFilter]] = [:]
 
     private init() {
         let dev = MTLCreateSystemDefaultDevice()
@@ -51,32 +51,50 @@ public final class MetalShaderRenderer {
         }
     }
 
+    // Both themes map grays exactly as before (white → paper, black → ink) and keep part of each color's
+    // chroma, so colored figures, links and highlights stay tellable apart instead of turning one gray or brown.
+    //
+    // Sepia: luminance L = 0.29 R + 0.57 G + 0.14 B goes from ink #3F2A18 (L = 0) to paper #F5EFDC (L = 1),
+    // plus 55% of the color's chroma:
+    //   out = ink + (paper - ink) * L + 0.55 * (rgb - L)
+    // Night: lightness is inverted (L' = 0.75 * (1 - L), L = 0.299 R + 0.587 G + 0.114 B), keeping 70% of
+    // the chroma; for grays this is the previous v = 0.75 - 0.25 * (R + G + B):
+    //   out = L' + 0.70 * (rgb - L)
+    // Both are affine, so each fits one CIColorMatrix (live pages) and matches the Metal fragments (thumbnails).
+    //
+    // Core Animation runs layer filters on linear-light values while the Metal fragments see sRGB-encoded
+    // ones; the matrix is therefore wrapped in sRGB tone curves so live pages get the same colors as the
+    // thumbnails (Night ink #BFBFBF instead of a glaring near-white, Sepia ink #3F2A18 instead of a light brown).
+
     private func setupLayerFilters() {
-        // Sepia: same affine matrix as sepiaPageFragment
-        // R' = 0.247 + 0.207*R + 0.407*G + 0.100*B
-        // G' = 0.165 + 0.224*R + 0.441*G + 0.108*B
-        // B' = 0.094 + 0.222*R + 0.438*G + 0.109*B
         if let sepiaFilter = CIFilter(name: "CIColorMatrix") {
             sepiaFilter.setDefaults()
-            sepiaFilter.setValue(CIVector(x: 0.207, y: 0.407, z: 0.100, w: 0.0), forKey: "inputRVector")
-            sepiaFilter.setValue(CIVector(x: 0.224, y: 0.441, z: 0.108, w: 0.0), forKey: "inputGVector")
-            sepiaFilter.setValue(CIVector(x: 0.222, y: 0.438, z: 0.109, w: 0.0), forKey: "inputBVector")
+            sepiaFilter.setValue(CIVector(x: 0.598, y: 0.093, z: 0.023, w: 0.0), forKey: "inputRVector")
+            sepiaFilter.setValue(CIVector(x: 0.065, y: 0.677, z: 0.031, w: 0.0), forKey: "inputGVector")
+            sepiaFilter.setValue(CIVector(x: 0.064, y: 0.125, z: 0.581, w: 0.0), forKey: "inputBVector")
             sepiaFilter.setValue(CIVector(x: 0.0, y: 0.0, z: 0.0, w: 1.0), forKey: "inputAVector")
             sepiaFilter.setValue(CIVector(x: 0.247, y: 0.165, z: 0.094, w: 0.0), forKey: "inputBiasVector")
-            layerFilters[.sepia] = sepiaFilter
+            layerFilters[.sepia] = Self.inSRGB(sepiaFilter)
         }
 
-        // Night: same affine matrix as nightPageFragment
-        // v = 0.75 - dot(rgb, (0.25, 0.25, 0.25))
         if let nightFilter = CIFilter(name: "CIColorMatrix") {
             nightFilter.setDefaults()
-            nightFilter.setValue(CIVector(x: -0.25, y: -0.25, z: -0.25, w: 0.0), forKey: "inputRVector")
-            nightFilter.setValue(CIVector(x: -0.25, y: -0.25, z: -0.25, w: 0.0), forKey: "inputGVector")
-            nightFilter.setValue(CIVector(x: -0.25, y: -0.25, z: -0.25, w: 0.0), forKey: "inputBVector")
+            nightFilter.setValue(CIVector(x: 0.26645, y: -0.85115, z: -0.1653, w: 0.0), forKey: "inputRVector")
+            nightFilter.setValue(CIVector(x: -0.43355, y: -0.15115, z: -0.1653, w: 0.0), forKey: "inputGVector")
+            nightFilter.setValue(CIVector(x: -0.43355, y: -0.85115, z: 0.5347, w: 0.0), forKey: "inputBVector")
             nightFilter.setValue(CIVector(x: 0.0, y: 0.0, z: 0.0, w: 1.0), forKey: "inputAVector")
             nightFilter.setValue(CIVector(x: 0.75, y: 0.75, z: 0.75, w: 0.0), forKey: "inputBiasVector")
-            layerFilters[.night] = nightFilter
+            layerFilters[.night] = Self.inSRGB(nightFilter)
         }
+    }
+
+    /// Runs `filter` on sRGB-encoded values inside Core Animation's linear working space
+    private static func inSRGB(_ filter: CIFilter) -> [CIFilter] {
+        guard let toSRGB = CIFilter(name: "CILinearToSRGBToneCurve"),
+              let toLinear = CIFilter(name: "CISRGBToneCurveToLinear") else {
+            return [filter]
+        }
+        return [toSRGB, filter, toLinear]
     }
 
     /// Returns the `CIFilter` to attach to `PDFPageLayer`'s tile container layer for a given `PDFViewTheme`.
@@ -85,10 +103,7 @@ public final class MetalShaderRenderer {
         case .day:
             return []
         case .sepia, .night:
-            if let filter = layerFilters[theme] {
-                return [filter]
-            }
-            return []
+            return layerFilters[theme] ?? []
         }
     }
 
@@ -230,10 +245,10 @@ public final class MetalShaderRenderer {
     ) {
         constexpr sampler s(mag_filter::linear, min_filter::linear);
         float4 c = float4(colorTexture.sample(s, in.textureCoordinate));
-        float3 sepia;
-        sepia.r = 0.247f + 0.207f * c.r + 0.407f * c.g + 0.100f * c.b;
-        sepia.g = 0.165f + 0.224f * c.r + 0.441f * c.g + 0.108f * c.b;
-        sepia.b = 0.094f + 0.222f * c.r + 0.438f * c.g + 0.109f * c.b;
+        float3 ink = float3(0.247f, 0.165f, 0.094f);
+        float3 paper = float3(0.961f, 0.938f, 0.863f);
+        float l = dot(c.rgb, float3(0.29f, 0.57f, 0.14f));
+        float3 sepia = ink + (paper - ink) * l + 0.55f * (c.rgb - l);
         return float4(clamp(sepia, 0.0f, 1.0f), c.a * in.opacity);
     }
     fragment float4 nightPageFragment(
@@ -242,9 +257,9 @@ public final class MetalShaderRenderer {
     ) {
         constexpr sampler s(mag_filter::linear, min_filter::linear);
         float4 c = float4(colorTexture.sample(s, in.textureCoordinate));
-        float v = 0.75f - dot(c.rgb, float3(0.25f, 0.25f, 0.25f));
-        v = clamp(v, 0.0f, 1.0f);
-        return float4(v, v, v, c.a * in.opacity);
+        float l = dot(c.rgb, float3(0.299f, 0.587f, 0.114f));
+        float3 night = 0.75f * (1.0f - l) + 0.70f * (c.rgb - l);
+        return float4(clamp(night, 0.0f, 1.0f), c.a * in.opacity);
     }
     """
 }

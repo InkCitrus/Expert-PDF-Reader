@@ -423,6 +423,22 @@ enum DocumentDetailsLoader {
 
 // MARK: - DocumentTabState (Per-Tab Reader State)
 
+/// The reading line of the primary pane (a quarter of the view below its top edge) in page space,
+/// so the outline can tell which of several sections on the same page is being read.
+@MainActor
+public final class ReadingLocation: ObservableObject {
+    @Published public private(set) var pageIndex: Int = -1
+    /// PDF page coordinates (origin bottom-left); a heading above this line counts as reached
+    @Published public private(set) var readingLineY: CGFloat = 0
+
+    public func update(pageIndex: Int, readingLineY: CGFloat) {
+        // Publishing every scroll step would redraw the outline continuously
+        guard pageIndex != self.pageIndex || abs(readingLineY - self.readingLineY) > 12 else { return }
+        self.pageIndex = pageIndex
+        self.readingLineY = readingLineY
+    }
+}
+
 @MainActor
 public final class DocumentTabState: ObservableObject, Identifiable {
     public let id: UUID = UUID()
@@ -478,6 +494,11 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     @Published public var pageJumpToken: Int = 0
     /// Bumped when crop boxes change after layout (Clear Margins finishing in the background)
     @Published public var clearMarginsLayoutToken: Int = 0
+    /// Bumped by Go › Go to Page… (⌥⌘G) to open the page counter's Go to Page popover
+    @Published public var goToPageRequestToken: Int = 0
+    /// Where in the current page the primary pane is scrolled to; kept apart from the tab's `@Published`
+    /// state so scrolling only refreshes the outline, not the whole reader
+    public let readingLocation = ReadingLocation()
 
     public enum ZoomAction {
         case zoomIn
@@ -996,7 +1017,42 @@ public final class AppStore: ObservableObject {
         didSet {
             L10n.currentLanguage = appLanguage
             UserDefaults.standard.set(appLanguage.rawValue, forKey: "expertPDFReader.appLanguage")
+            Self.applyMenuBarLanguage(appLanguage)
             handleLocaleChange()
+        }
+    }
+
+    /// macOS localizes its own menus (File, Edit, Window…) once, at launch, from the app's
+    /// `AppleLanguages`; the app's own strings switch live.
+    public var menuBarNeedsRestartForLanguage: Bool {
+        guard let launchLanguage = Bundle.main.preferredLocalizations.first else { return false }
+        return launchLanguage != appLanguage.resolved.rawValue
+    }
+
+    /// Makes the next launch use the chosen language for macOS's menus too ("Follow System" removes the override).
+    private static func applyMenuBarLanguage(_ language: AppLanguage) {
+        if language == .system {
+            UserDefaults.standard.removeObject(forKey: "AppleLanguages")
+        } else {
+            UserDefaults.standard.set([language.rawValue], forKey: "AppleLanguages")
+        }
+    }
+
+    /// Quits and reopens the app; the session (tabs, pages) is saved on quit and restored on launch.
+    public func relaunchApp() {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        // Waits for this process to exit so `open` starts a new instance instead of activating this one
+        process.arguments = [
+            "-c",
+            "while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do sleep 0.1; done; /usr/bin/open \"$0\"",
+            Bundle.main.bundlePath
+        ]
+        do {
+            try process.run()
+            NSApp.terminate(nil)
+        } catch {
+            NSSound.beep()
         }
     }
 
@@ -1065,6 +1121,8 @@ public final class AppStore: ObservableObject {
         let lang = AppLanguage(rawValue: savedLangRaw) ?? .system
         self.appLanguage = lang
         L10n.currentLanguage = lang
+        // Languages chosen before the menu bar followed them take effect from the next launch
+        Self.applyMenuBarLanguage(lang)
 
         let savedModeRaw = defaults.string(forKey: "expertPDFReader.readingThemeMode") ?? ""
         self.readingThemeMode = PDFReadingThemeMode(rawValue: savedModeRaw) ?? .system

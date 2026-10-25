@@ -112,6 +112,9 @@ public struct PDFReaderView: View {
             },
             onStepPage: { delta in
                 tab.navigateToPage(tab.currentPageIndex + delta)
+            },
+            onReadingLocationChange: { pageIndex, readingLineY in
+                tab.readingLocation.update(pageIndex: pageIndex, readingLineY: readingLineY)
             }
         )
         .overlay(alignment: .bottomTrailing) {

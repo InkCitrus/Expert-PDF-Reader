@@ -1,10 +1,6 @@
 /* Expert PDF Reader — ja Localizable.strings */
-"上一页 (←)|||Previous Page (←)" = "前のページ (←)";
-"Previous Page (←)" = "前のページ (←)";
 "上下|||Horizontal" = "上下";
 "Horizontal" = "上下";
-"下一页 (→)|||Next Page (→)" = "次のページ (→)";
-"Next Page (→)" = "次のページ (→)";
 "不分屏|||Off" = "オフ";
 "Off" = "オフ";
 "为当前页添加/移除书签|||Toggle Bookmark for Current Page" = "現在のページのブックマークを切り替え";
@@ -177,14 +173,10 @@
 "Horizontal Split (Top/Bottom)" = "上下に分割";
 "没有匹配结果|||No Matches Found" = "一致する結果がありません";
 "No Matches Found" = "一致する結果がありません";
-"浅色|||Light" = "ライト";
 "Light" = "ライト";
 "浅色外观|||Light" = "ライト外観";
 "浅色时使用纸质替代日间|||Use Sepia Instead of Day in Light Mode" = "ライトモード時に昼の代わりにセピアを使用";
 "Use Sepia Instead of Day in Light Mode" = "ライトモード時に昼の代わりにセピアを使用";
-"浅色时使用纸质替代日间|||Use Sepia in Light Mode" = "ライト時にセピアを使用";
-"Use Sepia in Light Mode" = "ライト時にセピアを使用";
-"深色|||Dark" = "ダーク";
 "Dark" = "ダーク";
 "深色外观|||Dark" = "ダーク外観";
 "添加书签|||Add Bookmark" = "ブックマークを追加";
@@ -243,7 +235,6 @@
 "Language" = "言語";
 "请尝试其他关键词|||Try another keyword" = "別のキーワードをお試しください";
 "Try another keyword" = "別のキーワードをお試しください";
-"跟随系统|||Auto" = "自動";
 "跟随系统|||Follow System" = "システムに合わせる";
 "Follow System" = "システムに合わせる";
 "返回|||Back" = "戻る";
@@ -286,3 +277,19 @@
 "The file may be damaged or isn't a PDF document." = "ファイルが破損しているか、PDF ドキュメントではない可能性があります。";
 "找不到该文件，它可能已被移动或删除。|||The file can't be found. It may have been moved or deleted." = "ファイルが見つかりません。移動または削除された可能性があります。";
 "The file can't be found. It may have been moved or deleted." = "ファイルが見つかりません。移動または削除された可能性があります。";
+"上一页|||Previous Page" = "前のページ";
+"Previous Page" = "前のページ";
+"下一页|||Next Page" = "次のページ";
+"Next Page" = "次のページ";
+"关闭窗口|||Close Window" = "ウインドウを閉じる";
+"Close Window" = "ウインドウを閉じる";
+"在 GitHub 上查看 Expert PDF Reader|||Expert PDF Reader on GitHub" = "GitHub で Expert PDF Reader を見る";
+"Expert PDF Reader on GitHub" = "GitHub で Expert PDF Reader を見る";
+"打开最近使用|||Open Recent" = "最近使った項目を開く";
+"Open Recent" = "最近使った項目を開く";
+"清除菜单|||Clear Menu" = "メニューを消去";
+"Clear Menu" = "メニューを消去";
+"立即重新启动|||Restart Now" = "今すぐ再起動";
+"Restart Now" = "今すぐ再起動";
+"重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。|||Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "再起動すると、macOS が提供するメニュー（ファイル、編集、ウインドウなど）も選択した言語に切り替わります。";
+"Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "再起動すると、macOS が提供するメニュー（ファイル、編集、ウインドウなど）も選択した言語に切り替わります。";

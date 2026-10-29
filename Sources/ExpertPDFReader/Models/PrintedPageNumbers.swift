@@ -9,7 +9,7 @@ import Vision
 /// (vertical Chinese and Japanese) may be stored in reading order or, as the Internet Archive scans it, with
 /// each spread's left page first.
 public struct BookPageScan: Codable, Equatable {
-    public static let currentVersion = 2
+    public static let currentVersion = 3
 
     public var version: Int? = Self.currentVersion
     public var printedNumbers: PrintedPageNumbers?
@@ -80,36 +80,31 @@ public enum BookPageScanner {
         let midX: CGFloat
         /// Distance from the outer edge of the strip (0 = right at the bottom/top edge, 1 = inner edge of strip)
         let distanceFromOuterEdge: CGFloat
+        var edgeNumber: (number: Int, position: CGFloat)? = nil
     }
 
     /// Pages read once each, as scanning goes back to narrow down where the numbering jumps
     final class PageReader {
         let document: PDFDocument
-        let isDigitalTextDocument: Bool
         private(set) var readings: [Int: Reading] = [:]
 
         init(document: PDFDocument) {
             self.document = document
-            self.isDigitalTextDocument = BookPageScanner.hasEmbeddedText(document)
         }
 
         func read(_ index: Int) -> Reading? {
             if let reading = readings[index] { return reading }
-            guard index >= 0, index < document.pageCount, let page = document.page(at: index) else { return nil }
+            guard !Task.isCancelled, index >= 0, index < document.pageCount, let page = document.page(at: index) else { return nil }
 
             // Digital PDFs already carry selectable text with exact character bounds: reading the header/footer
             // directly takes microseconds per page and avoids OCR errors on code listings or small fonts.
-            if let textReading = readFromTextLayer(page: page, index: index) {
+            let textReading = readFromTextLayer(page: page, index: index)
+            if let textReading, textReading.number != nil {
                 readings[index] = textReading
                 return textReading
             }
-
-            // On a digital text PDF, a page without text is a cover, divider or blank leaf — skip slow OCR
-            if isDigitalTextDocument {
-                let empty = Reading(index: index, number: nil, position: 0.5, writing: nil, label: page.printedNumber)
-                readings[index] = empty
-                return empty
-            }
+            // A book can mix digital pages and scans, or carry an incomplete OCR layer.
+            // Missing margin text on this page needs OCR regardless of the other pages.
 
             guard let image = render(page) else { return nil }
             let found = readNumber(in: image)
@@ -117,7 +112,7 @@ public enum BookPageScanner {
                 index: index,
                 number: found?.number,
                 position: found?.position ?? 0.5,
-                writing: writingDirection(in: image),
+                writing: textReading?.writing ?? writingDirection(in: image),
                 label: page.printedNumber
             )
             readings[index] = reading
@@ -160,8 +155,14 @@ public enum BookPageScanner {
             let stripHeight = box.height / 8
             let bottomRect = CGRect(x: box.minX, y: box.minY, width: box.width, height: stripHeight)
             let topRect = CGRect(x: box.minX, y: box.maxY - stripHeight, width: box.width, height: stripHeight)
-            return outermostLineText(in: bottomRect, on: page, box: box, isBottom: true)
-                ?? outermostLineText(in: topRect, on: page, box: box, isBottom: false)
+            let lines = [outermostLineText(in: bottomRect, on: page, box: box, isBottom: true),
+                         outermostLineText(in: topRect, on: page, box: box, isBottom: false)].compactMap { $0 }
+            return lines.first { text in
+                let words = stripPageDecorations(text).split(whereSeparator: \.isWhitespace).map(String.init)
+                return words.first.flatMap(parseRomanNumeral) != nil
+                    || words.last.flatMap(parseRomanNumeral) != nil
+                    || parsePrefixedPageLabel(text) != nil
+            }
         }
 
         private func outermostLineText(in rect: CGRect, on page: PDFPage, box: CGRect, isBottom: Bool) -> String? {
@@ -198,7 +199,23 @@ public enum BookPageScanner {
                     ? max(0, (b.minY - box.minY) / stripHeight)
                     : max(0, (box.maxY - b.maxY) / stripHeight)
                 let midX = min(max(0, (b.midX - box.minX) / box.width), 1)
-                return PositionedText(text: raw, midX: midX, distanceFromOuterEdge: dist)
+                var item = PositionedText(text: raw, midX: midX, distanceFromOuterEdge: dist)
+                if let token = edgeNumberToken(in: raw), let text = page.string as NSString? {
+                    // PDFKit can represent one visible line with several disjoint text ranges.
+                    for index in 0..<line.numberOfTextRanges(on: page) {
+                        let range = line.range(at: index, on: page)
+                        guard range.location + range.length <= text.length,
+                              let originalToken = edgeNumberToken(in: text.substring(with: range)),
+                              originalToken.number == token.number else { continue }
+                        let numberRange = NSRange(location: range.location + originalToken.range.location, length: originalToken.range.length)
+                        // Selection ranges index the string; characterBounds indexes rendered glyphs and can
+                        // diverge after synthetic newlines or ligatures.
+                        guard let bounds = page.selection(for: numberRange)?.bounds(for: page) else { continue }
+                        let x = (bounds.midX - box.minX) / box.width
+                        if x < 0.28 || x > 0.72 { item.edgeNumber = (token.number, x) }
+                    }
+                }
+                return item
             }
         }
 
@@ -223,21 +240,6 @@ public enum BookPageScanner {
         }
     }
 
-    /// True if `document` has selectable text on sample pages, so scanning finishes in milliseconds without OCR.
-    public static func hasEmbeddedText(_ document: PDFDocument) -> Bool {
-        let count = document.pageCount
-        guard count > 0 else { return false }
-        let probes = [count / 4, count / 2, count * 3 / 4]
-        var withText = 0
-        for idx in probes where idx >= 0 && idx < count {
-            if let text = document.page(at: idx)?.string,
-               text.trimmingCharacters(in: .whitespacesAndNewlines).count >= 16 {
-                withText += 1
-            }
-        }
-        return withText >= 2
-    }
-
     /// Looks at pairs of neighbouring pages spread over the book, then at pages between two samples whose numbering
     /// disagrees. Instant on digital PDFs; takes a few seconds on image-only scans. Call off the main thread with a
     /// private copy of the document.
@@ -246,7 +248,7 @@ public enum BookPageScanner {
         guard count >= 16 else { return BookPageScan() }
         let reader = PageReader(document: document)
         for index in sampleIndices(pageCount: count, pairs: pairs) {
-            _ = reader.read(index)
+            _ = autoreleasepool { reader.read(index) }
         }
         let numbers = printedNumbers(using: reader, pageCount: count)
         return BookPageScan(
@@ -312,7 +314,7 @@ public enum BookPageScanner {
                 guard let reading = [middle, middle + 1, middle - 1].lazy
                     .filter({ $0 > low && $0 < high })
                     .compactMap({ reader.read($0) })
-                    .first(where: { $0.number != nil }) else { break }
+                    .first(where: { $0.number != nil && [lowOffset, highOffset].contains(offset(of: $0)) }) else { break }
                 let found = offset(of: reading)
                 if found == lowOffset {
                     low = reading.index
@@ -380,7 +382,7 @@ public enum BookPageScanner {
         guard earliest < firstSampleIndex else { return firstSampleIndex }
 
         // Check `earliest` (or the next 1-2 pages when Page 1 is an unnumbered title/chapter opening)
-        for probe in earliest...min(earliest + 2, firstSampleIndex) {
+        for probe in earliest...min(earliest + 5, firstSampleIndex) {
             if let r = reader.read(probe), r.number != nil {
                 if offsetOf(r) == runOffset {
                     return earliest
@@ -472,7 +474,10 @@ public enum BookPageScanner {
         var romanOffsets: [Int: Int] = [:]
         var romanValues: [Int: (value: Int, text: String)] = [:]
         for (idx, text) in rawByIndex {
-            let trimmed = stripPageDecorations(text)
+            let words = stripPageDecorations(text).split(whereSeparator: \.isWhitespace).map(String.init)
+            let trimmed = words.first.flatMap { parseRomanNumeral($0) == nil ? nil : $0 }
+                ?? words.last.flatMap { parseRomanNumeral($0) == nil ? nil : $0 }
+                ?? stripPageDecorations(text)
             if let val = parseRomanNumeral(trimmed) {
                 romanValues[idx] = (val, trimmed)
                 romanOffsets[val - idx, default: 0] += 1
@@ -508,27 +513,20 @@ public enum BookPageScanner {
 
     // MARK: - Candidate Selection & Parsing
 
-    /// Picks the page number from items in a top/bottom margin strip by looking ONLY at the outermost occupied
-    /// baseline (closest to the bottom or top edge of the page), preventing code listing line numbers or body
-    /// text digits further inside the page from masquerading as page numbers.
+    /// Ignore nonnumeric publisher lines outside the running header. Within the remaining candidates,
+    /// the outermost baseline wins; a book-wide run still needs agreement from neighbouring pages.
     private static func pickPageNumber(from items: [PositionedText]) -> (number: Int, position: CGFloat)? {
-        guard let minDist = items.map(\.distanceFromOuterEdge).min() else { return nil }
-        // 0.08 of the 1/8 strip = 1% of page height (~8pt on A4), keeping items on the same footer/header baseline
-        let baselineTolerance: CGFloat = 0.08
-        let outermost = items.filter { $0.distanceFromOuterEdge <= minDist + baselineTolerance }
-
-        var candidates: [(number: Int, position: CGFloat)] = []
-        for item in outermost {
+        let candidates = items.compactMap { item -> (number: Int, position: CGFloat, distance: CGFloat)? in
             if let number = parseStandalonePageNumber(item.text) {
-                candidates.append((number, item.midX))
-            } else if outermost.count == 1, let edgeHit = parseRunningHeaderFooterLine(item.text, lineMidX: item.midX) {
-                candidates.append(edgeHit)
+                return (number, item.midX, item.distanceFromOuterEdge)
             }
+            if let edge = item.edgeNumber { return (edge.number, edge.position, item.distanceFromOuterEdge) }
+            return nil
         }
-
-        // If several tokens sit on the outermost baseline (e.g. chapter title + corner page number), prefer the
-        // one nearest an outer corner; if there is just one standalone number (including centered at 0.50), return it.
-        return candidates.max { abs($0.position - 0.5) < abs($1.position - 0.5) }
+        guard let distance = candidates.map(\.distance).min() else { return nil }
+        return candidates.filter { $0.distance <= distance + 0.08 }
+            .max { abs($0.position - 0.5) < abs($1.position - 0.5) }
+            .map { ($0.number, $0.position) }
     }
 
     private static func stripPageDecorations(_ text: String) -> String {
@@ -544,33 +542,20 @@ public enum BookPageScanner {
         return n
     }
 
-    /// Handles a combined single-line running header/footer like `"12   第一章 基础算法"` or `"Chapter 3   45"`
-    /// where PDFKit grouped title and outer-corner page number into one line, while rejecting TOC lines (`... 57`),
-    /// code statements (`return 0;`), and hyphenated section labels (`目录 - 1`).
-    private static func parseRunningHeaderFooterLine(_ raw: String, lineMidX: CGFloat) -> (number: Int, position: CGFloat)? {
+    /// The number at either end of a running title, separated by any whitespace. Its actual glyph bounds
+    /// must also lie near a corner; a number in the middle of prose or a publisher's year is not enough.
+    private static func edgeNumberToken(in raw: String) -> (number: Int, range: NSRange)? {
         guard !raw.contains(".."), !raw.contains("…"), !raw.contains(";"), !raw.contains("{"), !raw.contains("}") else {
             return nil
         }
-        // Require wide whitespace separation (at least 3 spaces or a tab) between running title and page number
-        if let tabRange = raw.range(of: "\t") {
-            let left = String(raw[..<tabRange.lowerBound]).trimmingCharacters(in: .whitespaces)
-            let right = String(raw[tabRange.upperBound...]).trimmingCharacters(in: .whitespaces)
-            if let n = parseStandalonePageNumber(left), parseStandalonePageNumber(right) == nil {
-                return (n, min(0.15, lineMidX))
-            }
-            if let n = parseStandalonePageNumber(right), parseStandalonePageNumber(left) == nil {
-                return (n, max(0.85, lineMidX))
-            }
-        }
-        if let gapRange = raw.range(of: "   ") {
-            let left = String(raw[..<gapRange.lowerBound]).trimmingCharacters(in: .whitespaces)
-            let right = String(raw[gapRange.upperBound...]).trimmingCharacters(in: .whitespaces)
-            if let n = parseStandalonePageNumber(left), parseStandalonePageNumber(right) == nil {
-                return (n, min(0.15, lineMidX))
-            }
-            if let n = parseStandalonePageNumber(right), parseStandalonePageNumber(left) == nil {
-                return (n, max(0.85, lineMidX))
-            }
+        for pattern in [#"(?:^|\s)([0-9]{1,4})\s*$"#, #"^\s*([0-9]{1,4})\s+"#] {
+            guard let match = raw.range(of: pattern, options: .regularExpression) else { continue }
+            let part = String(raw[match])
+            guard let digits = part.range(of: #"[0-9]+"#, options: .regularExpression),
+                  let number = Int(part[digits]), number > 0,
+                  let full = raw.range(of: String(part[digits]), range: match) else { continue }
+            let range = NSRange(full, in: raw)
+            return (number, range)
         }
         return nil
     }
@@ -691,7 +676,15 @@ public enum BookPageScanner {
                       !text.isEmpty else { return nil }
                 let b = obs.boundingBox
                 let dist = isBottom ? max(0, b.minY) : max(0, 1 - b.maxY)
-                return PositionedText(text: text, midX: b.midX, distanceFromOuterEdge: dist)
+                var item = PositionedText(text: text, midX: b.midX, distanceFromOuterEdge: dist)
+                if let candidate = obs.topCandidates(1).first,
+                   let token = edgeNumberToken(in: candidate.string),
+                   let range = Range(token.range, in: candidate.string),
+                   let bounds = try? candidate.boundingBox(for: range)?.boundingBox,
+                   bounds.midX < 0.28 || bounds.midX > 0.72 {
+                    item.edgeNumber = (token.number, bounds.midX)
+                }
+                return item
             }
             if let best = pickPageNumber(from: items) {
                 return best

@@ -293,8 +293,8 @@ public struct ExpertPDFReaderApp: App {
         Window("Expert PDF Reader", id: "main") {
             PrimaryWindowSceneRoot(store: store, appDelegate: appDelegate)
         }
-        // Title bar is drawn by MainWindowView's unified tab strip (WindowChromeConfigurator)
-        .windowStyle(.hiddenTitleBar)
+        // Keep document tabs out of the system titlebar drag region.
+        .windowStyle(.titleBar)
         .defaultSize(width: 1180, height: 780)
         .commands {
             ReaderMenuCommands(store: store)
@@ -385,6 +385,14 @@ struct ReaderMenuCommands: Commands {
                 (NSApp.keyWindow ?? NSApp.mainWindow)?.performClose(nil)
             }
             .keyboardShortcut("w", modifiers: [.command, .shift])
+        }
+
+        CommandGroup(after: .pasteboard) {
+            Button(L10n.tr("识别并复制本页文字", "Recognize and Copy Page Text")) {
+                ThemedPDFView.focused(in: NSApp.keyWindow)?.recognizePageText(nil)
+            }
+            .keyboardShortcut("c", modifiers: [.command, .option])
+            .disabled(store.activeDocumentTab?.pdfDocument.allowsCopying != true)
         }
 
         // View Menu: the reader's commands join the system View menu (above Enter Full Screen)

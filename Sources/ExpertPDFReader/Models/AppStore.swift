@@ -491,6 +491,16 @@ extension PDFPage {
 
 /// Clear Margins for one document: the crop boxes it came with, the content boxes found for it, and the work
 /// finding them on a private copy of the document off the main thread
+/// Restoring several scanned tabs must not run a Vision scan for each of them at the same time.
+private actor BookPageScanQueue {
+    static let shared = BookPageScanQueue()
+    func scan(url: URL, password: String?) -> BookPageScan? {
+        guard !Task.isCancelled, let document = PDFDocumentLoader.openCopy(of: url, password: password) else { return nil }
+        let scan = BookPageScanner.scan(document)
+        return Task.isCancelled ? nil : scan
+    }
+}
+
 @MainActor
 final class ClearMarginsCropper {
     let document: PDFDocument
@@ -508,10 +518,9 @@ final class ClearMarginsCropper {
         self.document = document
         self.url = url
         self.password = password
-        for index in 0..<document.pageCount {
-            originalCropBoxes[index] = document.page(at: index)?.bounds(for: .cropBox)
-        }
     }
+
+    deinit { task?.cancel() }
 
     /// Sets the content boxes known so far (or puts the original ones back) and finds the others, pages around
     /// `focus` first
@@ -519,18 +528,16 @@ final class ClearMarginsCropper {
         task?.cancel()
         task = nil
         isEnabled = enabled
-        var missing: [Int] = []
-        for index in 0..<document.pageCount {
+        // Opening a document must not instantiate every PDFPage. Remember a page's original box only
+        // when we are about to crop it; spread padding is removed by the alignment record.
+        let missing = enabled ? (0..<document.pageCount).filter { tightCropBoxes[$0] == nil } : []
+        let boxes = enabled ? tightCropBoxes : originalCropBoxes
+        for (index, box) in boxes {
             guard let page = document.page(at: index) else { continue }
-            if enabled {
-                if let tight = tightCropBoxes[index] {
-                    page.setBounds(tight, for: .cropBox)
-                } else {
-                    missing.append(index)
-                }
-            } else if let original = originalCropBoxes[index] {
-                page.setBounds(original, for: .cropBox)
+            if enabled, originalCropBoxes[index] == nil {
+                originalCropBoxes[index] = SpreadAlignment.unalignedCropBox(for: page, at: index, in: document)
             }
+            page.setBounds(box, for: .cropBox)
         }
         didChange()
         guard enabled, !missing.isEmpty else { return }
@@ -538,7 +545,7 @@ final class ClearMarginsCropper {
         let order = missing.sorted { abs($0 - focus) < abs($1 - focus) }
         let url = self.url
         let password = self.password
-        task = Task.detached(priority: .userInitiated) { [weak self] in
+        task = Task.detached(priority: .utility) { [weak self] in
             guard let copy = PDFDocumentLoader.openCopy(of: url, password: password) else {
                 await self?.computeOnMainThread(order)
                 return
@@ -547,8 +554,9 @@ final class ClearMarginsCropper {
             var lastFlush = Date()
             for index in order {
                 if Task.isCancelled { return }
-                guard let page = copy.page(at: index) else { continue }
-                batch.append((index, DocumentTabState.computeTightCropBox(for: page)))
+                let box = autoreleasepool { copy.page(at: index).map { DocumentTabState.computeTightCropBox(for: $0) } }
+                guard let box else { continue }
+                batch.append((index, box))
                 if batch.count >= 24 || Date().timeIntervalSince(lastFlush) > 0.25 {
                     await self?.receive(batch)
                     batch.removeAll()
@@ -568,7 +576,11 @@ final class ClearMarginsCropper {
         guard isEnabled else { return }
         willChange()
         for (index, box) in boxes {
-            document.page(at: index)?.setBounds(box, for: .cropBox)
+            guard let page = document.page(at: index) else { continue }
+            if originalCropBoxes[index] == nil {
+                originalCropBoxes[index] = SpreadAlignment.unalignedCropBox(for: page, at: index, in: document)
+            }
+            page.setBounds(box, for: .cropBox)
         }
         didChange()
     }
@@ -682,6 +694,11 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         self.primaryCropper = makeCropper(for: pdfDocument, url: url, password: password)
     }
 
+    deinit {
+        searchTask?.cancel()
+        pageScanTask?.cancel()
+    }
+
     /// Follow a Finder rename without replacing the loaded document or losing its crop boxes and reading state.
     func relocate(to url: URL) {
         let previousID = documentID
@@ -715,12 +732,11 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         guard pageScan == nil, pageScanTask == nil, pageCount >= 16 else { return }
         let url = documentID.url
         let password = self.password
-        let isFastText = BookPageScanner.hasEmbeddedText(pdfDocument)
         pageScanTask = Task.detached(priority: .utility) { [weak self] in
-            // Digital PDFs finish in milliseconds; image scans wait briefly so the first visible page renders first
-            try? await Task.sleep(nanoseconds: isFastText ? 80_000_000 : 1_200_000_000)
-            guard !Task.isCancelled, let document = PDFDocumentLoader.openCopy(of: url, password: password) else { return }
-            let scan = BookPageScanner.scan(document)
+            // Let the visible page render first. Even text-layer detection belongs on this private copy;
+            // querying sample pages in the live document used to stall opening image-heavy books.
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard !Task.isCancelled, let scan = await BookPageScanQueue.shared.scan(url: url, password: password) else { return }
             await self?.finishPageScan(scan)
         }
     }
@@ -764,6 +780,13 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     /// label → page indices; empty when every label is just the page's position
     public var pageIndicesByLabel: [String: [Int]] {
         if let cached = cachedPageIndicesByLabel { return cached }
+        var labels: CGPDFDictionaryRef?
+        if pageScan?.printedNumbers?.replacesPageLabels != true,
+           let catalog = pdfDocument.documentRef?.catalog,
+           !CGPDFDictionaryGetDictionary(catalog, "PageLabels", &labels) {
+            cachedPageIndicesByLabel = [:]
+            return [:]
+        }
         var map: [String: [Int]] = [:]
         var hasPrintedNumbers = false
         for idx in 0..<pdfDocument.pageCount {
@@ -1309,7 +1332,12 @@ public final class PDFThumbnailCache: ObservableObject {
     }
 
     private final class RenderCancellation: @unchecked Sendable {
-        var isCancelled = false
+        private let lock = NSLock()
+        private var cancelled = false
+        var isCancelled: Bool {
+            get { lock.withLock { cancelled } }
+            set { lock.withLock { cancelled = newValue } }
+        }
     }
 
     private nonisolated static let renderQueue = DispatchQueue(label: "io.github.inkcitrus.expertpdfreader.thumbnails", qos: .userInitiated)

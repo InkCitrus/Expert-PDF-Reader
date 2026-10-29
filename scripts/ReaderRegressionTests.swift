@@ -153,6 +153,78 @@ struct ReaderRegressionTests {
               && numbers?.label(at: 5) == "1" && numbers?.label(at: 23) == "19"
               && numbers?.label(at: 0) == nil && numbers?.label(at: 24) == nil,
               "mixed Roman and Arabic page numbers preserve unnumbered covers")
+        do {
+            let url = root.appendingPathComponent("RunningHeaders.pdf")
+            var media = CGRect(x: 0, y: 0, width: 600, height: 800)
+            let context = CGContext(url as CFURL, mediaBox: &media, nil)!
+            for index in 0..<80 {
+                context.beginPDFPage(nil)
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+                let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 14)]
+                ("Publisher edition 2012" as NSString).draw(at: CGPoint(x: 50, y: 770), withAttributes: attributes)
+                ("A complete body paragraph for page-number regression testing." as NSString)
+                    .draw(at: CGPoint(x: 50, y: 500), withAttributes: attributes)
+                if index >= 5 {
+                    let number = index - 4 - (index >= 40 ? 2 : 0)
+                    let header = index % 2 == 0 ? "\(number) RUNNING TITLE" : "RUNNING TITLE \(number)"
+                    (header as NSString).draw(at: CGPoint(x: index % 2 == 0 ? 45 : 390, y: 720), withAttributes: attributes)
+                }
+                NSGraphicsContext.restoreGraphicsState()
+                context.endPDFPage()
+            }
+            context.closePDF()
+            let scan = BookPageScanner.scan(PDFDocument(url: url)!).printedNumbers
+            check(scan?.number(at: 5) == 1 && scan?.number(at: 38) == 34 && scan?.number(at: 39) == 35
+                  && scan?.number(at: 40) == 34 && scan?.number(at: 41) == 35 && scan?.number(at: 79) == 73,
+                  "single-space running titles below publisher text recognize repeated inserted pages")
+        }
+        do {
+            let text = "  中 文 ， 复 制。\n\n第 二 段\tPDF Reader 2026，版本 2.0"
+            let expected = "  中文，复制。\n\n第二段\tPDF Reader 2026，版本 2.0"
+            check(PDFTextCleanup.normalize(text) == expected,
+                  "CJK cleanup preserves paragraphs, indentation, tabs, Latin words and numbers")
+            check(PDFTextCleanup.normalize("中⽂ 复 制 x² ① ﬁ 한 글") == "中文复制 x² ① ﬁ 한 글",
+                  "CJK compatibility glyphs normalize without changing math, Latin ligatures or Korean spacing")
+            let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.boldSystemFont(ofSize: 18)]
+            let rich = NSAttributedString(string: text, attributes: attributes)
+            let normalized = PDFTextCleanup.normalize(rich)
+            check(normalized.string == expected && (normalized.attribute(.font, at: 2, effectiveRange: nil) as? NSFont)?.pointSize == 18,
+                  "CJK rich-text cleanup preserves formatting")
+            let board = NSPasteboard.withUniqueName()
+            board.setString(text, forType: .string)
+            board.setData(rich.rtf(from: NSRange(location: 0, length: rich.length), documentAttributes: [:]), forType: .rtf)
+            PDFTextCleanup.normalize(board)
+            check(board.string(forType: .string) == expected
+                  && board.data(forType: .rtf).flatMap { NSAttributedString(rtf: $0, documentAttributes: nil)?.string } == expected,
+                  "both native clipboard text representations are cleaned")
+            board.releaseGlobally()
+        }
+        do {
+            let document = PDFDocument(url: alpha)!
+            let originalMedia = (0..<document.pageCount).map { document.page(at: $0)!.bounds(for: .mediaBox) }
+            let content = [CGRect(x: 0, y: 0, width: 600, height: 800),
+                           CGRect(x: 8, y: 50, width: 300, height: 690),
+                           CGRect(x: 50, y: 40, width: 410, height: 720),
+                           CGRect(x: 270, y: 40, width: 325, height: 700)]
+            for index in content.indices { document.page(at: index)!.setBounds(content[index], for: .cropBox) }
+            for book in [false, true] {
+                for rtl in [false, true] {
+                    SpreadAlignment.apply(to: document, holdsContent: true, spread: .init(isBook: book, readsRightToLeft: rtl))
+                    let boxes = content.indices.map { document.page(at: $0)!.bounds(for: .cropBox) }
+                    let keepsSpine = content.indices.allSatisfy { index in
+                        let left = (book ? index % 2 == 1 : index % 2 == 0) != rtl
+                        return abs((left ? boxes[index].maxX : boxes[index].minX) - (left ? content[index].maxX : content[index].minX)) < 0.01
+                    }
+                    check(boxes.allSatisfy { abs($0.width - 600) < 0.01 } && keepsSpine,
+                          "cropped spreads share column width and preserve the spine (cover=\(book), RTL=\(rtl))")
+                    SpreadAlignment.apply(to: document, holdsContent: true, spread: nil)
+                    check(content.indices.allSatisfy { document.page(at: $0)!.bounds(for: .cropBox) == content[$0]
+                          && document.page(at: $0)!.bounds(for: .mediaBox) == originalMedia[$0] },
+                          "leaving a spread restores crop and media boxes exactly")
+                }
+            }
+        }
         if !failures.isEmpty {
             print("\(failures.count) regression checks failed")
             exit(1)

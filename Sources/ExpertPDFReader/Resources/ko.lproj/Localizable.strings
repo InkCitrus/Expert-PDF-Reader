@@ -404,3 +404,15 @@
 "文本段落|||Text Block" = "텍스트 블록";
 "Text Block" = "텍스트 블록";
 "页码|||Page" = "페이지";
+
+/* On-demand page text recognition */
+"识别并复制本页文字|||Recognize and Copy Page Text" = "이 페이지의 텍스트 인식 및 복사";
+"Recognize and Copy Page Text" = "이 페이지의 텍스트 인식 및 복사";
+"正在识别文字…|||Recognizing text…" = "텍스트 인식 중…";
+"Recognizing text…" = "텍스트 인식 중…";
+"无法读取此页。|||This page could not be read." = "이 페이지를 읽을 수 없습니다.";
+"This page could not be read." = "이 페이지를 읽을 수 없습니다.";
+"此页没有识别出文字。|||No text was recognized on this page." = "이 페이지에서 텍스트를 인식하지 못했습니다.";
+"No text was recognized on this page." = "이 페이지에서 텍스트를 인식하지 못했습니다.";
+"已复制|||Copied" = "복사됨";
+"Copied" = "복사됨";

@@ -404,3 +404,15 @@
 "文本段落|||Text Block" = "Текстовый блок";
 "Text Block" = "Текстовый блок";
 "页码|||Page" = "Страница";
+
+/* On-demand page text recognition */
+"识别并复制本页文字|||Recognize and Copy Page Text" = "Распознать и скопировать текст страницы";
+"Recognize and Copy Page Text" = "Распознать и скопировать текст страницы";
+"正在识别文字…|||Recognizing text…" = "Распознавание текста…";
+"Recognizing text…" = "Распознавание текста…";
+"无法读取此页。|||This page could not be read." = "Не удалось прочитать эту страницу.";
+"This page could not be read." = "Не удалось прочитать эту страницу.";
+"此页没有识别出文字。|||No text was recognized on this page." = "На этой странице текст не распознан.";
+"No text was recognized on this page." = "На этой странице текст не распознан.";
+"已复制|||Copied" = "Скопировано";
+"Copied" = "Скопировано";

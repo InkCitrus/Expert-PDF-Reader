@@ -21,7 +21,7 @@ public enum SamplePDFGenerator {
         public let pages: [(title: String, subtitle: String, sections: [(heading: String, body: String)])]
     }
 
-    public static let guideDirectoryName = "Guides_v7"
+    public static let guideDirectoryName = "Guides_v8"
 
     public static func supportDirectory() -> URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -609,6 +609,7 @@ public enum SamplePDFGenerator {
                 diagramLabels: ["单页模式 ⌘1", "双页并排 ⌘2", "智能去白边 ⇧⌘M"],
                 shortcutsTitle: "常用键盘快捷键速查（按 ⌘/ 查看完整面板）",
                 shortcuts: [
+                    ("识别并复制本页", "⌥⌘C"),
                     ("快捷键与技巧面板", "⌘/"),
                     ("切换上/下一标签页", "⌃⇥ / ⇧⌘["),
                     ("恢复刚关闭的标签页", "⇧⌘T"),
@@ -677,6 +678,7 @@ public enum SamplePDFGenerator {
                 diagramLabels: ["單頁模式 ⌘1", "雙頁並排 ⌘2", "智慧去留白 ⇧⌘M"],
                 shortcutsTitle: "常用鍵盤快捷鍵速查（按 ⌘/ 查看完整面板）",
                 shortcuts: [
+                    ("辨識並複製本頁", "⌥⌘C"),
                     ("快捷鍵與技巧面板", "⌘/"),
                     ("切換上/下一分頁", "⌃⇥ / ⇧⌘["),
                     ("重新打開關閉的分頁", "⇧⌘T"),
@@ -745,6 +747,7 @@ public enum SamplePDFGenerator {
                 diagramLabels: ["単一ページ ⌘1", "見開き表示 ⌘2", "余白トリミング ⇧⌘M"],
                 shortcutsTitle: "主なキーボードショートカット",
                 shortcuts: [
+                    ("ページの文字認識", "⌥⌘C"),
                     ("前のページ / 次のページ", "← / →"),
                     ("ファイルを開く", "⌘O"),
                     ("新規ホームタブ", "⌘T"),
@@ -813,6 +816,7 @@ public enum SamplePDFGenerator {
                 diagramLabels: ["단일 페이지 ⌘1", "두 페이지 ⌘2", "여백 제거 ⇧⌘M"],
                 shortcutsTitle: "주요 키보드 단축키 안내",
                 shortcuts: [
+                    ("페이지 텍스트 인식", "⌥⌘C"),
                     ("이전 / 다음 페이지", "← / →"),
                     ("PDF 파일 열기", "⌘O"),
                     ("새 홈 탭 열기", "⌘T"),
@@ -881,6 +885,7 @@ public enum SamplePDFGenerator {
                 diagramLabels: ["Page simple ⌘1", "Deux pages ⌘2", "Rogner marges ⇧⌘M"],
                 shortcutsTitle: "Raccourcis clavier essentiels",
                 shortcuts: [
+                    ("Copier texte (OCR)", "⌥⌘C"),
                     ("Page précédente / suivante", "← / →"),
                     ("Ouvrir un fichier PDF", "⌘O"),
                     ("Nouvel onglet Accueil", "⌘T"),
@@ -949,6 +954,7 @@ public enum SamplePDFGenerator {
                 diagramLabels: ["Einzelseite ⌘1", "Zwei Seiten ⌘2", "Ränder ⇧⌘M"],
                 shortcutsTitle: "Wichtige Tastaturkurzbefehle",
                 shortcuts: [
+                    ("Seitentext (OCR)", "⌥⌘C"),
                     ("Vorherige / Nächste Seite", "← / →"),
                     ("PDF-Datei öffnen", "⌘O"),
                     ("Neuer Start-Tab", "⌘T"),
@@ -1017,6 +1023,7 @@ public enum SamplePDFGenerator {
                 diagramLabels: ["Individual ⌘1", "Dos páginas ⌘2", "Recortar ⇧⌘M"],
                 shortcutsTitle: "Atajos de teclado esenciales",
                 shortcuts: [
+                    ("Copiar texto (OCR)", "⌥⌘C"),
                     ("Página anterior / siguiente", "← / →"),
                     ("Abrir archivo PDF", "⌘O"),
                     ("Nueva pestaña de inicio", "⌘T"),
@@ -1085,6 +1092,7 @@ public enum SamplePDFGenerator {
                 diagramLabels: ["Pagina singola ⌘1", "Due pagine ⌘2", "Ritaglia margini ⇧⌘M"],
                 shortcutsTitle: "Scorciatoie da tastiera principali",
                 shortcuts: [
+                    ("Testo pagina (OCR)", "⌥⌘C"),
                     ("Pagina precedente / successiva", "← / →"),
                     ("Apri file PDF", "⌘O"),
                     ("Nuova scheda Home", "⌘T"),
@@ -1153,6 +1161,7 @@ public enum SamplePDFGenerator {
                 diagramLabels: ["Página única ⌘1", "Duas páginas ⌘2", "Cortar margens ⇧⌘M"],
                 shortcutsTitle: "Atalhos de teclado essenciais",
                 shortcuts: [
+                    ("Texto da página (OCR)", "⌥⌘C"),
                     ("Página anterior / próxima", "← / →"),
                     ("Abrir arquivo PDF", "⌘O"),
                     ("Nova aba Início", "⌘T"),
@@ -1221,6 +1230,7 @@ public enum SamplePDFGenerator {
                 diagramLabels: ["Одна стр. ⌘1", "Две стр. ⌘2", "Скрыть поля ⇧⌘M"],
                 shortcutsTitle: "Основные сочетания клавиш",
                 shortcuts: [
+                    ("Текст страницы (OCR)", "⌥⌘C"),
                     ("Предыдущая / следующая стр.", "← / →"),
                     ("Открыть файл PDF", "⌘O"),
                     ("Новая вкладка «Главная»", "⌘T"),
@@ -1289,6 +1299,7 @@ public enum SamplePDFGenerator {
                 diagramLabels: ["Одна стор. ⌘1", "Дві стор. ⌘2", "Приховати поля ⇧⌘M"],
                 shortcutsTitle: "Основні клавіші швидкого доступу",
                 shortcuts: [
+                    ("Текст сторінки (OCR)", "⌥⌘C"),
                     ("Попередня / наступна стор.", "← / →"),
                     ("Відкрити файл PDF", "⌘O"),
                     ("Нова вкладка «Головна»", "⌘T"),
@@ -1357,6 +1368,7 @@ public enum SamplePDFGenerator {
                 diagramLabels: ["Single Page ⌘1", "Two Pages ⌘2", "Clear Margins ⇧⌘M"],
                 shortcutsTitle: "Essential Keyboard Shortcuts (Press ⌘/ for All)",
                 shortcuts: [
+                    ("Copy page text (OCR)", "⌥⌘C"),
                     ("Shortcuts & Tips Sheet", "⌘/"),
                     ("Switch Next / Prev Tab", "⌃⇥ / ⇧⌘["),
                     ("Reopen Closed Tab", "⇧⌘T"),

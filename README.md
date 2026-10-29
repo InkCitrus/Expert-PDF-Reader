@@ -16,7 +16,7 @@ A native macOS PDF reader built for reading: tabs, Split View, and Day / Sepia /
   - Pages stay sharp at every zoom level: the color matrix is applied above `NSClipView`'s magnification, so PDFKit's tiles render at full Retina resolution.
 - **12 Languages**: **简体中文**, **繁體中文**, **English**, **日本語**, **한국어**, **Français**, **Deutsch**, **Español**, **Italiano**, **Português**, **Русский** and **Українська**, or Follow System; switchable live from Settings (`⌘,`) or the View menu. The built-in Reading Guide PDF is localized too.
 - **Interface**
-  - **Unified 40pt title bar**: traffic lights centered on the tab strip, icon-only Home tab, document tabs (close on hover, context menu) and `+` to open files.
+  - **Native title bar and 40pt tab strip**: standard window controls above the tabs, icon-only Home tab, document tabs (close on hover, context menu) and `+` to open files.
   - **Toolbar**: Document Summary / Page Overview / View Settings toggles, zoom pop-up with presets and `−` / `+`, theme switcher, Clear Margins, Rotate, Share, Bookmark and a search field.
   - **Left dock (240pt)**: Thumbnails / Outline (highlights the section you are reading) / Bookmarks, or the View Settings panel (page layout, split view, reading theme, clear margins, rotation, appearance).
   - **Right search dock**, bottom-right **page counter** (click or `⌥⌘G` → Go to Page) and a **Page Overview** grid (`⌃⌘1`).
@@ -36,6 +36,7 @@ A native macOS PDF reader built for reading: tabs, Split View, and Day / Sepia /
   - **`←` / `→`** turn the page in the focused pane.
   - **Clear Margins (`⇧⌘M`)** detects the content bounds of each page and crops the margins, computed in the background.
   - **Left sidebar (`⌘B`)**: themed page thumbnails, the document outline and bookmarks (`⌘D`).
+  - **Page OCR (`⌥⌘C`)**: Edit › Recognize and Copy Page Text reads the current page on demand, including vertical Chinese (top to bottom, columns right to left). Repeated copies use a small memory cache. Normal copy removes extra spaces between Chinese glyphs while preserving paragraphs and Latin word spacing.
   - **Full-text search (`⌘F`)** runs in the background and lists results per page as they are found, with highlighted context.
   - **Picks up where you left off**: every document reopens at its last page, zoom and layout, and the last session's tabs are restored on launch.
   - **Password-protected PDFs** ask for their password; files that can't be opened say why.

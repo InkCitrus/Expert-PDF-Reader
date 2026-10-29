@@ -27,10 +27,19 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         let view = session.tabViews.object(forKey: tab(title, in: session).id as NSUUID)!
         return view.window!.convertPoint(toScreen: view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil))
     }
+    func tabsAreInContent(_ session: ReaderWindowSession) -> Bool {
+        guard let window = session.nsWindow else { return false }
+        return session.tabs.filter { !$0.isHome }.allSatisfy { tab in
+            guard let view = session.tabViews.object(forKey: tab.id as NSUUID) else { return false }
+            let frame = view.convert(view.bounds.insetBy(dx: 0.5, dy: 0.5), to: nil)
+            return window.contentLayoutRect.contains(frame)
+        }
+    }
     func settle() async { try? await Task.sleep(nanoseconds: 650_000_000) }
     func drag(_ title: String, from session: ReaderWindowSession, to point: NSPoint) async {
         let sourceWindow = session.nsWindow!
         sourceWindow.makeKeyAndOrderFront(nil)
+        let originalFrame = sourceWindow.frame
         let start = center(title, in: session)
         let timestamp = ProcessInfo.processInfo.systemUptime
         func post(_ type: NSEvent.EventType, _ globalPoint: NSPoint, _ delta: Double) {
@@ -47,6 +56,7 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         }
         post(.leftMouseUp, point, 0.4)
         await settle()
+        check(sourceWindow.frame == originalFrame, "dragging \(title) leaves the source window frame unchanged")
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSWindow.allowsAutomaticWindowTabbing = false
@@ -78,6 +88,7 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
             await settle()
             let primary = store.primarySession
             check(names(primary) == ["Alpha", "Beta", "Gamma"], "three real document tabs appear")
+            check(tabsAreInContent(primary), "primary tab hit regions stay below the native titlebar")
             await drag("Gamma", from: primary, to: center("Alpha", in: primary))
             check(names(primary) == ["Gamma", "Alpha", "Beta"], "drag last tab to first using AppKit mouse events")
             await drag("Gamma", from: primary, to: center("Beta", in: primary))
@@ -96,6 +107,7 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
             check(store.detachedSessions.count == 1 && names(primary) == ["Beta", "Gamma"],
                   "dragging below the strip opens an independent window")
             if let detached = store.detachedSessions.first {
+                check(tabsAreInContent(detached), "detached tab hit regions stay below the native titlebar")
                 check(detached.activeDocumentTab === alpha && detached.nsWindow?.isVisible == true,
                       "detaching transfers the same state into a visible native window")
                 window.setFrame(NSRect(x: 40, y: 350, width: 820, height: 600), display: true)

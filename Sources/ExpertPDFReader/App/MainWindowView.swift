@@ -3,14 +3,13 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// Main window:
-/// one unified `40pt` title bar hosting the traffic lights, the pinned Home tab and the document tabs.
+/// Native titlebar for window dragging, then a 40pt strip for Home and document tabs.
 /// Unlike PDF Expert (always graphite), the strip follows the system / app appearance.
 /// Enforces a minimum window width of `600pt`.
 public struct MainWindowView: View {
     @ObservedObject var store: AppStore
     @ObservedObject var session: ReaderWindowSession
     @Environment(\.colorScheme) private var colorScheme
-    @State private var chromeMetrics = WindowChromeMetrics()
     @State private var isDropTargeted = false
     private var isDark: Bool { colorScheme == .dark }
 
@@ -23,11 +22,10 @@ public struct MainWindowView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            // Unified Title Bar: traffic lights + Home tab + document tabs
+            // Interactive tabs stay below the native titlebar.
             TopTabBarView(
                 store: store,
                 session: session,
-                metrics: chromeMetrics,
                 isDark: isDark
             )
             .frame(height: Self.tabStripHeight)
@@ -74,7 +72,6 @@ public struct MainWindowView: View {
         .background(AppPalette.homeContentBackground(isDark))
         .background(
             WindowChromeConfigurator(
-                titleBarHeight: Self.tabStripHeight,
                 windowTitle: store.windowTitle(for: session),
                 representedURL: store.windowRepresentedURL(for: session),
                 onWindowAttached: { window in
@@ -82,13 +79,11 @@ public struct MainWindowView: View {
                 },
                 onWindowBecameActive: {
                     store.activateWindowSession(session.id)
-                },
-                metrics: $chromeMetrics
+                }
             )
             .frame(width: 0, height: 0)
             .allowsHitTesting(false)
         )
-        .ignoresSafeArea(.container, edges: .top)
     }
 }
 
@@ -97,7 +92,6 @@ public struct MainWindowView: View {
 struct TopTabBarView: View {
     @ObservedObject var store: AppStore
     @ObservedObject var session: ReaderWindowSession
-    let metrics: WindowChromeMetrics
     let isDark: Bool
 
     @Namespace private var tabBarNamespace
@@ -116,8 +110,8 @@ struct TopTabBarView: View {
     private static let shortcutsHelpButtonWidth: CGFloat = 34
     private static let minimumTabWidth: CGFloat = 168
     private static let maximumTabWidth: CGFloat = 340
-    /// Empty strip kept on the trailing side so the window can always be dragged
-    private static let reservedDragWidth: CGFloat = 48
+    /// Leave room between the last tab and the help button.
+    private static let reservedTrailingWidth: CGFloat = 48
 
     var body: some View {
         GeometryReader { proxy in
@@ -129,10 +123,10 @@ struct TopTabBarView: View {
             let trailingControlsWidth = Self.newTabButtonWidth
                 + (showsAllTabsMenu ? Self.allTabsButtonWidth : 0)
                 + Self.shortcutsHelpButtonWidth
-            let leadingInset = metrics.isFullScreen ? 10 : metrics.trafficLightsInset
+            let leadingInset: CGFloat = 8
             let available = max(
                 0,
-                proxy.size.width - leadingInset - Self.homeTabWidth - trailingControlsWidth - Self.reservedDragWidth - 2
+                proxy.size.width - leadingInset - Self.homeTabWidth - trailingControlsWidth - Self.reservedTrailingWidth - 2
             )
             let fitWidth = documentTabs.isEmpty
                 ? Self.maximumTabWidth
@@ -140,8 +134,7 @@ struct TopTabBarView: View {
             let tabWidth = min(Self.maximumTabWidth, max(Self.minimumTabWidth, fitWidth))
 
             HStack(spacing: 0) {
-                WindowDragArea()
-                    .frame(width: leadingInset, height: proxy.size.height)
+                Color.clear.frame(width: leadingInset)
 
                 tabSeparator
                 homeTabButton
@@ -174,8 +167,7 @@ struct TopTabBarView: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 }
 
-                WindowDragArea()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Spacer(minLength: Self.reservedTrailingWidth)
 
                 shortcutsHelpButton
             }
@@ -248,7 +240,7 @@ struct TopTabBarView: View {
                             if store.canDetachTab(id: state.id, in: session.id) {
                                 store.detachTabToNewWindow(id: state.id, from: session.id, screenDropPoint: point)
                             } else if !session.isPrimary, let window = session.nsWindow {
-                                window.setFrameTopLeftPoint(NSPoint(x: point.x - 100, y: point.y + 20))
+                                window.setFrameTopLeftPoint(NSPoint(x: point.x - 100, y: point.y + 20 + window.frame.height - window.contentLayoutRect.height))
                             }
                         }
                     }

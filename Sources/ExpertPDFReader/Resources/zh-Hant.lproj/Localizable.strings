@@ -404,3 +404,15 @@
 "文本段落|||Text Block" = "文字段落";
 "Text Block" = "文字段落";
 "页码|||Page" = "頁碼";
+
+/* On-demand page text recognition */
+"识别并复制本页文字|||Recognize and Copy Page Text" = "辨識並複製本頁文字";
+"Recognize and Copy Page Text" = "辨識並複製本頁文字";
+"正在识别文字…|||Recognizing text…" = "正在辨識文字…";
+"Recognizing text…" = "正在辨識文字…";
+"无法读取此页。|||This page could not be read." = "無法讀取此頁。";
+"This page could not be read." = "無法讀取此頁。";
+"此页没有识别出文字。|||No text was recognized on this page." = "此頁未辨識出文字。";
+"No text was recognized on this page." = "此頁未辨識出文字。";
+"已复制|||Copied" = "已複製";
+"Copied" = "已複製";

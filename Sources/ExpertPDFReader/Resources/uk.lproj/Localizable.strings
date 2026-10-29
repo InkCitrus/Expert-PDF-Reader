@@ -404,3 +404,15 @@
 "文本段落|||Text Block" = "Текстовий блок";
 "Text Block" = "Текстовий блок";
 "页码|||Page" = "Сторінка";
+
+/* On-demand page text recognition */
+"识别并复制本页文字|||Recognize and Copy Page Text" = "Розпізнати й скопіювати текст сторінки";
+"Recognize and Copy Page Text" = "Розпізнати й скопіювати текст сторінки";
+"正在识别文字…|||Recognizing text…" = "Розпізнавання тексту…";
+"Recognizing text…" = "Розпізнавання тексту…";
+"无法读取此页。|||This page could not be read." = "Не вдалося прочитати цю сторінку.";
+"This page could not be read." = "Не вдалося прочитати цю сторінку.";
+"此页没有识别出文字。|||No text was recognized on this page." = "На цій сторінці текст не розпізнано.";
+"No text was recognized on this page." = "На цій сторінці текст не розпізнано.";
+"已复制|||Copied" = "Скопійовано";
+"Copied" = "Скопійовано";

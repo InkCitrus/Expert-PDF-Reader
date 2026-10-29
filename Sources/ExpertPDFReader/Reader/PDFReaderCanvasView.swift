@@ -588,6 +588,97 @@ final class ThemedPDFView: PDFView {
         pendingInitialPage != nil || pendingInitialScale != nil || pendingInitialSpot != nil
     }
 
+    private var textRecognitionTask: Task<Void, Never>?
+    private let recognizedPageText = NSCache<PDFPage, NSString>()
+
+    override func copy(_ sender: Any?) {
+        let pasteboard = NSPasteboard.general
+        let before = pasteboard.changeCount
+        super.copy(sender)
+        if pasteboard.changeCount != before { PDFTextCleanup.normalize(pasteboard) }
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = super.menu(for: event) ?? NSMenu()
+        if let page = page(for: convert(event.locationInWindow, from: nil), nearest: false) {
+            menu.addItem(.separator())
+            let item = NSMenuItem(title: L10n.tr("识别并复制本页文字", "Recognize and Copy Page Text"),
+                action: #selector(recognizePageText(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = page
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    @objc func recognizePageText(_ sender: Any?) {
+        guard textRecognitionTask == nil, document?.allowsCopying == true,
+              let page = (sender as? NSMenuItem)?.representedObject as? PDFPage ?? currentPage else { return }
+        if let cached = recognizedPageText.object(forKey: page) {
+            copyRecognizedText(cached as String)
+            return
+        }
+        guard let data = page.dataRepresentation else { return }
+        let progress = NSProgressIndicator()
+        progress.style = .spinning
+        progress.controlSize = .small
+        progress.startAnimation(nil)
+        let status = NSStackView(views: [progress, NSTextField(labelWithString: L10n.tr("正在识别文字…", "Recognizing text…"))])
+        status.translatesAutoresizingMaskIntoConstraints = false
+        status.spacing = 8
+        let backdrop = NSVisualEffectView()
+        backdrop.material = .popover
+        backdrop.wantsLayer = true
+        backdrop.layer?.cornerRadius = 8
+        backdrop.translatesAutoresizingMaskIntoConstraints = false
+        backdrop.addSubview(status)
+        addSubview(backdrop)
+        NSLayoutConstraint.activate([
+            backdrop.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
+            backdrop.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -44),
+            status.leadingAnchor.constraint(equalTo: backdrop.leadingAnchor, constant: 12),
+            status.trailingAnchor.constraint(equalTo: backdrop.trailingAnchor, constant: -12),
+            status.topAnchor.constraint(equalTo: backdrop.topAnchor, constant: 8),
+            status.bottomAnchor.constraint(equalTo: backdrop.bottomAnchor, constant: -8)
+        ])
+        let originalDocument = document
+        textRecognitionTask = Task { [weak self] in
+            let result = await Task.detached(priority: .userInitiated) { Result { try PageTextRecognition.recognize(pageData: data) } }.value
+            backdrop.removeFromSuperview()
+            guard let self else { return }
+            self.textRecognitionTask = nil
+            guard self.document === originalDocument else { return }
+            switch result {
+            case .success(let text):
+                self.recognizedPageText.countLimit = 12
+                self.recognizedPageText.setObject(text as NSString, forKey: page)
+                self.copyRecognizedText(text)
+            case .failure(let error):
+                guard let window = self.window else { return }
+                let alert = NSAlert()
+                alert.messageText = L10n.tr("识别并复制本页文字", "Recognize and Copy Page Text")
+                alert.informativeText = error.localizedDescription
+                alert.beginSheetModal(for: window, completionHandler: nil)
+            }
+        }
+    }
+
+    private func copyRecognizedText(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        NSAccessibility.post(element: self, notification: .announcementRequested,
+            userInfo: [.announcement: L10n.tr("已复制", "Copied"), .priority: NSAccessibilityPriorityLevel.medium.rawValue])
+    }
+
+    static func focused(in window: NSWindow?) -> ThemedPDFView? {
+        if let view = window?.firstResponder as? NSView, let pdf = enclosingPDFView(of: view) as? ThemedPDFView { return pdf }
+        func find(_ view: NSView) -> ThemedPDFView? {
+            if let pdf = view as? ThemedPDFView { return pdf }
+            return view.subviews.lazy.compactMap(find).first
+        }
+        return window?.contentView.flatMap(find)
+    }
+
     override var autoScales: Bool {
         didSet {
             guard autoScales != oldValue, !isApplyingConfiguration else { return }
@@ -852,6 +943,12 @@ enum SpreadAlignment {
 
     private static let adjustments = NSMapTable<PDFDocument, Adjustments>.weakToStrongObjects()
 
+    /// The crop box before spread padding, including when a cropper first visits a page in two-page mode.
+    static func unalignedCropBox(for page: PDFPage, at index: Int, in document: PDFDocument) -> CGRect {
+        adjustments.object(forKey: document)?.byPage[index]?.first(where: { $0.box == .cropBox })?.original
+            ?? page.bounds(for: .cropBox)
+    }
+
     /// Pages further than this from the common width (fold-outs, inserts) are left as they are
     private static let tolerance: CGFloat = 0.15
 
@@ -880,9 +977,9 @@ enum SpreadAlignment {
             guard let page = document.page(at: index), page.rotation % 180 == 0 else { continue }
             widths[index] = page.bounds(for: .cropBox).width
         }
-        guard let target = commonWidth(of: Array(widths.values), mayTrim: !holdsContent) else { return }
+        guard let target = holdsContent ? widths.values.max() : commonWidth(of: Array(widths.values)) else { return }
 
-        for (index, width) in widths where abs(width - target) > 0.5 && abs(width - target) <= target * tolerance {
+        for (index, width) in widths where abs(width - target) > 0.5 && (holdsContent || abs(width - target) <= target * tolerance) {
             guard let page = document.page(at: index) else { continue }
             let original = page.bounds(for: .cropBox)
             var aligned = original
@@ -896,9 +993,7 @@ enum SpreadAlignment {
                 }
                 aligned.size.width = target
                 let paper = page.bounds(for: .mediaBox)
-                if holdsContent {
-                    aligned = aligned.intersection(paper)
-                } else if !paper.contains(aligned) {
+                if !paper.contains(aligned) {
                     // Blank paper beyond the page's edge: the media box grows with it
                     page.setBounds(paper.union(aligned), for: .mediaBox)
                     pageAdjustments.append(Adjustment(box: .mediaBox, original: paper, applied: page.bounds(for: .mediaBox)))
@@ -910,18 +1005,13 @@ enum SpreadAlignment {
         }
     }
 
-    /// The paper size most pages share; for content boxes, which all differ, the widest one near the median
-    private static func commonWidth(of widths: [CGFloat], mayTrim: Bool) -> CGFloat? {
+    /// The paper size most pages share. Clear Margins uses the widest content box so it never cuts ink.
+    private static func commonWidth(of widths: [CGFloat]) -> CGFloat? {
         guard !widths.isEmpty else { return nil }
         let median = widths.sorted()[widths.count / 2]
-        if mayTrim {
-            let counts = Dictionary(grouping: widths, by: { $0.rounded() }).mapValues(\.count)
-            if let (width, count) = counts.max(by: { $0.value < $1.value }), count > 1 {
-                return width
-            }
-            return median
-        }
-        return widths.filter { $0 <= median * (1 + tolerance) }.max()
+        let counts = Dictionary(grouping: widths, by: { $0.rounded() }).mapValues(\.count)
+        if let (width, count) = counts.max(by: { $0.value < $1.value }), count > 1 { return width }
+        return median
     }
 
     /// A book layout shows the first page alone, then pairs (2, 3), (4, 5)…; a plain one pairs (1, 2), (3, 4)…

@@ -93,9 +93,11 @@ extension ReaderWindowSession {
 
     private var documentTabFrames: [(index: Int, frame: NSRect)] {
         tabs.filter { !$0.isHome }.enumerated().compactMap { index, tab in
-            guard let view = tabViews.object(forKey: tab.id as NSUUID), let window = view.window,
-                  !view.visibleRect.isEmpty else { return nil }
-            return (index, window.convertToScreen(view.convert(view.visibleRect, to: nil)))
+            guard let view = tabViews.object(forKey: tab.id as NSUUID), let window = view.window else { return nil }
+            // SwiftUI can report a visibleRect larger than this representable's bounds.
+            let visible = view.bounds.intersection(view.visibleRect)
+            guard !visible.isNull, !visible.isEmpty else { return nil }
+            return (index, window.convertToScreen(view.convert(visible, to: nil)))
         }
     }
 

@@ -55,7 +55,7 @@ The app's code is in `Sources/ExpertPDFReader/`:
 - Check visible changes in both light and dark appearance; for changes to the reader, also in each reading theme and in Split View.
 - A reading theme's colors are defined twice in `Shaders/MetalShaderRenderer.swift`: as `CIColorMatrix` filters for live pages and as Metal fragment shaders for thumbnails. Change both, and check that thumbnails still match the pages.
 - If you change a keyboard shortcut, a theme color or anything else the docs describe, update README.md (and its translations, see [Documentation](#documentation)) and the Reading Guide as well.
-- Run `./scripts/test_reader.sh` for session, file-lifecycle and printed-page-number regressions (it accepts `SDK_PATH` like the build). Also describe manual UI checks in the pull request; the script does not simulate mouse dragging.
+- Run `./scripts/test_reader.sh` for session, file-lifecycle and printed-page-number regressions (it accepts `SDK_PATH` like the build). Also describe manual UI checks in the pull request; run `./scripts/test_reader.sh --ui` on a local Mac to drive real tab views with AppKit mouse events. The UI test opens temporary windows with disposable PDFs and needs no Accessibility permission.
 
 ## Translations
 

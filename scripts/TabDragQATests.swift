@@ -121,6 +121,17 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
                 check(primary.activeDocumentTab === alpha && alpha.currentPageIndex == 2 && store.closedTabs.isEmpty,
                       "cross-window dragging keeps reading state without creating a closed-tab record")
             }
+            let renamed = fixtureDirectory.appendingPathComponent("Alpha-renamed.pdf")
+            let active = primary.activeDocumentTab!
+            try! FileManager.default.moveItem(at: active.documentID.url, to: renamed)
+            await settle()
+            check(active.documentID == DocumentID(url: renamed), "file vnode notification follows a rename without polling")
+            let removed = tab("Beta", in: primary).documentID
+            store.setFavorite(id: removed, isFavorite: true)
+            try! FileManager.default.removeItem(at: removed.url)
+            await settle()
+            check(!store.recentDocumentIDs.contains(removed) && !store.favoriteDocumentIDs.contains(removed),
+                  "file vnode deletion removes recents and favorites automatically")
             let log = checks.joined(separator: "\n") + "\n"
             try? log.write(toFile: CommandLine.arguments[0] + ".results", atomically: true, encoding: .utf8)
             UserDefaults.standard.removePersistentDomain(forName: domain)

@@ -1615,7 +1615,7 @@ public final class AppStore: ObservableObject {
     private var dateFormatter: DateFormatter
     nonisolated(unsafe) private var localeObserver: NSObjectProtocol?
     nonisolated(unsafe) private var appDidBecomeActiveObserver: NSObjectProtocol?
-    nonisolated(unsafe) private var directoryWatchers: [String: (fd: Int32, source: DispatchSourceFileSystemObject)] = [:]
+    nonisolated(unsafe) private var fileWatchers: [String: DispatchSourceFileSystemObject] = [:]
     private var pruneDebounceTask: Task<Void, Never>?
 
     /// Keyed by `DocumentID.normalizedPath`
@@ -1697,7 +1697,7 @@ public final class AppStore: ObservableObject {
         restoreOpenTabs()
         ensureSampleDocumentInRecents()
         applyAppAppearance()
-        rebuildDirectoryWatchers()
+        rebuildFileWatchers()
 
         // Observe locale changes to re-format DocumentItem.dateOpenedText
         localeObserver = NotificationCenter.default.addObserver(
@@ -1725,7 +1725,7 @@ public final class AppStore: ObservableObject {
     deinit {
         if let localeObserver { NotificationCenter.default.removeObserver(localeObserver) }
         if let appDidBecomeActiveObserver { NotificationCenter.default.removeObserver(appDidBecomeActiveObserver) }
-        for entry in directoryWatchers.values { entry.source.cancel() }
+        for source in fileWatchers.values { source.cancel() }
         pruneDebounceTask?.cancel()
     }
 
@@ -2467,7 +2467,7 @@ public final class AppStore: ObservableObject {
             }
         }
         savePersistedState()
-        rebuildDirectoryWatchers()
+        rebuildFileWatchers()
     }
 
     public func clearAllRecents() {
@@ -2476,7 +2476,7 @@ public final class AppStore: ObservableObject {
             documents.removeAll(where: { !favoriteDocumentIDs.contains($0.documentID) })
         }
         savePersistedState()
-        rebuildDirectoryWatchers()
+        rebuildFileWatchers()
     }
 
     public func clearAllFavorites() {
@@ -2488,7 +2488,7 @@ public final class AppStore: ObservableObject {
             documents.removeAll(where: { !recentDocumentIDs.contains($0.documentID) })
         }
         savePersistedState()
-        rebuildDirectoryWatchers()
+        rebuildFileWatchers()
     }
 
     /// Removes remembered documents whose original files were deleted or moved to Trash, and updates
@@ -2571,7 +2571,7 @@ public final class AppStore: ObservableObject {
         saveOpenTabs()
         savePersistedState()
         saveReadingPositions()
-        rebuildDirectoryWatchers()
+        rebuildFileWatchers()
     }
 
     public func showInFinder(id: DocumentID) {
@@ -2705,7 +2705,7 @@ public final class AppStore: ObservableObject {
         trimRecents()
         rememberFileBookmark(for: url)
         savePersistedState()
-        rebuildDirectoryWatchers()
+        rebuildFileWatchers()
         loadDocumentDetailsInBackground([(id: docID, needsPageCount: false)])
     }
 
@@ -3010,27 +3010,17 @@ public final class AppStore: ObservableObject {
         return url
     }
 
-    private func rebuildDirectoryWatchers() {
-        var wanted = Set<String>()
-        for doc in documents {
-            let parent = doc.documentID.url.deletingLastPathComponent().symlinkNormalizedURL.path
-            if !parent.isEmpty {
-                wanted.insert(parent)
-            }
-            if wanted.count >= 32 { break }
+    /// Watch the remembered PDF vnodes, not entire folders or the protected system Trash. Opening the
+    /// Trash with O_EVTONLY can wait for macOS privacy authorization before the first window even appears.
+    /// A file's rename/delete events already cover moving it to the Trash or another folder.
+    private func rebuildFileWatchers() {
+        let wanted = Set(documents.prefix(64).map { $0.documentID.normalizedPath })
+        for (path, source) in fileWatchers where !wanted.contains(path) {
+            source.cancel()
+            fileWatchers.removeValue(forKey: path)
         }
-        if let trashPath = FileManager.default.urls(for: .trashDirectory, in: .userDomainMask).first?.symlinkNormalizedURL.path,
-           FileManager.default.fileExists(atPath: trashPath) {
-            wanted.insert(trashPath)
-        }
-
-        for (dir, entry) in Array(directoryWatchers) where !wanted.contains(dir) {
-            entry.source.cancel()
-            directoryWatchers.removeValue(forKey: dir)
-        }
-
-        for dir in wanted where directoryWatchers[dir] == nil {
-            let fd = Darwin.open(dir, O_EVTONLY)
+        for path in wanted where fileWatchers[path] == nil {
+            let fd = Darwin.open(path, O_EVTONLY | O_CLOEXEC)
             guard fd >= 0 else { continue }
             let source = DispatchSource.makeFileSystemObjectSource(
                 fileDescriptor: fd,
@@ -3038,15 +3028,11 @@ public final class AppStore: ObservableObject {
                 queue: .main
             )
             source.setEventHandler { [weak self] in
-                MainActor.assumeIsolated {
-                    self?.schedulePruneMissingDocuments()
-                }
+                MainActor.assumeIsolated { self?.schedulePruneMissingDocuments() }
             }
-            source.setCancelHandler {
-                Darwin.close(fd)
-            }
+            source.setCancelHandler { Darwin.close(fd) }
             source.resume()
-            directoryWatchers[dir] = (fd: fd, source: source)
+            fileWatchers[path] = source
         }
     }
 

@@ -26,6 +26,22 @@ public final class ExpertPDFReaderAppDelegate: NSObject, NSApplicationDelegate {
             let handled = MainActor.assumeIsolated { () -> Bool in
                 guard let store = self?.store else { return false }
 
+                // ⌘/ toggles the Shortcuts & Tips cheat sheet anywhere in a reader window (including its attached sheet)
+                if modifiers == .command, event.keyCode == 44 || event.charactersIgnoringModifiers == "/" {
+                    let candidateWindow = event.window?.sheetParent ?? event.window
+                    let inReaderOrSheet = WindowChromeView.readerWindow == nil
+                        || WindowChromeView.isReaderWindow(candidateWindow)
+                    if inReaderOrSheet {
+                        if let winSession = store.windowSession(for: candidateWindow) {
+                            store.activateWindowSession(winSession.id)
+                            store.toggleShortcutsSheet(in: winSession.id)
+                        } else {
+                            store.toggleShortcutsSheet()
+                        }
+                        return true
+                    }
+                }
+
                 let isReaderWindow = WindowChromeView.readerWindow == nil
                     || WindowChromeView.isReaderWindow(event.window)
                 guard isReaderWindow else { return false }
@@ -704,6 +720,11 @@ struct ReaderMenuCommands: Commands {
 
         // Help Menu: Shortcuts & Tips cheat sheet + built-in Reading Guide
         CommandGroup(replacing: .help) {
+            Button(L10n.tr("快捷键与技巧", "Shortcuts & Tips")) {
+                store.toggleShortcutsSheet()
+            }
+            .keyboardShortcut("/", modifiers: [.command])
+
             Button(L10n.tr("阅读指南", "Reading Guide")) {
                 store.openGettingStartedGuide()
             }

@@ -101,6 +101,9 @@ public struct MainWindowView: View {
             }
         }
         .frame(minWidth: 600, minHeight: 520)
+        .sheet(isPresented: $session.isShortcutsSheetPresented) {
+            ShortcutsAndTipsSheetView(store: store, session: session)
+        }
         .background(AppPalette.homeContentBackground(isDark))
         .background(
             WindowChromeConfigurator(
@@ -138,6 +141,7 @@ struct TopTabBarView: View {
     @State private var isHomeHovered = false
     @State private var isNewTabHovered = false
     @State private var isAllTabsHovered = false
+    @State private var isShortcutsHelpHovered = false
     @State private var allTabsAnchor = NSViewAnchor()
 
     // Live drag-to-reorder & tear-off-to-window state
@@ -150,6 +154,7 @@ struct TopTabBarView: View {
     private static let homeTabWidth: CGFloat = 46
     private static let newTabButtonWidth: CGFloat = 36
     private static let allTabsButtonWidth: CGFloat = 30
+    private static let shortcutsHelpButtonWidth: CGFloat = 34
     private static let minimumTabWidth: CGFloat = 168
     private static let maximumTabWidth: CGFloat = 340
     /// Empty strip kept on the trailing side so the window can always be dragged
@@ -164,6 +169,7 @@ struct TopTabBarView: View {
             let showsAllTabsMenu = documentTabs.count >= 2
             let trailingControlsWidth = Self.newTabButtonWidth
                 + (showsAllTabsMenu ? Self.allTabsButtonWidth : 0)
+                + Self.shortcutsHelpButtonWidth
             let leadingInset = metrics.isFullScreen ? 10 : metrics.trafficLightsInset
             let available = max(
                 0,
@@ -212,6 +218,7 @@ struct TopTabBarView: View {
                 WindowDragArea()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
+                shortcutsHelpButton
             }
             .frame(height: proxy.size.height)
             .animation(AppAnimation.snappy, value: showsAllTabsMenu)
@@ -239,6 +246,10 @@ struct TopTabBarView: View {
                 Button(L10n.tr("合并所有窗口", "Merge All Windows")) {
                     store.mergeAllWindows()
                 }
+            }
+            Divider()
+            Button(L10n.tr("快捷键与技巧", "Shortcuts & Tips")) {
+                store.presentShortcutsSheet(in: session.id)
             }
         }
         .onChange(of: session.selectedTabID) { _, _ in
@@ -553,6 +564,35 @@ struct TopTabBarView: View {
         .accessibilityLabel(Text(L10n.tr("所有标签页", "All Tabs")))
         .onHover { hovering in
             isAllTabsHovered = hovering
+            if hovering { dismissHoverPreview() }
+        }
+    }
+
+    private var shortcutsHelpButton: some View {
+        Button {
+            dismissHoverPreview()
+            store.activateWindowSession(session.id)
+            store.presentShortcutsSheet(in: session.id)
+        } label: {
+            Image(systemName: "questionmark.circle")
+                .font(.system(size: 13, weight: .regular))
+                .foregroundColor(isShortcutsHelpHovered ? AppPalette.labelPrimary(isDark) : AppPalette.labelTertiary(isDark))
+                .frame(width: 26, height: 26)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(isShortcutsHelpHovered ? AppPalette.tabHoverBackground(isDark) : Color.clear)
+                )
+                .frame(width: Self.shortcutsHelpButtonWidth)
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .animation(AppAnimation.micro, value: isShortcutsHelpHovered)
+        }
+        .buttonStyle(.plain)
+        .padding(.trailing, 4)
+        .help(L10n.tr("快捷键与技巧 (⌘/)", "Shortcuts & Tips (⌘/)"))
+        .accessibilityLabel(Text(L10n.tr("快捷键与技巧", "Shortcuts & Tips")))
+        .onHover { hovering in
+            isShortcutsHelpHovered = hovering
             if hovering { dismissHoverPreview() }
         }
     }

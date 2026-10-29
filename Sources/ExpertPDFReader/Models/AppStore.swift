@@ -1186,6 +1186,8 @@ public final class ReaderWindowSession: ObservableObject, Identifiable {
     @Published public var tabs: [AppTab]
     @Published public var selectedTabID: UUID
     @Published public var homeCurrentPage: HomeTabPage = .home
+    @Published public var isShortcutsSheetPresented: Bool = false
+    @Published public var shortcutsInitialCategory: ShortcutGuideCategory = .all
     public weak var nsWindow: NSWindow?
     var cancellables = Set<AnyCancellable>()
 
@@ -1522,6 +1524,31 @@ public final class AppStore: ObservableObject {
     /// Closed document tabs (most recent last) with their original tab bar slot and panel state
     @Published public private(set) var closedTabs: [ClosedTabRecord] = []
 
+    /// Interactive Keyboard Shortcuts & Tips cheat sheet (⌘/) on the active window
+    public var isShortcutsSheetPresented: Bool {
+        get { activeSession.isShortcutsSheetPresented }
+        set { activeSession.isShortcutsSheetPresented = newValue }
+    }
+    public var shortcutsInitialCategory: ShortcutGuideCategory {
+        get { activeSession.shortcutsInitialCategory }
+        set { activeSession.shortcutsInitialCategory = newValue }
+    }
+
+    public func presentShortcutsSheet(category: ShortcutGuideCategory = .all, in sessionID: UUID? = nil) {
+        let target = session(withID: sessionID)
+        target.shortcutsInitialCategory = category
+        target.isShortcutsSheetPresented = true
+    }
+
+    public func toggleShortcutsSheet(in sessionID: UUID? = nil) {
+        let target = session(withID: sessionID)
+        if target.isShortcutsSheetPresented {
+            target.isShortcutsSheetPresented = false
+        } else {
+            target.shortcutsInitialCategory = .all
+            target.isShortcutsSheetPresented = true
+        }
+    }
 
     public var closedDocumentURLs: [URL] {
         closedTabs.map(\.documentID.url)

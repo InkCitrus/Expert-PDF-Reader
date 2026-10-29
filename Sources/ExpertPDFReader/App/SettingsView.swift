@@ -4,6 +4,7 @@ import SwiftUI
 /// `Settings` scene (⌘,), also reachable from the Home sidebar's 设置 / Settings row via `SettingsLink`.
 struct SettingsView: View {
     @ObservedObject var store: AppStore
+    @AppStorage("expertPDFReader.HideHomeQuickTips") private var hideHomeQuickTips = false
 
     var body: some View {
         Form {
@@ -67,6 +68,14 @@ struct SettingsView: View {
                 .id("theme.\(store.appLanguage.rawValue)")
 
                 Toggle(L10n.tr("浅色时使用纸质替代日间", "Use Sepia Instead of Day in Light Mode"), isOn: $store.useSepiaForLightSystemTheme)
+
+                Toggle(
+                    L10n.tr("在主页显示快速上手提示", "Show Quick Tips on Home"),
+                    isOn: Binding(
+                        get: { !hideHomeQuickTips },
+                        set: { hideHomeQuickTips = !$0 }
+                    )
+                )
             } footer: {
                 Text(L10n.tr(
                     "界面外观决定标签栏、工具栏与面板的配色；阅读主题通过 GPU 着色器作用于 PDF 页面本身。当阅读主题设为“跟随系统”时，浅色模式默认使用日间主题（或开启上方选项后使用纸质主题），深色模式自动切换为夜间主题。",

@@ -21,7 +21,8 @@ A native macOS PDF reader built for reading: tabs, Split View, and Day / Sepia /
   - **Left dock (240pt)**: Thumbnails / Outline (highlights the section you are reading) / Bookmarks, or the View Settings panel (page layout, split view, reading theme, clear margins, rotation, appearance).
   - **Right search dock**, bottom-right **page counter** (click or `⌥⌘G` → Go to Page) and a **Page Overview** grid (`⌃⌘1`).
   - Tab strip, toolbar and panels follow the **System / Light / Dark** appearance.
-- **Home Tab**: sidebar with Home, Recents and Favorites (plus Open File…, Reading Guide and Settings; Help › Reading Guide, `⌘?`, opens the guide from anywhere), a drag-and-drop area, reading-theme cards and document grids with locale-aware dates.
+- **Home Tab**: sidebar with Home, Recents and Favorites (plus Open File…, Shortcuts & Tips, Reading Guide and Settings; Help › Reading Guide, `⌘?`, opens the guide from anywhere), a drag-and-drop area, reading-theme cards, dismissible **Quick Tips** with one-click shortcut guide navigation, and document grids with locale-aware dates.
+- **Shortcuts & Tips Guide (`⌘/`)**: a dedicated, searchable keyboard cheat sheet with tactile keycap badges and category filters (*Tabs*, *Navigation*, *View & Zoom*, *Search & Bookmarks*, *Tips*). Open anytime with `⌘/`, the `?` button on the tab bar, or Help › Shortcuts & Tips.
 - **Tabs & Windows**:
   - **Browser-style multi-window**: drag a tab out of the tab bar to detach it into a new window, drag tabs between windows to merge, or choose Window › Merge All Windows.
   - **Dock & New Window (`⌘N`)**: right-click the Dock icon for New Window, Open… and recent files.

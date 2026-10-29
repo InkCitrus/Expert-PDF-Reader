@@ -11,6 +11,7 @@ public struct HomeTabRootView: View {
     var onSelectDocumentInSplitPane: ((URL) -> Void)?
 
     @State private var isDropTargeted = false
+    @AppStorage("expertPDFReader.HideHomeQuickTips") private var hideHomeQuickTips = false
     @Environment(\.colorScheme) private var colorScheme
     private var isDark: Bool { colorScheme == .dark }
 
@@ -134,6 +135,14 @@ public struct HomeTabRootView: View {
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel(Text(L10n.tr("阅读主题", "Reading Theme")))
 
+                if !hideHomeQuickTips {
+                    HomeQuickTipsSection(store: store, session: session, isDark: isDark) {
+                        withAnimation(AppAnimation.panel) {
+                            hideHomeQuickTips = true
+                        }
+                    }
+                    .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
+                }
             }
 
             // Recent Documents
@@ -378,6 +387,13 @@ struct HomeTabSidebarView: View {
                 store.openFilePicker(in: session.id)
             } label: {
                 HomeSidebarRowLabel(icon: "folder", iconColor: AppPalette.labelSecondary(isDark), title: L10n.tr("打开文件…", "Open File…"), badge: "⌘O", isSecondary: true, isDark: isDark)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                store.presentShortcutsSheet(in: session.id)
+            } label: {
+                HomeSidebarRowLabel(icon: "keyboard", iconColor: AppPalette.labelSecondary(isDark), title: L10n.tr("快捷键与技巧", "Shortcuts & Tips"), badge: "⌘/", isSecondary: true, isDark: isDark)
             }
             .buttonStyle(.plain)
 
@@ -878,5 +894,173 @@ struct DropOverlayView: View {
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .allowsHitTesting(false)
+    }
+}
+
+// MARK: - HomeQuickTipsSection (Discoverable Shortcuts & Core Features)
+
+struct HomeQuickTipsSection: View {
+    @ObservedObject var store: AppStore
+    @ObservedObject var session: ReaderWindowSession
+    let isDark: Bool
+    let onDismiss: () -> Void
+
+    private struct TipCardItem: Identifiable {
+        let id: String
+        let icon: String
+        let category: ShortcutGuideCategory
+        let title: String
+        let summary: String
+        let keys: [[String]]
+    }
+
+    private var cards: [TipCardItem] {
+        [
+            TipCardItem(
+                id: "tabs",
+                icon: "macwindow.on.rectangle",
+                category: .tabs,
+                title: L10n.tr("高效标签页管理", "Fast Tab Management"),
+                summary: L10n.tr(
+                    "拖拽标签排序，⌃⇥ 快速切换，⇧⌘T 原位恢复已关闭标签。",
+                    "Drag tabs to reorder, press ⌃⇥ to switch, and ⇧⌘T to reopen closed tabs in place."
+                ),
+                keys: [["⌃", "⇥"], ["⇧", "⌘", "T"]]
+            ),
+            TipCardItem(
+                id: "nav",
+                icon: "character.textbox",
+                category: .navigation,
+                title: L10n.tr("智能页码与历史返回", "Smart Page Numbers & Back"),
+                summary: L10n.tr(
+                    "⌥⌘G 支持直接输入书籍印刷页码；点击目录跳转后按 ⌘[ 返回原处。",
+                    "Press ⌥⌘G to jump by printed book page numbers, and ⌘[ to jump back after clicking links."
+                ),
+                keys: [["⌥", "⌘", "G"], ["⌘", "["]]
+            ),
+            TipCardItem(
+                id: "view",
+                icon: "crop",
+                category: .viewAndZoom,
+                title: L10n.tr("智能去白边与分屏对比", "Clear Margins & Split View"),
+                summary: L10n.tr(
+                    "⇧⌘M 自动裁切论文与扫描件白边，工具栏开启双栏同步对照。",
+                    "Press ⇧⌘M to crop wide page margins, or open Split View to compare two sections side by side."
+                ),
+                keys: [["⇧", "⌘", "M"], ["⌘", "1–3"]]
+            ),
+            TipCardItem(
+                id: "search",
+                icon: "magnifyingglass",
+                category: .searchAndBookmarks,
+                title: L10n.tr("全文搜索与缩略图网格", "Search & Page Overview"),
+                summary: L10n.tr(
+                    "⌘F 按页聚合高亮匹配词，⌃⌘1 展开全书网格，⌘D 标记重点页。",
+                    "Press ⌘F for grouped search highlights, ⌃⌘1 for the page grid, and ⌘D to bookmark a page."
+                ),
+                keys: [["⌘", "F"], ["⌃", "⌘", "1"], ["⌘", "D"]]
+            )
+        ]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HomeSectionHeader(
+                title: L10n.tr("快速上手", "Quick Tips"),
+                actions: [
+                    HomeSectionAction(title: "\(L10n.tr("查看全部快捷键", "All Shortcuts")) (⌘/)") {
+                        store.presentShortcutsSheet(in: session.id)
+                    },
+                    HomeSectionAction(title: L10n.tr("隐藏提示", "Dismiss"), action: onDismiss)
+                ],
+                isDark: isDark
+            )
+
+            LazyVGrid(
+                columns: [
+                    GridItem(.flexible(minimum: 220), spacing: 12, alignment: .top),
+                    GridItem(.flexible(minimum: 220), spacing: 12, alignment: .top)
+                ],
+                spacing: 12
+            ) {
+                ForEach(cards) { card in
+                    HomeQuickTipCardView(
+                        icon: card.icon,
+                        title: card.title,
+                        summary: card.summary,
+                        keys: card.keys,
+                        isDark: isDark
+                    ) {
+                        store.presentShortcutsSheet(category: card.category, in: session.id)
+                    }
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(L10n.tr("快速上手", "Quick Tips")))
+    }
+}
+
+private struct HomeQuickTipCardView: View {
+    let icon: String
+    let title: String
+    let summary: String
+    let keys: [[String]]
+    let isDark: Bool
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: icon)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(AppPalette.accentBlue)
+                        .frame(width: 24, height: 24)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(AppPalette.accentBlue.opacity(isDark ? 0.18 : 0.10))
+                        )
+
+                    Text(title)
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundColor(AppPalette.labelPrimary(isDark))
+                        .lineLimit(1)
+
+                    Spacer(minLength: 4)
+
+                    ShortcutChordsView(chords: keys, isDark: isDark, compact: true)
+                }
+
+                Text(summary)
+                    .font(.system(size: 12))
+                    .foregroundColor(AppPalette.labelSecondary(isDark))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, minHeight: 86, alignment: .topLeading)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(isHovered ? AppPalette.homeCardHover(isDark) : AppPalette.homeCardBackground(isDark))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(
+                        isHovered ? AppPalette.accentBlue.opacity(0.42) : AppPalette.panelSeparator(isDark),
+                        lineWidth: 1
+                    )
+            )
+            .offset(y: isHovered ? -1.5 : 0)
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .animation(AppAnimation.snappy, value: isHovered)
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(title))
+        .onHover { isHovered = $0 }
     }
 }

@@ -123,6 +123,9 @@ public struct PDFReaderView: View {
             },
             onReadingSpotChange: { spot in
                 tab.readingSpot = spot
+            },
+            pageLabelProvider: { idx in
+                tab.displayPageNumber(at: idx)
             }
         )
         .overlay(alignment: .bottomTrailing) {
@@ -262,6 +265,12 @@ public struct PDFReaderView: View {
                     },
                     onReadingSpotChange: { spot in
                         tab.secondaryReadingSpot = spot
+                    },
+                    pageLabelProvider: { idx in
+                        if secDoc === tab.pdfDocument {
+                            return tab.displayPageNumber(at: idx)
+                        }
+                        return secDoc.page(at: idx)?.printedNumber ?? "\(idx + 1)"
                     }
                 )
             } else {

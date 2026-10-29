@@ -1,4 +1,5 @@
 import AppKit
+import ObjectiveC.runtime
 import PDFKit
 import QuartzCore
 import SwiftUI
@@ -41,6 +42,8 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
     public let onReadingLocationChange: ((Int, CGFloat) -> Void)?
     /// The text at the top of the view while scrolling, to return to after the crop boxes change
     public let onReadingSpotChange: ((DocumentTabState.ReadingSpot) -> Void)?
+    /// Localized/printed page number label for Accessibility page region titles
+    public let pageLabelProvider: ((Int) -> String)?
 
     public init(
         pdfDocument: PDFDocument,
@@ -63,7 +66,8 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         onAutoScalesChange: ((Bool) -> Void)? = nil,
         onStepPage: ((Int) -> Void)? = nil,
         onReadingLocationChange: ((Int, CGFloat) -> Void)? = nil,
-        onReadingSpotChange: ((DocumentTabState.ReadingSpot) -> Void)? = nil
+        onReadingSpotChange: ((DocumentTabState.ReadingSpot) -> Void)? = nil,
+        pageLabelProvider: ((Int) -> String)? = nil
     ) {
         self.pdfDocument = pdfDocument
         self._currentPageIndex = currentPageIndex
@@ -86,6 +90,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         self.onStepPage = onStepPage
         self.onReadingLocationChange = onReadingLocationChange
         self.onReadingSpotChange = onReadingSpotChange
+        self.pageLabelProvider = pageLabelProvider
     }
 
     private static let pageBreakMargins = NSEdgeInsets(top: 10, left: 12, bottom: 10, right: 12)
@@ -260,6 +265,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         // 2. Theme Background & Viewport Shader Filtering
         if let themed = pdfView as? ThemedPDFView {
             themed.onStepPage = onStepPage
+            themed.pageLabelProvider = pageLabelProvider
             themed.handlesUnfocusedArrowKeys = handlesUnfocusedArrowKeys
             themed.readsRightToLeft = readsRightToLeft
             themed.currentTheme = pdfTheme
@@ -561,15 +567,78 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
 // MARK: - ThemedPDFView (Sharp Retina Viewport Shader Filtering + Arrow Key Navigation)
 
 final class ThemedPDFView: PDFView {
+    private static let installAccessibilityForwardingOnce: Void = {
+        for className in ["PDFDocumentView", "PDFPageView", "PDFScrollView", "NSClipView"] {
+            forwardAccessibilityHitTest(on: className)
+        }
+    }()
+
+    private static func forwardAccessibilityHitTest(on className: String) {
+        guard let cls = NSClassFromString(className) else { return }
+        let sel = #selector(NSView.accessibilityHitTest(_:))
+        guard let baseMethod = class_getInstanceMethod(cls, sel) else { return }
+        let origIMP = method_getImplementation(baseMethod)
+        let typeEncoding = method_getTypeEncoding(baseMethod)
+        typealias HitFn = @convention(c) (AnyObject, Selector, NSPoint) -> AnyObject?
+        let orig = unsafeBitCast(origIMP, to: HitFn.self)
+        let block: @convention(block) (AnyObject, NSPoint) -> AnyObject? = { obj, pt in
+            if let view = obj as? NSView, let themed = ThemedPDFView.enclosingThemedPDFView(of: view) {
+                return themed.accessibilityHitTest(pt) as AnyObject?
+            }
+            return orig(obj, sel, pt)
+        }
+        let newIMP = imp_implementationWithBlock(block)
+        if !class_addMethod(cls, sel, newIMP, typeEncoding) {
+            method_setImplementation(baseMethod, newIMP)
+        }
+    }
+
+    private static func enclosingThemedPDFView(of view: NSView) -> ThemedPDFView? {
+        var current: NSView? = view
+        while let candidate = current {
+            if let themed = candidate as? ThemedPDFView {
+                return themed
+            }
+            current = candidate.superview
+        }
+        return nil
+    }
+
+    private struct AccessibilitySnapshotKey: Equatable {
+        let documentID: ObjectIdentifier
+        let viewportRect: CGRect
+        let clipOrigin: CGPoint
+        let scaleFactor: Int
+        let displayMode: Int
+        let displaysAsBook: Bool
+        let displaysRTL: Bool
+        let visiblePageIndices: [Int]
+        let visiblePageBoxes: [CGRect]
+    }
+
     var currentTheme: PDFViewTheme = .day
     var isDarkUI: Bool = false
     var onStepPage: ((Int) -> Void)?
+    var pageLabelProvider: ((Int) -> String)?
     var handlesUnfocusedArrowKeys = true
     var readsRightToLeft = false
     var wantsAutoScales = true
     var isApplyingConfiguration = false
     var onAutoScalesDidChange: ((Bool) -> Void)?
     var onDidSettleLiveLayout: (() -> Void)?
+
+    private var cachedAXKey: AccessibilitySnapshotKey?
+    private var cachedAXPages: [PDFAccessibilityPageElement] = []
+
+    override init(frame frameRect: NSRect) {
+        _ = Self.installAccessibilityForwardingOnce
+        super.init(frame: frameRect)
+    }
+
+    required init?(coder: NSCoder) {
+        _ = Self.installAccessibilityForwardingOnce
+        super.init(coder: coder)
+    }
 
     /// Page and zoom to show once the view has a size: `go(to:)` and `scaleFactor` before the first layout are lost.
     var pendingInitialPage: PDFPage?
@@ -812,6 +881,136 @@ final class ThemedPDFView: PDFView {
                 paperLayer.backgroundColor = NSColor.white.cgColor
             }
         }
+    }
+
+    // MARK: - Accessibility Regions for Smart Screenshot Element Snapping
+
+    private var viewportScreenRect: NSRect {
+        guard let window else { return .zero }
+        let visInWindow = convert(visibleRect, to: nil)
+        return window.convertToScreen(visInWindow)
+    }
+
+    override func isAccessibilityElement() -> Bool {
+        true
+    }
+
+    override func accessibilityRole() -> NSAccessibility.Role? {
+        .group
+    }
+
+    override func accessibilityLabel() -> String? {
+        L10n.tr("PDF 阅读区域", "PDF Reading Canvas")
+    }
+
+    override func accessibilityFrame() -> NSRect {
+        viewportScreenRect
+    }
+
+    override func accessibilityChildren() -> [Any]? {
+        nonisolated(unsafe) var result: [Any]?
+        MainActor.assumeIsolated {
+            result = rebuildAccessibilityPagesIfNeeded()
+        }
+        return result
+    }
+
+    override func accessibilityHitTest(_ point: NSPoint) -> Any? {
+        nonisolated(unsafe) var result: Any?
+        MainActor.assumeIsolated {
+            let viewport = viewportScreenRect
+            guard viewport.width > 1, viewport.height > 1, viewport.contains(point) else {
+                return
+            }
+            let pages = rebuildAccessibilityPagesIfNeeded()
+            for pageElem in pages where pageElem.accessibilityFrame().contains(point) {
+                result = pageElem.accessibilityHitTest(point) ?? pageElem
+                return
+            }
+            // Margin / gutter outside any visible page paper snaps cleanly to the visible PDF canvas viewport
+            result = self
+        }
+        return result
+    }
+
+    @MainActor
+    private func rebuildAccessibilityPagesIfNeeded() -> [PDFAccessibilityPageElement] {
+        guard let window, let doc = document else {
+            cachedAXKey = nil
+            cachedAXPages = []
+            return []
+        }
+        let viewport = viewportScreenRect
+        guard viewport.width > 4, viewport.height > 4 else { return [] }
+
+        let visPages = visiblePages
+        let indices = visPages.map { doc.index(for: $0) }.filter { $0 >= 0 && $0 < doc.pageCount }
+        let boxes = visPages.map { $0.bounds(for: displayBox) }
+        let clipOrigin = subviews.compactMap({ $0 as? NSScrollView }).first?.contentView.bounds.origin ?? .zero
+
+        let key = AccessibilitySnapshotKey(
+            documentID: ObjectIdentifier(doc),
+            viewportRect: viewport.integral,
+            clipOrigin: CGPoint(x: clipOrigin.x.rounded(), y: clipOrigin.y.rounded()),
+            scaleFactor: Int((scaleFactor * 1000).rounded()),
+            displayMode: displayMode.rawValue,
+            displaysAsBook: displaysAsBook,
+            displaysRTL: displaysRTL,
+            visiblePageIndices: indices,
+            visiblePageBoxes: boxes
+        )
+
+        if key == cachedAXKey {
+            return cachedAXPages
+        }
+
+        var elements: [PDFAccessibilityPageElement] = []
+        elements.reserveCapacity(visPages.count)
+
+        for page in visPages {
+            let pageIndex = doc.index(for: page)
+            guard pageIndex >= 0, pageIndex < doc.pageCount else { continue }
+            let box = page.bounds(for: displayBox)
+            guard box.width > 4, box.height > 4 else { continue }
+
+            let convertPageRect: (CGRect) -> NSRect = { [weak self, weak window] rectInPage in
+                guard let self, let window else { return .zero }
+                let inPDFView = self.convert(rectInPage, from: page)
+                let inWindow = self.convert(inPDFView, to: nil)
+                return window.convertToScreen(inWindow)
+            }
+
+            let rawPageScreenRect = convertPageRect(box)
+            let visiblePageScreenRect = rawPageScreenRect.intersection(viewport)
+            guard !visiblePageScreenRect.isNull,
+                  visiblePageScreenRect.width >= 12,
+                  visiblePageScreenRect.height >= 12 else {
+                continue
+            }
+
+            let regions = PDFAccessibilityLayoutCache.shared.regions(
+                for: page,
+                at: pageIndex,
+                in: doc,
+                displayBox: displayBox
+            )
+            let label = pageLabelProvider?(pageIndex) ?? page.printedNumber ?? "\(pageIndex + 1)"
+
+            let pageElement = PDFAccessibilityPageElement(
+                pageIndex: pageIndex,
+                pageLabel: label,
+                screenFrame: visiblePageScreenRect,
+                regions: regions,
+                parent: self,
+                viewportScreenRect: viewport,
+                convertPageRect: convertPageRect
+            )
+            elements.append(pageElement)
+        }
+
+        cachedAXKey = key
+        cachedAXPages = elements
+        return elements
     }
 }
 

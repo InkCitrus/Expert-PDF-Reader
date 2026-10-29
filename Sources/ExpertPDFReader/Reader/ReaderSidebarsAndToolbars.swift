@@ -38,6 +38,8 @@ public struct ReaderToolbarView: View {
                 .fill(AppPalette.chromeHairline(isDark))
                 .frame(height: 1)
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(L10n.tr("阅读工具栏", "Reader Toolbar")))
         .onChange(of: tab.searchFocusToken) { _, _ in
             isSearchFieldFocused = true
         }
@@ -52,7 +54,7 @@ public struct ReaderToolbarView: View {
                 isActive: tab.isLeftSidebarVisible && tab.leftPanel == .documentSummary,
                 isDark: isDark
             ) {
-                withAnimation(.easeInOut(duration: 0.18)) {
+                withAnimation(AppAnimation.panel) {
                     tab.toggleLeftPanel(.documentSummary)
                 }
             }
@@ -63,7 +65,7 @@ public struct ReaderToolbarView: View {
                 isActive: tab.isPageOverviewVisible,
                 isDark: isDark
             ) {
-                withAnimation(.easeInOut(duration: 0.18)) {
+                withAnimation(AppAnimation.panel) {
                     tab.isPageOverviewVisible.toggle()
                 }
             }
@@ -74,7 +76,7 @@ public struct ReaderToolbarView: View {
                 isActive: tab.isLeftSidebarVisible && tab.leftPanel == .viewSettings,
                 isDark: isDark
             ) {
-                withAnimation(.easeInOut(duration: 0.18)) {
+                withAnimation(AppAnimation.panel) {
                     tab.toggleLeftPanel(.viewSettings)
                 }
             }
@@ -97,7 +99,7 @@ public struct ReaderToolbarView: View {
                     ) {
                         presentThemeMenu(below: themeAnchor)
                     }
-                    .background(ViewAnchorRepresentable(anchor: themeAnchor))
+                    .background(ViewAnchorRepresentable(anchor: themeAnchor).allowsHitTesting(false))
                 } else {
                     ForEach(PDFReadingThemeMode.allCases) { mode in
                         ToolbarIconButton(
@@ -146,7 +148,7 @@ public struct ReaderToolbarView: View {
             ) {
                 presentSharingPicker(from: shareAnchor)
             }
-            .background(ViewAnchorRepresentable(anchor: shareAnchor))
+            .background(ViewAnchorRepresentable(anchor: shareAnchor).allowsHitTesting(false))
 
             let isBookmarked = store.isPageBookmarked(pageIndex: tab.currentPageIndex, in: tab.documentID)
             ToolbarIconButton(
@@ -183,14 +185,17 @@ public struct ReaderToolbarView: View {
 
     private func zoomControls(_ density: Density) -> some View {
         let zoomAnchor = anchors.anchor("zoom", density)
+        let roundedPercent = Int((tab.zoomScale * 100).rounded())
         return HStack(spacing: 6) {
             Button {
                 presentZoomMenu(below: zoomAnchor)
             } label: {
                 HStack(spacing: 4) {
-                    Text("\(Int((tab.zoomScale * 100).rounded()))%")
+                    Text("\(roundedPercent)%")
                         .font(.system(size: 12, weight: .medium))
                         .monospacedDigit()
+                        .contentTransition(.numericText())
+                        .animation(AppAnimation.micro, value: roundedPercent)
                     Image(systemName: "chevron.down")
                         .font(.system(size: 8.5, weight: .semibold))
                         .foregroundColor(AppPalette.labelTertiary(isDark))
@@ -204,9 +209,9 @@ public struct ReaderToolbarView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .background(ViewAnchorRepresentable(anchor: zoomAnchor))
-            .help(L10n.tr("缩放比例", "Zoom Level"))
-            .accessibilityLabel(Text("\(L10n.tr("缩放比例", "Zoom Level")) \(Int((tab.zoomScale * 100).rounded()))%"))
+            .background(ViewAnchorRepresentable(anchor: zoomAnchor).allowsHitTesting(false))
+            .help(L10n.tr("缩放比例 (⌘8 适应宽度 · ⌘0 实际大小)", "Zoom Level (⌘8 Fit Width · ⌘0 Actual Size)"))
+            .accessibilityLabel(Text("\(L10n.tr("缩放比例", "Zoom Level")) \(roundedPercent)%"))
 
             if density == .regular {
                 HStack(spacing: 0) {
@@ -258,7 +263,7 @@ public struct ReaderToolbarView: View {
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundColor(AppPalette.labelTertiary(isDark))
 
-            TextField(L10n.tr("搜索", "Search"), text: $tab.searchQuery)
+            TextField(L10n.tr("搜索 (⌘F)", "Search (⌘F)"), text: $tab.searchQuery)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12.5))
                 .foregroundColor(AppPalette.labelPrimary(isDark))
@@ -288,6 +293,8 @@ public struct ReaderToolbarView: View {
             RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .stroke(AppPalette.accentBlue.opacity(isSearchFieldFocused ? 0.75 : 0), lineWidth: 1.5)
         )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(L10n.tr("搜索", "Search")))
         .task(id: tab.searchQuery) {
             // Debounced live search while typing
             let trimmed = tab.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -296,7 +303,7 @@ public struct ReaderToolbarView: View {
             guard !Task.isCancelled else { return }
             tab.performSearch()
             if !trimmed.isEmpty {
-                withAnimation(.easeInOut(duration: 0.18)) {
+                withAnimation(AppAnimation.panel) {
                     tab.isSearchVisible = true
                 }
             }
@@ -311,13 +318,13 @@ public struct ReaderToolbarView: View {
         } else {
             tab.performSearch()
         }
-        withAnimation(.easeInOut(duration: 0.18)) {
+        withAnimation(AppAnimation.panel) {
             tab.isSearchVisible = true
         }
     }
 
     private func endSearch() {
-        withAnimation(.easeInOut(duration: 0.18)) {
+        withAnimation(AppAnimation.panel) {
             tab.endSearch()
         }
         isSearchFieldFocused = false
@@ -348,6 +355,8 @@ struct ToolbarIconButton: View {
                         .fill(backgroundColor)
                 )
                 .contentShape(Rectangle())
+                .animation(AppAnimation.micro, value: isHovered)
+                .animation(AppAnimation.micro, value: isActive)
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
@@ -439,11 +448,21 @@ final class ToolbarAnchors {
     }
 }
 
+private final class AnchorPassthroughNSView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func isAccessibilityElement() -> Bool {
+        false
+    }
+}
+
 struct ViewAnchorRepresentable: NSViewRepresentable {
     let anchor: NSViewAnchor
 
     func makeNSView(context: Context) -> NSView {
-        let view = NSView()
+        let view = AnchorPassthroughNSView()
         anchor.view = view
         return view
     }
@@ -456,7 +475,9 @@ struct ViewAnchorRepresentable: NSViewRepresentable {
 struct NativeMenuItem {
     var title: String = ""
     var keyEquivalent: String = ""
+    var keyModifiers: NSEvent.ModifierFlags = [.command]
     var isChecked: Bool = false
+    var isEnabled: Bool = true
     var isSeparator: Bool = false
     var action: (() -> Void)?
 
@@ -464,8 +485,22 @@ struct NativeMenuItem {
         NativeMenuItem(isSeparator: true)
     }
 
-    static func action(_ title: String, keyEquivalent: String = "", isChecked: Bool = false, _ action: @escaping () -> Void) -> NativeMenuItem {
-        NativeMenuItem(title: title, keyEquivalent: keyEquivalent, isChecked: isChecked, action: action)
+    static func action(
+        _ title: String,
+        keyEquivalent: String = "",
+        keyModifiers: NSEvent.ModifierFlags = [.command],
+        isChecked: Bool = false,
+        isEnabled: Bool = true,
+        _ action: @escaping () -> Void
+    ) -> NativeMenuItem {
+        NativeMenuItem(
+            title: title,
+            keyEquivalent: keyEquivalent,
+            keyModifiers: keyModifiers,
+            isChecked: isChecked,
+            isEnabled: isEnabled,
+            action: action
+        )
     }
 }
 
@@ -500,8 +535,9 @@ enum NativeMenu {
                 continue
             }
             let menuItem = ClosureMenuItem(title: item.title, keyEquivalent: item.keyEquivalent, handler: item.action ?? {})
-            menuItem.keyEquivalentModifierMask = item.keyEquivalent.isEmpty ? [] : [.command]
+            menuItem.keyEquivalentModifierMask = item.keyEquivalent.isEmpty ? [] : item.keyModifiers
             menuItem.state = item.isChecked ? .on : .off
+            menuItem.isEnabled = item.isEnabled
             menu.addItem(menuItem)
         }
         let origin = NSPoint(x: 0, y: anchorView.isFlipped ? anchorView.bounds.height + 5 : -5)
@@ -539,6 +575,8 @@ public struct ReaderLeftSidebarView: View {
                 .fill(AppPalette.panelHairline(isDark))
                 .frame(width: 1)
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(tab.leftPanel == .documentSummary ? tab.activeSidebarTab.title : L10n.tr("显示选项", "View Settings")))
     }
 
     private var documentSummary: some View {
@@ -616,12 +654,14 @@ struct PanelSegmentedControl<Item: Identifiable & Hashable, SegmentLabel: View>:
     let isDark: Bool
     @ViewBuilder let label: (Item, Bool) -> SegmentLabel
 
+    @Namespace private var thumbNamespace
+
     var body: some View {
         HStack(spacing: 2) {
             ForEach(items) { item in
                 let isSelected = (item == selection)
                 Button {
-                    withAnimation(.easeInOut(duration: 0.15)) {
+                    withAnimation(AppAnimation.snappy) {
                         selection = item
                     }
                 } label: {
@@ -629,11 +669,14 @@ struct PanelSegmentedControl<Item: Identifiable & Hashable, SegmentLabel: View>:
                         .foregroundColor(isSelected ? AppPalette.labelPrimary(isDark) : AppPalette.labelSecondary(isDark))
                         .frame(maxWidth: .infinity)
                         .frame(height: 24)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(isSelected ? AppPalette.segmentedThumb(isDark) : Color.clear)
-                                .shadow(color: Color.black.opacity(isSelected ? (isDark ? 0.35 : 0.10) : 0), radius: 1.5, x: 0, y: 0.5)
-                        )
+                        .background {
+                            if isSelected {
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(AppPalette.segmentedThumb(isDark))
+                                    .shadow(color: Color.black.opacity(isDark ? 0.35 : 0.10), radius: 1.5, x: 0, y: 0.5)
+                                    .matchedGeometryEffect(id: "segmentThumb", in: thumbNamespace)
+                            }
+                        }
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -707,6 +750,8 @@ struct PanelTextButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(title))
         .onHover { isHovered = $0 }
     }
 }
@@ -866,6 +911,9 @@ struct PageThumbnailCell: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(L10n.pageTitle(tab.displayPageNumber(at: pageIndex))))
+        .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : [.isButton])
         .onHover { isHovered = $0 }
         .contextMenu {
             Button(isBookmarked ? L10n.tr("移除书签", "Remove Bookmark") : L10n.tr("添加书签", "Add Bookmark")) {
@@ -967,7 +1015,7 @@ struct PDFOutlinePanel: View {
     }
 
     private func toggle(_ node: PDFOutlineNode) {
-        withAnimation(.easeInOut(duration: 0.14)) {
+        withAnimation(AppAnimation.snappy) {
             if expandedIDs.contains(node.id) {
                 expandedIDs.remove(node.id)
             } else {
@@ -1077,6 +1125,7 @@ struct PDFOutlineRowView: View {
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, 1)
+                .accessibilityHidden(true)
 
             if let label = pageLabel {
                 Text(label)
@@ -1084,6 +1133,7 @@ struct PDFOutlineRowView: View {
                     .monospacedDigit()
                     .foregroundColor(isActive ? AppPalette.accentBlue : AppPalette.labelTertiary(isDark))
                     .padding(.top, 2)
+                    .accessibilityHidden(true)
             }
         }
         .padding(.leading, 8 + CGFloat(level) * 14)
@@ -1101,6 +1151,10 @@ struct PDFOutlineRowView: View {
                 .padding(.leading, 30 + CGFloat(level) * 14)
         }
         .contentShape(Rectangle())
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(pageLabel.map { "\(node.title), \(L10n.pageTitle($0))" } ?? node.title))
+        .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : [.isButton])
+        .accessibilityAction(.default, onSelect)
         .onTapGesture(perform: onSelect)
         .onHover { isHovered = $0 }
     }
@@ -1184,6 +1238,10 @@ struct BookmarkRowView: View {
                 .padding(.leading, 33)
         }
         .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text("\(bookmark.title), \(L10n.pageTitle(pageLabel))"))
+        .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : [.isButton])
+        .accessibilityAction(.default, onSelect)
         .onTapGesture(perform: onSelect)
         .onHover { isHovered = $0 }
         .contextMenu {
@@ -1333,6 +1391,8 @@ struct DocumentViewSettingsPanel: View {
                 .foregroundColor(AppPalette.labelTertiary(isDark))
             content()
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(title))
     }
 }
 
@@ -1372,6 +1432,9 @@ struct OptionTile: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(title))
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : [.isButton])
         .onHover { isHovered = $0 }
     }
 }
@@ -1425,6 +1488,9 @@ struct ThemeModePreviewTile: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(mode.title))
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : [.isButton])
         .help("\(L10n.tr("阅读主题", "Reading Theme")): \(mode.title)")
     }
 }

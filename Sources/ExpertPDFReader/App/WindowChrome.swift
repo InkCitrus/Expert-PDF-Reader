@@ -1,4 +1,5 @@
 import AppKit
+import ObjectiveC.runtime
 import SwiftUI
 
 /// Metrics published by `WindowChromeConfigurator` so the tab strip can make room for the traffic lights.
@@ -8,22 +9,52 @@ public struct WindowChromeMetrics: Equatable {
 }
 
 /// Unified title bar: the native title is hidden, content runs
-/// under the transparent title bar and the traffic lights are re-centered on the `40pt` tab strip.
+/// under the transparent title bar and the traffic lights are re-centered on the `40pt` tab strip,
+/// while syncing `NSWindow.title` and `representedURL` for Mission Control, App Exposé and Dock.
 /// Mounted as a zero-size background of `MainWindowView`.
 struct WindowChromeConfigurator: NSViewRepresentable {
     let titleBarHeight: CGFloat
+    let windowTitle: String
+    let representedURL: URL?
+    let onWindowAttached: ((NSWindow) -> Void)?
+    let onWindowBecameActive: (() -> Void)?
     @Binding var metrics: WindowChromeMetrics
+
+    init(
+        titleBarHeight: CGFloat,
+        windowTitle: String,
+        representedURL: URL?,
+        onWindowAttached: ((NSWindow) -> Void)? = nil,
+        onWindowBecameActive: (() -> Void)? = nil,
+        metrics: Binding<WindowChromeMetrics>
+    ) {
+        self.titleBarHeight = titleBarHeight
+        self.windowTitle = windowTitle
+        self.representedURL = representedURL
+        self.onWindowAttached = onWindowAttached
+        self.onWindowBecameActive = onWindowBecameActive
+        self._metrics = metrics
+    }
 
     func makeNSView(context: Context) -> WindowChromeView {
         let view = WindowChromeView()
         view.titleBarHeight = titleBarHeight
+        view.windowTitle = windowTitle
+        view.representedURL = representedURL
+        view.onWindowAttached = onWindowAttached
+        view.onWindowBecameActive = onWindowBecameActive
         view.onMetricsChange = metricsHandler()
         return view
     }
 
     func updateNSView(_ nsView: WindowChromeView, context: Context) {
         nsView.titleBarHeight = titleBarHeight
+        nsView.windowTitle = windowTitle
+        nsView.representedURL = representedURL
+        nsView.onWindowAttached = onWindowAttached
+        nsView.onWindowBecameActive = onWindowBecameActive
         nsView.onMetricsChange = metricsHandler()
+        nsView.syncWindowMetadata()
         nsView.layoutTrafficLights()
     }
 
@@ -40,18 +71,39 @@ struct WindowChromeConfigurator: NSViewRepresentable {
 }
 
 final class WindowChromeView: NSView {
-    /// The reader window (as opposed to Settings, alerts or panels), for commands such as ⌘W
+    /// Most recently focused reader window (as opposed to Settings, alerts or panels)
     static weak var readerWindow: NSWindow?
+    private static let readerWindows = NSHashTable<NSWindow>.weakObjects()
+
+    static func isReaderWindow(_ candidate: NSWindow?) -> Bool {
+        guard let candidate else { return readerWindow == nil }
+        return readerWindows.contains(candidate)
+    }
 
     var titleBarHeight: CGFloat = 40
+    var windowTitle: String = "Expert PDF Reader"
+    var representedURL: URL?
+    var onWindowAttached: ((NSWindow) -> Void)?
+    var onWindowBecameActive: (() -> Void)?
     var onMetricsChange: ((WindowChromeMetrics) -> Void)?
 
     nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
+    nonisolated(unsafe) private var kvoObservations: [NSKeyValueObservation] = []
     private var isLayingOut = false
+    private var isSyncingMetadata = false
     private var isFullScreen = false
 
     deinit {
+        kvoObservations.forEach { $0.invalidate() }
         observers.forEach { NotificationCenter.default.removeObserver($0) }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func isAccessibilityElement() -> Bool {
+        false
     }
 
     override func viewDidMoveToWindow() {
@@ -59,6 +111,11 @@ final class WindowChromeView: NSView {
         removeObservers()
         guard let window else { return }
         Self.readerWindow = window
+        Self.readerWindows.add(window)
+        onWindowAttached?(window)
+        if window.isKeyWindow || window.isMainWindow {
+            onWindowBecameActive?()
+        }
 
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
@@ -66,6 +123,23 @@ final class WindowChromeView: NSView {
         window.styleMask.insert(.fullSizeContentView)
         window.isMovableByWindowBackground = false
         isFullScreen = window.styleMask.contains(.fullScreen)
+        syncWindowMetadata()
+
+        // Keep Mission Control's window title & hidden native titlebar intact even if SwiftUI's Window scene reconciles
+        kvoObservations.append(
+            window.observe(\.title, options: [.new]) { [weak self] _, _ in
+                MainActor.assumeIsolated {
+                    self?.syncWindowMetadata()
+                }
+            }
+        )
+        kvoObservations.append(
+            window.observe(\.titleVisibility, options: [.new]) { [weak self] _, _ in
+                MainActor.assumeIsolated {
+                    self?.syncWindowMetadata()
+                }
+            }
+        )
 
         let relayoutNotifications: [Notification.Name] = [
             NSWindow.didResizeNotification,
@@ -78,6 +152,18 @@ final class WindowChromeView: NSView {
         for name in relayoutNotifications {
             observe(name, object: window) { $0.layoutTrafficLights() }
         }
+        observe(NSWindow.didBecomeKeyNotification, object: window) { view in
+            if let win = view.window {
+                Self.readerWindow = win
+            }
+            view.onWindowBecameActive?()
+        }
+        observe(NSWindow.didBecomeMainNotification, object: window) { view in
+            if let win = view.window {
+                Self.readerWindow = win
+            }
+            view.onWindowBecameActive?()
+        }
         observe(NSWindow.willEnterFullScreenNotification, object: window) { $0.setFullScreen(true) }
         observe(NSWindow.willExitFullScreenNotification, object: window) { $0.setFullScreen(false) }
 
@@ -87,6 +173,23 @@ final class WindowChromeView: NSView {
             observe(NSView.frameDidChangeNotification, object: button) { $0.layoutTrafficLights() }
         }
         layoutTrafficLights()
+    }
+
+    func syncWindowMetadata() {
+        guard !isSyncingMetadata, let window else { return }
+        isSyncingMetadata = true
+        defer { isSyncingMetadata = false }
+
+        if window.titleVisibility != .hidden {
+            window.titleVisibility = .hidden
+        }
+        if window.representedURL != representedURL {
+            window.representedURL = representedURL
+        }
+        if window.title != windowTitle {
+            window.title = windowTitle
+        }
+        NSApp.changeWindowsItem(window, title: windowTitle, filename: false)
     }
 
     func layoutTrafficLights() {
@@ -135,6 +238,8 @@ final class WindowChromeView: NSView {
     }
 
     private func removeObservers() {
+        kvoObservations.forEach { $0.invalidate() }
+        kvoObservations.removeAll()
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers.removeAll()
     }

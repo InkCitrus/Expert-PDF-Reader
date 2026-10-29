@@ -337,6 +337,55 @@ public enum AppPalette {
     public static let systemOrange = Color(hex: 0xFF9128)
     public static let systemRed = Color(hex: 0xFA4655)
     public static let systemPurple = Color(hex: 0x5B6AE5)
+
+    // Floating Tooltip / Popover Card
+    public static func floatingTooltipBackground(_ isDark: Bool) -> Color {
+        Color(hex: isDark ? 0x26262A : 0xFFFFFF, alpha: 0.96)
+    }
+
+    public static func floatingTooltipBorder(_ isDark: Bool) -> Color {
+        Color(hex: isDark ? 0x45454B : 0xD4D4DA)
+    }
+
+    // Tactile Keycap Badges (Shortcuts & Tips Guide)
+    public static func keycapBackground(_ isDark: Bool) -> Color {
+        Color(hex: isDark ? 0x323238 : 0xFFFFFF)
+    }
+
+    public static func keycapBorder(_ isDark: Bool) -> Color {
+        Color(hex: isDark ? 0x4C4C54 : 0xD2D2D8)
+    }
+
+    public static func keycapShadow(_ isDark: Bool) -> Color {
+        Color.black.opacity(isDark ? 0.35 : 0.08)
+    }
+}
+
+/// Shared motion presets tuned for native macOS responsiveness; falls back to subtle fades when Reduce Motion is on.
+public enum AppAnimation {
+    public static var reduceMotion: Bool {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
+    /// Hover states, micro-highlights, active indicators
+    public static var micro: Animation {
+        reduceMotion ? .linear(duration: 0.08) : .easeOut(duration: 0.14)
+    }
+
+    /// Segmented controls, toolbar state changes, card hover lift
+    public static var snappy: Animation {
+        reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.24, dampingFraction: 0.84)
+    }
+
+    /// Tab insertion, removal, selection & drag-to-reorder
+    public static var tab: Animation {
+        reduceMotion ? .easeOut(duration: 0.14) : .spring(response: 0.26, dampingFraction: 0.86)
+    }
+
+    /// Left/right docks, Page Overview grid, Split View & Home page transitions
+    public static var panel: Animation {
+        reduceMotion ? .easeInOut(duration: 0.15) : .spring(response: 0.28, dampingFraction: 0.88)
+    }
 }
 
 extension Color {

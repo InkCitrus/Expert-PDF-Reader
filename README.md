@@ -22,7 +22,13 @@ A native macOS PDF reader built for reading: tabs, Split View, and Day / Sepia /
   - **Right search dock**, bottom-right **page counter** (click or `⌥⌘G` → Go to Page) and a **Page Overview** grid (`⌃⌘1`).
   - Tab strip, toolbar and panels follow the **System / Light / Dark** appearance.
 - **Home Tab**: sidebar with Home, Recents and Favorites (plus Open File…, Reading Guide and Settings; Help › Reading Guide, `⌘?`, opens the guide from anywhere), a drag-and-drop area, reading-theme cards and document grids with locale-aware dates.
-- **Tabs & Split View**: `⌃⇥` / `⌃⇧⇥` (or `⇧⌘]` / `⇧⌘[`) switch tabs and `⇧⌘T` reopens the last closed one; vertical (left / right) or horizontal (top / bottom) Split View with Swap Sides, Sync Scroll & Zoom, and the Home tab as a picker for the second document.
+- **Tabs & Windows**:
+  - **Browser-style multi-window**: drag a tab out of the tab bar to detach it into a new window, drag tabs between windows to merge, or choose Window › Merge All Windows.
+  - **Dock & New Window (`⌘N`)**: right-click the Dock icon for New Window, Open… and recent files.
+  - **Tab management**: drag tabs to reorder, hover to preview full title and folder path, and open the All Tabs menu (`⌄`) when multiple documents are open. Duplicate filenames across folders are automatically disambiguated with parent folder names.
+  - **Navigation shortcuts**: `⌃⇥` / `⌃⇧⇥` (or `⌥⌘←` / `⌥⌘→`, `⇧⌘]` / `⇧⌘[`, `⌃PageUp` / `⌃PageDown`) switch tabs; `⌃1…9` or `⌥⌘1…9` jump directly to tab 1…8 or the last tab (9); `⇧⌘T` reopens closed tabs (up to 25) in their original slot and reading position.
+  - **Mission Control**: window titles and represented file icons stay in sync with the active document across macOS Mission Control, App Exposé, Stage Manager and Dock.
+  - **Split View**: vertical (left / right) or horizontal (top / bottom) Split View with Swap Sides, Sync Scroll & Zoom, and the Home tab as a picker for the second document.
 - **Reading**
   - Single Page, Two Pages and Two Pages with Single Cover (`⌘1`, `⌘2`, `⌘3`); the pages of a spread meet at the spine. Books bound on the right are detected (from the PDF, or from where the page numbers sit on vertically set pages) and read right to left; View › Page Direction overrides it.
   - **Printed page numbers**: the page counter and Go to Page use the numbers printed on the pages — read from the pages themselves when the PDF's own page labels are missing or wrong — and show both pages of a spread. Roman-numeral front matter followed by Arabic numbering is recognized, the outline and thumbnails show the same numbers, and Go to Page also takes `(n)` for the n-th page of the file.

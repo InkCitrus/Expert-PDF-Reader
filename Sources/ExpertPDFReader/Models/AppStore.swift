@@ -74,6 +74,7 @@ public struct ReadingPosition: Codable, Equatable {
     public var pageDirection: PageDirection?
     /// The result of reading the book's printed page numbers, so it is done once per book
     public var bookPageScan: BookPageScan?
+    public var readingSpot: DocumentTabState.ReadingSpot?
     public var updatedAt: Date
 }
 
@@ -493,7 +494,7 @@ extension PDFPage {
 @MainActor
 final class ClearMarginsCropper {
     let document: PDFDocument
-    private let url: URL
+    var url: URL
     private let password: String?
     private var originalCropBoxes: [Int: CGRect] = [:]
     private var tightCropBoxes: [Int: CGRect] = [:]
@@ -583,9 +584,9 @@ final class ClearMarginsCropper {
 @MainActor
 public final class DocumentTabState: ObservableObject, Identifiable {
     public let id: UUID = UUID()
-    public let documentID: DocumentID
+    @Published public private(set) var documentID: DocumentID
     public let pdfDocument: PDFDocument
-    public let title: String
+    @Published public private(set) var title: String
     /// Password that unlocked an encrypted document; needed to read the file again off the main thread
     let password: String?
     var cancellables = Set<AnyCancellable>()
@@ -679,6 +680,21 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         self.declaresRightToLeft = pdfDocument.declaresRightToLeft
         // Takes the crop boxes before anything (two-page layouts, Clear Margins) changes them
         self.primaryCropper = makeCropper(for: pdfDocument, url: url, password: password)
+    }
+
+    /// Follow a Finder rename without replacing the loaded document or losing its crop boxes and reading state.
+    func relocate(to url: URL) {
+        let previousID = documentID
+        documentID = DocumentID(url: url)
+        title = url.deletingPathExtension().lastPathComponent
+        primaryCropper.url = url
+        if secondaryDocumentURL.map(DocumentID.init(url:)) == previousID {
+            secondaryDocumentURL = url
+        }
+        pageScanTask?.cancel()
+        pageScanTask = nil
+        scanPagesIfNeeded()
+        if isSearching { performSearch() }
     }
 
     /// The direction the PDF declares, else the one read from its pages, unless chosen for this book
@@ -786,6 +802,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
             layoutMode: layoutMode,
             pageDirection: pageDirection,
             bookPageScan: pageScan,
+            readingSpot: readingSpot,
             updatedAt: Date()
         )
     }
@@ -796,6 +813,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         zoomScale = CGFloat(position.zoomScale)
         isAutoScaling = position.isAutoScaling
         layoutMode = position.layoutMode
+        readingSpot = position.readingSpot
         if let pageDirection = position.pageDirection {
             self.pageDirection = pageDirection
         }
@@ -818,6 +836,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     public func navigateToPage(_ index: Int, recordHistory: Bool = true) {
         let clamped = max(0, min(max(0, pageCount - 1), index))
         guard clamped != currentPageIndex else { return }
+        readingSpot = nil
         if recordHistory && !isNavigatingHistory {
             backStack.append(currentPageIndex)
             if backStack.count > 50 { backStack.removeFirst() }
@@ -835,6 +854,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
 
     public func goBack() {
         guard let prev = backStack.popLast() else { return }
+        readingSpot = nil
         isNavigatingHistory = true
         forwardStack.append(currentPageIndex)
         currentPageIndex = prev
@@ -844,6 +864,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
 
     public func goForward() {
         guard let next = forwardStack.popLast() else { return }
+        readingSpot = nil
         isNavigatingHistory = true
         backStack.append(currentPageIndex)
         currentPageIndex = next
@@ -934,7 +955,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     }
 
     /// The point of the page at the top of a pane
-    public struct ReadingSpot: Equatable {
+    public struct ReadingSpot: Codable, Equatable {
         public let pageIndex: Int
         public let point: CGPoint
 
@@ -1153,7 +1174,7 @@ public enum AppTab: Identifiable, Equatable {
         }
     }
 
-    public var title: String {
+    @MainActor public var title: String {
         switch self {
         case .home:                return L10n.tr("主页", "Home")
         case .document(let state): return state.title
@@ -1183,8 +1204,15 @@ public struct ClosedTabRecord: Codable, Equatable {
 public final class ReaderWindowSession: ObservableObject, Identifiable {
     public let id: UUID
     public let isPrimary: Bool
-    @Published public var tabs: [AppTab]
-    @Published public var selectedTabID: UUID
+    @Published public var tabs: [AppTab] {
+        didSet { onTabsChanged?() }
+    }
+    @Published public var selectedTabID: UUID {
+        didSet { onTabsChanged?() }
+    }
+    var onTabsChanged: (() -> Void)?
+    weak var tabStripView: NSView?
+    let tabViews = NSMapTable<NSUUID, NSView>.strongToWeakObjects()
     @Published public var homeCurrentPage: HomeTabPage = .home
     @Published public var isShortcutsSheetPresented: Bool = false
     @Published public var shortcutsInitialCategory: ShortcutGuideCategory = .all
@@ -1452,7 +1480,9 @@ public final class AppStore: ObservableObject {
     // Multi-Window Sessions (Primary window + browser-style detached windows)
     public let primarySession: ReaderWindowSession
     @Published public private(set) var detachedSessions: [ReaderWindowSession] = []
-    @Published public var activeWindowSessionID: UUID
+    @Published public var activeWindowSessionID: UUID {
+        didSet { saveOpenTabs() }
+    }
     private var detachedWindowControllers: [UUID: DetachedReaderWindowController] = [:]
     private var isTerminating = false
 
@@ -1555,9 +1585,9 @@ public final class AppStore: ObservableObject {
     }
 
     private var dateFormatter: DateFormatter
-    private var localeObserver: NSObjectProtocol?
-    private var appDidBecomeActiveObserver: NSObjectProtocol?
-    private var directoryWatchers: [String: (fd: Int32, source: DispatchSourceFileSystemObject)] = [:]
+    nonisolated(unsafe) private var localeObserver: NSObjectProtocol?
+    nonisolated(unsafe) private var appDidBecomeActiveObserver: NSObjectProtocol?
+    nonisolated(unsafe) private var directoryWatchers: [String: (fd: Int32, source: DispatchSourceFileSystemObject)] = [:]
     private var pruneDebounceTask: Task<Void, Never>?
 
     /// Keyed by `DocumentID.normalizedPath`
@@ -1662,6 +1692,13 @@ public final class AppStore: ObservableObject {
                 self?.pruneMissingDocuments()
             }
         }
+    }
+
+    deinit {
+        if let localeObserver { NotificationCenter.default.removeObserver(localeObserver) }
+        if let appDidBecomeActiveObserver { NotificationCenter.default.removeObserver(appDidBecomeActiveObserver) }
+        for entry in directoryWatchers.values { entry.source.cancel() }
+        pruneDebounceTask?.cancel()
     }
 
     public func applyAppAppearance() {
@@ -1781,15 +1818,8 @@ public final class AppStore: ObservableObject {
             }
             .store(in: &session.cancellables)
 
-        session.$tabs
-            .combineLatest(session.$selectedTabID)
-            .dropFirst()
-            .sink { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.saveOpenTabs()
-                }
-            }
-            .store(in: &session.cancellables)
+        // @Published sends in willSet; persist in didSet so a close/reorder/selection saves the new state.
+        session.onTabsChanged = { [weak self] in self?.saveOpenTabs() }
     }
 
     private func performAnimated(_ animation: Animation, _ body: () -> Void) {
@@ -2141,7 +2171,7 @@ public final class AppStore: ObservableObject {
             closeDetachedWindow(sessionID: sourceSession.id, recordClosedTabs: false)
         }
 
-        targetSession.nsWindow?.makeKeyAndOrderFront(nil)
+        ensureSessionWindowVisible(targetSession)
         saveOpenTabs()
     }
 
@@ -2192,19 +2222,8 @@ public final class AppStore: ObservableObject {
 
         for candidate in sortedSessions {
             guard let win = candidate.nsWindow else { continue }
-            let frame = win.frame
-            let bandRect = NSRect(
-                x: frame.minX - 10,
-                y: frame.maxY - 82,
-                width: frame.width + 20,
-                height: 96
-            )
-            if NSMouseInRect(screenPoint, bandRect, false) {
-                let docCount = candidate.tabs.filter { !$0.isHome }.count
-                let relativeX = max(0, screenPoint.x - frame.minX - 130)
-                let approxSlot = docCount == 0 ? 0 : min(docCount, max(0, Int((relativeX / 210).rounded())))
-                return (candidate, approxSlot)
-            }
+            guard !win.isMiniaturized, candidate.containsTabStrip(screenPoint) else { continue }
+            return (candidate, candidate.documentInsertionIndex(at: screenPoint))
         }
         return nil
     }
@@ -2292,9 +2311,12 @@ public final class AppStore: ObservableObject {
             saveClosedTabs()
             let alreadyOpen = allOpenDocumentTabs.contains { $0.documentID == record.documentID }
             if alreadyOpen { continue }
-            guard let url = resolveFileURL(path: record.documentID.normalizedPath),
-                  let state = openDocument(at: url, insertAt: record.tabIndex, in: sessionID) else {
-                continue
+            guard let url = resolveFileURL(path: record.documentID.normalizedPath) else { continue }
+            guard let state = openDocument(at: url, insertAt: record.tabIndex, in: sessionID) else {
+                // Cancelling a password prompt must not discard this tab and open an unrelated older one.
+                closedTabs.append(record)
+                saveClosedTabs()
+                return
             }
             state.isClearMarginsEnabled = record.isClearMarginsEnabled
             state.isLeftSidebarVisible = record.isLeftSidebarVisible
@@ -2447,8 +2469,11 @@ public final class AppStore: ObservableObject {
         var idMapping: [DocumentID: DocumentID] = [:]
         var removedIDs = Set<DocumentID>()
 
-        for item in documents {
-            let oldID = item.documentID
+        // Resolve each remembered identity once. Resolving a bookmark migrates saved state, so resolving
+        // the old path again for a closed tab could otherwise erase that tab immediately after a rename.
+        let knownIDs = Set(documents.map(\.documentID)
+            + closedTabs.map(\.documentID) + allOpenDocumentTabs.map(\.documentID))
+        for oldID in knownIDs {
             if let resolvedURL = resolveFileURL(path: oldID.normalizedPath) {
                 let newID = DocumentID(url: resolvedURL)
                 if newID != oldID {
@@ -2459,20 +2484,25 @@ public final class AppStore: ObservableObject {
             }
         }
 
-        let prunedClosedCount: Int = {
-            let before = closedTabs.count
-            closedTabs.removeAll { record in
-                resolveFileURL(path: record.documentID.normalizedPath) == nil
-            }
-            return before - closedTabs.count
-        }()
-        if prunedClosedCount > 0 {
-            saveClosedTabs()
-        }
-
         guard !removedIDs.isEmpty || !idMapping.isEmpty else { return }
 
         performAnimated(AppAnimation.snappy) {
+            closedTabs = closedTabs.compactMap { record in
+                guard !removedIDs.contains(record.documentID) else { return nil }
+                return ClosedTabRecord(
+                    documentID: idMapping[record.documentID] ?? record.documentID,
+                    tabIndex: record.tabIndex,
+                    isClearMarginsEnabled: record.isClearMarginsEnabled,
+                    isLeftSidebarVisible: record.isLeftSidebarVisible,
+                    leftPanel: record.leftPanel,
+                    activeSidebarTab: record.activeSidebarTab
+                )
+            }
+            for tab in allOpenDocumentTabs {
+                if let newID = idMapping[tab.documentID] {
+                    tab.relocate(to: newID.url)
+                }
+            }
             // Update Recent IDs (preserving order and deduplicating)
             var seenRecent = Set<DocumentID>()
             var updatedRecents: [DocumentID] = []
@@ -2509,6 +2539,8 @@ public final class AppStore: ObservableObject {
             documents = updatedDocs
         }
 
+        saveClosedTabs()
+        saveOpenTabs()
         savePersistedState()
         saveReadingPositions()
         rebuildDirectoryWatchers()
@@ -2825,9 +2857,9 @@ public final class AppStore: ObservableObject {
             }
             .store(in: &tab.cancellables)
 
-        tab.$splitMode
-            .combineLatest(tab.$isSplitSwapped, tab.$secondaryDocumentURL)
-            .dropFirst()
+        // Menus observe the store, while search results, history and panel state live on the tab.
+        // Forward active-document changes so enabled states and checkmarks update immediately.
+        tab.objectWillChange
             .sink { [weak self, weak tab] _ in
                 MainActor.assumeIsolated {
                     guard let self, let tab,
@@ -3006,7 +3038,9 @@ public final class AppStore: ObservableObject {
         if let position = readingPositions.removeValue(forKey: oldKey) {
             readingPositions[newKey] = position
         }
-        if let data = fileBookmarks.removeValue(forKey: oldKey) {
+        // Keep the old bookmark until every saved consumer (closed tabs, favorites, recents, open tabs)
+        // has resolved the rename. savePersistedState removes aliases no longer referenced anywhere.
+        if let data = fileBookmarks[oldKey] {
             fileBookmarks[newKey] = data
         }
     }

@@ -26,7 +26,7 @@ A native macOS PDF reader built for reading: tabs, Split View, and Day / Sepia /
 - **Tabs & Windows**:
   - **Browser-style multi-window**: drag a tab out of the tab bar to detach it into a new window, drag tabs between windows to merge, or choose Window › Merge All Windows.
   - **Dock & New Window (`⌘N`)**: right-click the Dock icon for New Window, Open… and recent files.
-  - **Tab management**: drag tabs to reorder, hover to preview full title and folder path, and open the All Tabs menu (`⌄`) when multiple documents are open. Duplicate filenames across folders are automatically disambiguated with parent folder names.
+  - **Tab management**: drag tabs to reorder, show the full file path in a standard tooltip, and open the All Tabs menu (`⌄`) when multiple documents are open. Duplicate filenames across folders are automatically disambiguated with parent folder names.
   - **Navigation shortcuts**: `⌃⇥` / `⌃⇧⇥` (or `⌥⌘←` / `⌥⌘→`, `⇧⌘]` / `⇧⌘[`, `⌃PageUp` / `⌃PageDown`) switch tabs; `⌃1…9` or `⌥⌘1…9` jump directly to tab 1…8 or the last tab (9); `⇧⌘T` reopens closed tabs (up to 25) in their original slot and reading position.
   - **Mission Control**: window titles and represented file icons stay in sync with the active document across macOS Mission Control, App Exposé, Stage Manager and Dock.
   - **Split View**: vertical (left / right) or horizontal (top / bottom) Split View with Swap Sides, Sync Scroll & Zoom, and the Home tab as a picker for the second document.

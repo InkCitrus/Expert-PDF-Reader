@@ -12,16 +12,9 @@ public struct MainWindowView: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var chromeMetrics = WindowChromeMetrics()
     @State private var isDropTargeted = false
-    @State private var windowWidth: CGFloat = 1180
-    @State private var tabHoverPreview: TabHoverPreview?
     private var isDark: Bool { colorScheme == .dark }
 
     public static let tabStripHeight: CGFloat = 40
-
-    struct TabHoverPreview: Equatable {
-        let tabID: UUID
-        let anchorMidX: CGFloat
-    }
 
     public init(store: AppStore, session: ReaderWindowSession? = nil) {
         self.store = store
@@ -35,8 +28,7 @@ public struct MainWindowView: View {
                 store: store,
                 session: session,
                 metrics: chromeMetrics,
-                isDark: isDark,
-                hoverPreview: $tabHoverPreview
+                isDark: isDark
             )
             .frame(height: Self.tabStripHeight)
             .zIndex(2)
@@ -70,31 +62,6 @@ public struct MainWindowView: View {
             }
             .animation(AppAnimation.snappy, value: isDropTargeted)
         }
-        .coordinateSpace(name: "mainWindow")
-        .background(
-            GeometryReader { geo in
-                Color.clear
-                    .onAppear { windowWidth = geo.size.width }
-                    .onChange(of: geo.size.width) { _, newW in windowWidth = newW }
-            }
-        )
-        .overlay(alignment: .topLeading) {
-            if let preview = tabHoverPreview,
-               let tab = session.tabs.first(where: { $0.id == preview.tabID }),
-               case .document(let docState) = tab {
-                TabHoverCardView(state: docState, isDark: isDark)
-                    .fixedSize()
-                    .offset(
-                        x: min(max(12, preview.anchorMidX - 140), max(12, windowWidth - 310)),
-                        y: Self.tabStripHeight + 6
-                    )
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-                    .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .top)))
-                    .zIndex(20)
-            }
-        }
-        .animation(AppAnimation.micro, value: tabHoverPreview)
         .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
             PDFFileDrop.open(providers) { url in
                 store.openDocument(at: url, in: session.id)
@@ -132,25 +99,17 @@ struct TopTabBarView: View {
     @ObservedObject var session: ReaderWindowSession
     let metrics: WindowChromeMetrics
     let isDark: Bool
-    @Binding var hoverPreview: MainWindowView.TabHoverPreview?
 
     @Namespace private var tabBarNamespace
     @State private var hoveredTabID: UUID?
-    @State private var hoveredTabMidX: CGFloat = 0
-    @State private var hoverPreviewTask: Task<Void, Never>?
     @State private var isHomeHovered = false
     @State private var isNewTabHovered = false
     @State private var isAllTabsHovered = false
     @State private var isShortcutsHelpHovered = false
     @State private var allTabsAnchor = NSViewAnchor()
 
-    // Live drag-to-reorder & tear-off-to-window state
     @State private var draggingTabID: UUID?
-    @State private var dragGrabOffset: CGFloat = 0
-    @State private var dragVisualOffset: CGFloat = 0
-    @State private var isTearOffActive: Bool = false
 
-    private static let tearOffVerticalThreshold: CGFloat = 42
     private static let homeTabWidth: CGFloat = 46
     private static let newTabButtonWidth: CGFloat = 36
     private static let allTabsButtonWidth: CGFloat = 30
@@ -223,6 +182,7 @@ struct TopTabBarView: View {
             .frame(height: proxy.size.height)
             .animation(AppAnimation.snappy, value: showsAllTabsMenu)
         }
+        .background(TabStripAnchor(session: session))
         .background(AppPalette.tabStripBackground(isDark))
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Text(L10n.tr("标签栏", "Tab Bar")))
@@ -252,21 +212,11 @@ struct TopTabBarView: View {
                 store.presentShortcutsSheet(in: session.id)
             }
         }
-        .onChange(of: session.selectedTabID) { _, _ in
-            dismissHoverPreview()
-        }
-        .onDisappear {
-            if draggingTabID != nil {
-                TabDragPreviewController.shared.hide()
-            }
-        }
     }
 
     private func documentTabsRow(_ documentTabs: [DocumentTabState], tabWidth: CGFloat) -> some View {
-        let stride = tabWidth + 1
-        return HStack(spacing: 0) {
+        HStack(spacing: 0) {
             ForEach(documentTabs) { state in
-                let isDragging = (draggingTabID == state.id)
                 DocumentTabItemView(
                     store: store,
                     session: session,
@@ -274,197 +224,39 @@ struct TopTabBarView: View {
                     disambiguatedFolder: store.disambiguatedFolder(for: state),
                     documentTabCount: documentTabs.count,
                     isSelected: session.selectedTabID == state.id,
-                    isHovered: hoveredTabID == state.id && draggingTabID == nil,
-                    isDragging: isDragging,
-                    isTearingOff: isDragging && isTearOffActive,
+                    isHovered: hoveredTabID == state.id,
+                    isDragging: draggingTabID == state.id,
                     isDark: isDark,
                     tabBarNamespace: tabBarNamespace,
-                    onHoverChanged: { hovering, frameInWindow in
-                        handleTabHover(tabID: state.id, hovering: hovering, midX: frameInWindow.midX)
+                    onHoverChanged: { hovering in
+                        hoveredTabID = hovering ? state.id : (hoveredTabID == state.id ? nil : hoveredTabID)
                     },
-                    onDragChanged: { value, isOverCloseButton in
-                        handleTabDragChanged(
-                            state: state,
-                            value: value,
-                            isOverCloseButton: isOverCloseButton,
-                            documentTabs: documentTabs,
-                            tabWidth: tabWidth,
-                            stride: stride
-                        )
+                    onDragChanged: { _ in
+                        draggingTabID = state.id
                     },
-                    onDragEnded: {
-                        handleTabDragEnded(tabID: state.id)
+                    onDragEnded: { point in
+                        draggingTabID = nil
+                        guard let point else { return }
+                        if let target = store.dropTargetWindowAndIndex(atScreenPoint: point, excluding: session.id) {
+                            store.moveTab(id: state.id, from: session.id, to: target.session.id,
+                                          atDocumentIndex: target.documentIndex)
+                        } else if session.containsTabStrip(point) {
+                            if let index = session.nearestDocumentIndex(at: point) {
+                                store.moveDocumentTab(id: state.id, toDocumentIndex: index, in: session.id)
+                            }
+                        } else {
+                            if store.canDetachTab(id: state.id, in: session.id) {
+                                store.detachTabToNewWindow(id: state.id, from: session.id, screenDropPoint: point)
+                            } else if !session.isPrimary, let window = session.nsWindow {
+                                window.setFrameTopLeftPoint(NSPoint(x: point.x - 100, y: point.y + 20))
+                            }
+                        }
                     }
                 )
                 .frame(width: tabWidth)
-                .offset(x: isDragging ? dragVisualOffset : 0)
-                .zIndex(isDragging ? 10 : (session.selectedTabID == state.id ? 2 : 0))
                 .id(state.id)
-                .transition(.asymmetric(
-                    insertion: .opacity.combined(with: .scale(scale: 0.94, anchor: .leading)),
-                    removal: .opacity.combined(with: .scale(scale: 0.92))
-                ))
-
                 tabSeparator
-                    .opacity(isDragging ? 0 : 1)
             }
-        }
-        .coordinateSpace(name: "tabStripRow")
-    }
-
-    private func handleTabHover(tabID: UUID, hovering: Bool, midX: CGFloat) {
-        if hovering && draggingTabID == nil {
-            hoveredTabID = tabID
-            hoveredTabMidX = midX
-            scheduleHoverPreview(for: tabID, midX: midX)
-        } else if !hovering && hoveredTabID == tabID {
-            hoveredTabID = nil
-            dismissHoverPreview()
-        }
-    }
-
-    private func scheduleHoverPreview(for tabID: UUID, midX: CGFloat) {
-        hoverPreviewTask?.cancel()
-        hoverPreviewTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 280_000_000)
-            guard !Task.isCancelled, hoveredTabID == tabID, draggingTabID == nil else { return }
-            hoverPreview = MainWindowView.TabHoverPreview(tabID: tabID, anchorMidX: midX)
-        }
-    }
-
-    private func dismissHoverPreview() {
-        hoverPreviewTask?.cancel()
-        hoverPreviewTask = nil
-        if hoverPreview != nil {
-            hoverPreview = nil
-        }
-    }
-
-    private func handleTabDragChanged(
-        state: DocumentTabState,
-        value: DragGesture.Value,
-        isOverCloseButton: Bool,
-        documentTabs: [DocumentTabState],
-        tabWidth: CGFloat,
-        stride: CGFloat
-    ) {
-        if draggingTabID != state.id {
-            guard !isOverCloseButton,
-                  let initialIdx = documentTabs.firstIndex(where: { $0.id == state.id }) else { return }
-            dismissHoverPreview()
-            store.activateWindowSession(session.id)
-            if session.selectedTabID != state.id {
-                session.selectedTabID = state.id
-            }
-            let initialLeftX = CGFloat(initialIdx) * stride
-            dragGrabOffset = min(max(0, value.startLocation.x - initialLeftX), tabWidth)
-            draggingTabID = state.id
-            isTearOffActive = false
-        }
-
-        let verticalDelta = abs(value.location.y - MainWindowView.tabStripHeight * 0.5)
-        let tornOff = verticalDelta > Self.tearOffVerticalThreshold
-
-        if tornOff {
-            if !isTearOffActive {
-                withAnimation(AppAnimation.micro) {
-                    isTearOffActive = true
-                    dragVisualOffset = 0
-                }
-            }
-            let screenPoint = NSEvent.mouseLocation
-            let mergeTarget = store.dropTargetWindowAndIndex(atScreenPoint: screenPoint, excluding: session.id)
-            if mergeTarget != nil {
-                TabDragPreviewController.shared.update(
-                    at: screenPoint,
-                    title: state.title,
-                    style: .mergeIntoWindow,
-                    isDark: isDark
-                )
-            } else if store.canDetachTab(id: state.id, in: session.id) || !session.isPrimary {
-                TabDragPreviewController.shared.update(
-                    at: screenPoint,
-                    title: state.title,
-                    style: .detachToNewWindow,
-                    isDark: isDark
-                )
-            } else {
-                TabDragPreviewController.shared.hide()
-            }
-            return
-        }
-
-        if isTearOffActive {
-            TabDragPreviewController.shared.hide()
-            withAnimation(AppAnimation.micro) {
-                isTearOffActive = false
-            }
-        }
-
-        guard documentTabs.count > 1 else {
-            dragVisualOffset = max(-24, min(24, (value.location.x - value.startLocation.x) * 0.35))
-            return
-        }
-
-        guard let currentIdx = documentTabs.firstIndex(where: { $0.id == state.id }) else { return }
-        let maxLeftX = CGFloat(max(0, documentTabs.count - 1)) * stride
-        let clampedLeftX = min(max(0, value.location.x - dragGrabOffset), maxLeftX)
-        let centerX = clampedLeftX + tabWidth * 0.5
-        let targetIdx = min(max(0, Int((centerX / stride).rounded(.down))), documentTabs.count - 1)
-
-        if targetIdx != currentIdx {
-            withAnimation(AppAnimation.tab) {
-                store.moveDocumentTab(id: state.id, toDocumentIndex: targetIdx, in: session.id)
-                dragVisualOffset = clampedLeftX - CGFloat(targetIdx) * stride
-            }
-        } else {
-            dragVisualOffset = clampedLeftX - CGFloat(currentIdx) * stride
-        }
-    }
-
-    private func handleTabDragEnded(tabID: UUID) {
-        guard draggingTabID == tabID else { return }
-        let wasTearOff = isTearOffActive
-        let screenPoint = NSEvent.mouseLocation
-        TabDragPreviewController.shared.hide()
-
-        withAnimation(AppAnimation.tab) {
-            dragVisualOffset = 0
-            draggingTabID = nil
-            isTearOffActive = false
-        }
-
-        guard wasTearOff else { return }
-        if let target = store.dropTargetWindowAndIndex(atScreenPoint: screenPoint, excluding: session.id) {
-            store.moveTab(
-                id: tabID,
-                from: session.id,
-                to: target.session.id,
-                atDocumentIndex: target.documentIndex
-            )
-        } else if store.canDetachTab(id: tabID, in: session.id) {
-            store.detachTabToNewWindow(
-                id: tabID,
-                from: session.id,
-                screenDropPoint: screenPoint
-            )
-        } else if !session.isPrimary, session.tabs.count == 1, let win = session.nsWindow {
-            let visibleFrame = (
-                NSScreen.screens.first { NSMouseInRect(screenPoint, $0.frame, false) }
-                    ?? win.screen
-                    ?? NSScreen.main
-            )?.visibleFrame
-            let size = win.frame.size
-            var newOrigin = NSPoint(
-                x: screenPoint.x - min(180, size.width * 0.25),
-                y: screenPoint.y - size.height + MainWindowView.tabStripHeight * 0.5
-            )
-            if let vf = visibleFrame {
-                newOrigin.x = min(max(vf.minX, newOrigin.x), vf.maxX - size.width)
-                newOrigin.y = min(max(vf.minY, newOrigin.y), vf.maxY - size.height)
-            }
-            win.setFrameOrigin(newOrigin)
-            win.makeKeyAndOrderFront(nil)
         }
     }
 
@@ -506,9 +298,6 @@ struct TopTabBarView: View {
         .accessibilityAddTraits(isHomeSelected ? .isSelected : [])
         .onHover { hovering in
             isHomeHovered = hovering
-            if hovering {
-                dismissHoverPreview()
-            }
         }
     }
 
@@ -536,7 +325,6 @@ struct TopTabBarView: View {
         .accessibilityLabel(Text(L10n.tr("打开 PDF 文档", "Open PDF Document")))
         .onHover { hovering in
             isNewTabHovered = hovering
-            if hovering { dismissHoverPreview() }
         }
     }
 
@@ -564,13 +352,11 @@ struct TopTabBarView: View {
         .accessibilityLabel(Text(L10n.tr("所有标签页", "All Tabs")))
         .onHover { hovering in
             isAllTabsHovered = hovering
-            if hovering { dismissHoverPreview() }
         }
     }
 
     private var shortcutsHelpButton: some View {
         Button {
-            dismissHoverPreview()
             store.activateWindowSession(session.id)
             store.presentShortcutsSheet(in: session.id)
         } label: {
@@ -593,12 +379,10 @@ struct TopTabBarView: View {
         .accessibilityLabel(Text(L10n.tr("快捷键与技巧", "Shortcuts & Tips")))
         .onHover { hovering in
             isShortcutsHelpHovered = hovering
-            if hovering { dismissHoverPreview() }
         }
     }
 
     private func presentAllTabsMenu() {
-        dismissHoverPreview()
         var items: [NativeMenuItem] = []
         let total = session.tabs.count
         for (idx, tab) in session.tabs.enumerated() {
@@ -669,15 +453,13 @@ struct DocumentTabItemView: View {
     let isSelected: Bool
     let isHovered: Bool
     let isDragging: Bool
-    let isTearingOff: Bool
     let isDark: Bool
     let tabBarNamespace: Namespace.ID
-    let onHoverChanged: (Bool, CGRect) -> Void
-    let onDragChanged: (DragGesture.Value, Bool) -> Void
-    let onDragEnded: () -> Void
+    let onHoverChanged: (Bool) -> Void
+    let onDragChanged: (NSPoint) -> Void
+    let onDragEnded: (NSPoint?) -> Void
 
     @State private var isCloseHovered = false
-    @State private var windowFrame: CGRect = .zero
 
     private var showsCloseButton: Bool {
         isSelected || isHovered
@@ -747,58 +529,21 @@ struct DocumentTabItemView: View {
                     .matchedGeometryEffect(id: "activeTabAccent", in: tabBarNamespace)
             }
         }
-        .shadow(
-            color: Color.black.opacity(isDragging && !isTearingOff ? (isDark ? 0.48 : 0.18) : 0),
-            radius: isDragging && !isTearingOff ? 8 : 0,
-            x: 0,
-            y: isDragging && !isTearingOff ? 2 : 0
-        )
-        .opacity(isTearingOff ? 0.52 : 1.0)
-        .scaleEffect(isTearingOff ? 0.96 : (isDragging ? 1.015 : 1.0))
-        .animation(AppAnimation.micro, value: isHovered)
-        .animation(AppAnimation.micro, value: isDragging)
-        .animation(AppAnimation.micro, value: isTearingOff)
-        .background(
-            GeometryReader { geo in
-                let frame = geo.frame(in: .named("mainWindow"))
-                Color.clear
-                    .onAppear { windowFrame = frame }
-                    .onChange(of: frame) { _, newFrame in windowFrame = newFrame }
-            }
-        )
+        .opacity(isDragging ? 0.7 : 1)
+        .overlay {
+            TabInteractionArea(session: session, tabID: state.id, toolTip: state.documentID.url.path, onSelect: selectTab,
+                               onDragChanged: onDragChanged, onDragEnded: onDragEnded)
+                .padding(.trailing, showsCloseButton ? 30 : 0)
+        }
         .contentShape(Rectangle())
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Text(disambiguatedFolder.map { "\(state.title) — \($0)" } ?? state.title))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .accessibilityAction {
-            store.activateWindowSession(session.id)
-            if session.selectedTabID != state.id {
-                withAnimation(AppAnimation.tab) {
-                    session.selectedTabID = state.id
-                }
-            }
-        }
+        .accessibilityAction { selectTab() }
         .onHover { hovering in
             if !hovering { isCloseHovered = false }
-            onHoverChanged(hovering, windowFrame)
+            onHoverChanged(hovering)
         }
-        .onTapGesture {
-            store.activateWindowSession(session.id)
-            if session.selectedTabID != state.id {
-                withAnimation(AppAnimation.tab) {
-                    session.selectedTabID = state.id
-                }
-            }
-        }
-        .gesture(
-            DragGesture(minimumDistance: 5, coordinateSpace: .named("tabStripRow"))
-                .onChanged { value in
-                    onDragChanged(value, isCloseHovered)
-                }
-                .onEnded { _ in
-                    onDragEnded()
-                }
-        )
         .contextMenu {
             Button(L10n.tr("将标签移至新窗口", "Move Tab to New Window")) {
                 store.detachTabToNewWindow(id: state.id, from: session.id)
@@ -835,60 +580,10 @@ struct DocumentTabItemView: View {
             }
         }
     }
-}
 
-// MARK: - TabHoverCardView (Fast Untruncated Tab Preview)
-
-private struct TabHoverCardView: View {
-    @ObservedObject var state: DocumentTabState
-    let isDark: Bool
-
-    private var abbreviatedFolderPath: String {
-        let dir = state.documentID.url.deletingLastPathComponent().path
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        if dir == home { return "~" }
-        if dir.hasPrefix(home + "/") {
-            return "~" + String(dir.dropFirst(home.count))
-        }
-        return dir
+    private func selectTab() {
+        store.activateWindowSession(session.id)
+        session.selectedTabID = state.id
     }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(state.title)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(AppPalette.labelPrimary(isDark))
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack(spacing: 6) {
-                Image(systemName: "folder")
-                    .font(.system(size: 10, weight: .medium))
-                Text(abbreviatedFolderPath)
-                    .font(.system(size: 11))
-                    .lineLimit(1)
-                    .truncationMode(.head)
-
-                Spacer(minLength: 8)
-
-                Text("\(state.displayPageNumber(at: state.currentPageIndex)) / \(state.pageCount)")
-                    .font(.system(size: 11, weight: .medium))
-                    .monospacedDigit()
-                    .foregroundColor(AppPalette.accentBlue)
-            }
-            .foregroundColor(AppPalette.labelTertiary(isDark))
-        }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 8)
-        .frame(minWidth: 220, maxWidth: 340, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(AppPalette.floatingTooltipBackground(isDark))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(AppPalette.floatingTooltipBorder(isDark), lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(isDark ? 0.45 : 0.14), radius: 10, x: 0, y: 4)
-    }
 }

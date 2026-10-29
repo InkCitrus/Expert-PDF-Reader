@@ -112,6 +112,7 @@ public struct PDFReaderView: View {
             isAutoScaling: tab.isAutoScaling,
             layoutToken: tab.clearMarginsLayoutToken,
             readingSpot: tab.readingSpotBeforeCropChange,
+            initialReadingSpot: tab.readingSpot,
             onAutoScalesChange: { autoScales in
                 tab.updateAutoScalingFromView(autoScales)
             },
@@ -123,9 +124,6 @@ public struct PDFReaderView: View {
             },
             onReadingSpotChange: { spot in
                 tab.readingSpot = spot
-            },
-            pageLabelProvider: { idx in
-                tab.displayPageNumber(at: idx)
             }
         )
         .overlay(alignment: .bottomTrailing) {
@@ -250,6 +248,7 @@ public struct PDFReaderView: View {
                     isAutoScaling: tab.secondaryIsAutoScaling,
                     layoutToken: tab.clearMarginsLayoutToken,
                     readingSpot: tab.secondaryReadingSpotBeforeCropChange,
+                    initialReadingSpot: tab.secondaryReadingSpot,
                     handlesUnfocusedArrowKeys: false,
                     onAutoScalesChange: { autoScales in
                         if tab.secondaryIsAutoScaling != autoScales {
@@ -265,12 +264,6 @@ public struct PDFReaderView: View {
                     },
                     onReadingSpotChange: { spot in
                         tab.secondaryReadingSpot = spot
-                    },
-                    pageLabelProvider: { idx in
-                        if secDoc === tab.pdfDocument {
-                            return tab.displayPageNumber(at: idx)
-                        }
-                        return secDoc.page(at: idx)?.printedNumber ?? "\(idx + 1)"
                     }
                 )
             } else {

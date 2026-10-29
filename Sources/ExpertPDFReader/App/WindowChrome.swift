@@ -1,5 +1,4 @@
 import AppKit
-import ObjectiveC.runtime
 import SwiftUI
 
 /// Metrics published by `WindowChromeConfigurator` so the tab strip can make room for the traffic lights.
@@ -110,7 +109,6 @@ final class WindowChromeView: NSView {
         super.viewDidMoveToWindow()
         removeObservers()
         guard let window else { return }
-        ReaderScrollAXHitTestInstaller.installIfNeeded()
         Self.readerWindow = window
         Self.readerWindows.add(window)
         onWindowAttached?(window)
@@ -261,30 +259,6 @@ private final class WindowDragView: NSView {
         false
     }
 
-    override func accessibilityHitTest(_ point: NSPoint) -> Any? {
-        var ancestor = superview
-        while let view = ancestor {
-            if let children = view.accessibilityChildren(), !children.isEmpty {
-                for child in children {
-                    let anyChild = child as AnyObject
-                    let frame: NSRect
-                    if let proto = child as? NSAccessibilityProtocol {
-                        frame = proto.accessibilityFrame()
-                    } else if anyChild.responds(to: NSSelectorFromString("accessibilityFrame")) {
-                        frame = anyChild.accessibilityFrame()
-                    } else {
-                        continue
-                    }
-                    if frame.contains(point) {
-                        return child
-                    }
-                }
-            }
-            ancestor = view.superview
-        }
-        return super.accessibilityHitTest(point)
-    }
-
     override func mouseDown(with event: NSEvent) {
         guard let window else { return }
         if event.clickCount == 2 {
@@ -300,127 +274,5 @@ private final class WindowDragView: NSView {
         } else {
             window.performDrag(with: event)
         }
-    }
-}
-
-// MARK: - SwiftUI ScrollView Accessibility Hit-Test Bridge
-
-/// On macOS, SwiftUI's `ScrollView` (`HostingScrollView`) wraps its content in non-accessibility `NSView`
-/// containers (`HostingClipView` -> `DocumentView` -> `PlatformGroupContainer`), so `-[NSWindow accessibilityHitTest:]`
-/// walks `NSAccessibilityUnignoredAncestor` up to `HostingScrollView` (`AXScrollArea`) and stops there without
-/// descending into `HostingScrollView.accessibilityChildren()`. That prevented screenshot tools from snap-selecting
-/// individual cards, buttons, thumbnails, outline rows, or sections inside any SwiftUI `ScrollView`.
-enum ReaderScrollAXHitTestInstaller {
-    private static var installed = false
-    private typealias AXHitTestIMP = @convention(c) (AnyObject, Selector, NSPoint) -> AnyObject?
-    nonisolated(unsafe) private static var originalIMP: AXHitTestIMP?
-
-    @MainActor
-    static func installIfNeeded() {
-        guard !installed else { return }
-        installed = true
-
-        let sel = #selector(NSWindow.accessibilityHitTest(_:))
-        guard let method = class_getInstanceMethod(NSWindow.self, sel) else { return }
-        let orig = method_getImplementation(method)
-        originalIMP = unsafeBitCast(orig, to: AXHitTestIMP.self)
-
-        let block: @convention(block) (AnyObject, NSPoint) -> AnyObject? = { obj, point in
-            guard let win = obj as? NSWindow,
-                  let origFn = ReaderScrollAXHitTestInstaller.originalIMP else {
-                return nil
-            }
-            let rawHit = origFn(obj, sel, point)
-            guard WindowChromeView.isReaderWindow(win) || WindowChromeView.isReaderWindow(win.sheetParent),
-                  let scrollView = rawHit as? NSScrollView else {
-                return rawHit
-            }
-
-            // SwiftUI lazily populates `HostingScrollView.accessibilityChildren()` once its enclosing
-            // `NSHostingView`'s accessibility children have been queried at least once.
-            if (scrollView.accessibilityChildren() ?? []).isEmpty {
-                var ancestors: [NSView] = []
-                var cur = scrollView.superview
-                while let v = cur {
-                    ancestors.append(v)
-                    cur = v.superview
-                }
-                for anc in ancestors.reversed() {
-                    _ = anc.accessibilityChildren()
-                }
-            }
-
-            let viewport = scrollView.accessibilityFrame()
-            guard viewport.width >= 2, viewport.height >= 2, viewport.contains(point) else {
-                return rawHit
-            }
-
-            if let resolved = Self.resolveDeepestChild(in: scrollView, at: point, clipRect: viewport, depth: 0) {
-                return resolved as AnyObject
-            }
-            return rawHit
-        }
-
-        method_setImplementation(method, imp_implementationWithBlock(block))
-    }
-
-    private static func resolveDeepestChild(in root: Any, at point: NSPoint, clipRect: NSRect, depth: Int) -> Any? {
-        guard depth <= 12 else { return nil }
-        let anyObj = root as AnyObject
-        let children: [Any] = {
-            if let proto = root as? NSAccessibilityProtocol { return proto.accessibilityChildren() ?? [] }
-            if anyObj.responds(to: NSSelectorFromString("accessibilityChildren")) {
-                return anyObj.accessibilityChildren() ?? []
-            }
-            return []
-        }()
-        guard !children.isEmpty else { return nil }
-
-        var bestMatch: (node: Any, area: CGFloat)?
-        for child in children {
-            let childAny = child as AnyObject
-            let role: String? = (child as? NSAccessibilityProtocol)?.accessibilityRole()?.rawValue
-                ?? (childAny.responds(to: NSSelectorFromString("accessibilityRole")) ? childAny.accessibilityRole()?.rawValue : nil)
-            if role == NSAccessibility.Role.scrollBar.rawValue {
-                continue
-            }
-
-            let rawFrame: NSRect = {
-                if let proto = child as? NSAccessibilityProtocol { return proto.accessibilityFrame() }
-                if childAny.responds(to: NSSelectorFromString("accessibilityFrame")) {
-                    return childAny.accessibilityFrame()
-                }
-                return .zero
-            }()
-
-            let visible = rawFrame.intersection(clipRect)
-            guard !visible.isNull, visible.width >= 2, visible.height >= 2, visible.contains(point) else {
-                continue
-            }
-
-            let candidate: Any
-            let candidateArea: CGFloat
-            if let deeper = resolveDeepestChild(in: child, at: point, clipRect: visible, depth: depth + 1) {
-                let dAny = deeper as AnyObject
-                let df: NSRect = {
-                    if let proto = deeper as? NSAccessibilityProtocol { return proto.accessibilityFrame() }
-                    if dAny.responds(to: NSSelectorFromString("accessibilityFrame")) {
-                        return dAny.accessibilityFrame()
-                    }
-                    return visible
-                }()
-                let dv = df.intersection(clipRect)
-                candidate = deeper
-                candidateArea = max(1, dv.width * dv.height)
-            } else {
-                candidate = child
-                candidateArea = max(1, visible.width * visible.height)
-            }
-
-            if bestMatch == nil || candidateArea <= bestMatch!.area {
-                bestMatch = (candidate, candidateArea)
-            }
-        }
-        return bestMatch?.node
     }
 }

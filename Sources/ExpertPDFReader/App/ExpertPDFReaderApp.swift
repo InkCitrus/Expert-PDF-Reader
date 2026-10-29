@@ -147,7 +147,7 @@ public final class ExpertPDFReaderAppDelegate: NSObject, NSApplicationDelegate {
                 if let miniaturized = store.allWindowSessions.compactMap(\.nsWindow).first(where: \.isMiniaturized) {
                     miniaturized.deminiaturize(nil)
                 } else {
-                    _ = store.openNewWindow()
+                    store.ensureSessionWindowVisible(store.primarySession)
                 }
             }
         }

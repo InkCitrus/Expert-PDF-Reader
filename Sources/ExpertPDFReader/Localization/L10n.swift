@@ -444,6 +444,7 @@ public enum L10n {
             "密码不正确，请重试。|||The password is incorrect. Try again.": "密碼不正確，請再試一次。",
             "文件可能已损坏，或不是 PDF 文档。|||The file may be damaged or isn't a PDF document.": "檔案可能已損毀，或不是 PDF 文件。",
             "找不到该文件，它可能已被移动或删除。|||The file can't be found. It may have been moved or deleted.": "找不到該檔案，它可能已被移動或刪除。",
+            "输入书籍页码，或输入 (n) 跳至第 n 页|||Enter Book Page, or (n) for PDF Page n": "輸入書籍頁碼，或輸入 (n) 跳至第 n 頁",
         ],
         "ja": [
             "重新打开关闭的标签|||Reopen Closed Tab": "閉じたタブを再度開く",
@@ -601,6 +602,7 @@ public enum L10n {
             "密码不正确，请重试。|||The password is incorrect. Try again.": "パスワードが正しくありません。もう一度お試しください。",
             "文件可能已损坏，或不是 PDF 文档。|||The file may be damaged or isn't a PDF document.": "ファイルが破損しているか、PDF ドキュメントではない可能性があります。",
             "找不到该文件，它可能已被移动或删除。|||The file can't be found. It may have been moved or deleted.": "ファイルが見つかりません。移動または削除された可能性があります。",
+            "输入书籍页码，或输入 (n) 跳至第 n 页|||Enter Book Page, or (n) for PDF Page n": "書籍のページ番号、または (n) で PDF の n ページ目へ移動",
         ],
         "ko": [
             "重新打开关闭的标签|||Reopen Closed Tab": "닫은 탭 다시 열기",
@@ -758,6 +760,7 @@ public enum L10n {
             "密码不正确，请重试。|||The password is incorrect. Try again.": "암호가 올바르지 않습니다. 다시 시도하십시오.",
             "文件可能已损坏，或不是 PDF 文档。|||The file may be damaged or isn't a PDF document.": "파일이 손상되었거나 PDF 문서가 아닐 수 있습니다.",
             "找不到该文件，它可能已被移动或删除。|||The file can't be found. It may have been moved or deleted.": "파일을 찾을 수 없습니다. 이동되었거나 삭제되었을 수 있습니다.",
+            "输入书籍页码，或输入 (n) 跳至第 n 页|||Enter Book Page, or (n) for PDF Page n": "책 페이지 번호 입력, 또는 (n)으로 PDF n번째 페이지 이동",
         ],
         "fr": [
             "重新打开关闭的标签|||Reopen Closed Tab": "Rouvrir l’onglet fermé",
@@ -915,6 +918,7 @@ public enum L10n {
             "密码不正确，请重试。|||The password is incorrect. Try again.": "Le mot de passe est incorrect. Réessayez.",
             "文件可能已损坏，或不是 PDF 文档。|||The file may be damaged or isn't a PDF document.": "Le fichier est peut-être endommagé ou n’est pas un document PDF.",
             "找不到该文件，它可能已被移动或删除。|||The file can't be found. It may have been moved or deleted.": "Le fichier est introuvable. Il a peut-être été déplacé ou supprimé.",
+            "输入书籍页码，或输入 (n) 跳至第 n 页|||Enter Book Page, or (n) for PDF Page n": "Entrez la page du livre, ou (n) pour la page PDF n",
         ],
         "de": [
             "重新打开关闭的标签|||Reopen Closed Tab": "Geschlossenen Tab wieder öffnen",
@@ -1072,6 +1076,7 @@ public enum L10n {
             "密码不正确，请重试。|||The password is incorrect. Try again.": "Das Passwort ist falsch. Versuchen Sie es erneut.",
             "文件可能已损坏，或不是 PDF 文档。|||The file may be damaged or isn't a PDF document.": "Die Datei ist möglicherweise beschädigt oder kein PDF-Dokument.",
             "找不到该文件，它可能已被移动或删除。|||The file can't be found. It may have been moved or deleted.": "Die Datei wurde nicht gefunden. Sie wurde möglicherweise verschoben oder gelöscht.",
+            "输入书籍页码，或输入 (n) 跳至第 n 页|||Enter Book Page, or (n) for PDF Page n": "Buchseite eingeben, oder (n) für PDF-Seite n",
         ],
         "es": [
             "重新打开关闭的标签|||Reopen Closed Tab": "Reabrir pestaña cerrada",
@@ -1229,6 +1234,7 @@ public enum L10n {
             "密码不正确，请重试。|||The password is incorrect. Try again.": "La contraseña no es correcta. Inténtalo de nuevo.",
             "文件可能已损坏，或不是 PDF 文档。|||The file may be damaged or isn't a PDF document.": "Es posible que el archivo esté dañado o que no sea un documento PDF.",
             "找不到该文件，它可能已被移动或删除。|||The file can't be found. It may have been moved or deleted.": "No se encuentra el archivo. Es posible que se haya movido o eliminado.",
+            "输入书籍页码，或输入 (n) 跳至第 n 页|||Enter Book Page, or (n) for PDF Page n": "Introduzca la página del libro o (n) para la página PDF n",
         ],
         "it": [
             "重新打开关闭的标签|||Reopen Closed Tab": "Riapri scheda chiusa",
@@ -1386,6 +1392,7 @@ public enum L10n {
             "密码不正确，请重试。|||The password is incorrect. Try again.": "La password non è corretta. Riprova.",
             "文件可能已损坏，或不是 PDF 文档。|||The file may be damaged or isn't a PDF document.": "Il file potrebbe essere danneggiato o non essere un documento PDF.",
             "找不到该文件，它可能已被移动或删除。|||The file can't be found. It may have been moved or deleted.": "Impossibile trovare il file. Potrebbe essere stato spostato o eliminato.",
+            "输入书籍页码，或输入 (n) 跳至第 n 页|||Enter Book Page, or (n) for PDF Page n": "Inserisci la pagina del libro o (n) per la pagina PDF n",
         ],
         "pt": [
             "重新打开关闭的标签|||Reopen Closed Tab": "Reabrir aba fechada",
@@ -1543,6 +1550,7 @@ public enum L10n {
             "密码不正确，请重试。|||The password is incorrect. Try again.": "A senha está incorreta. Tente novamente.",
             "文件可能已损坏，或不是 PDF 文档。|||The file may be damaged or isn't a PDF document.": "O arquivo pode estar danificado ou não ser um documento PDF.",
             "找不到该文件，它可能已被移动或删除。|||The file can't be found. It may have been moved or deleted.": "Não foi possível encontrar o arquivo. Ele pode ter sido movido ou apagado.",
+            "输入书籍页码，或输入 (n) 跳至第 n 页|||Enter Book Page, or (n) for PDF Page n": "Digite a página do livro ou (n) para a página PDF n",
         ],
         "ru": [
             "重新打开关闭的标签|||Reopen Closed Tab": "Открыть закрытую вкладку",
@@ -1700,6 +1708,7 @@ public enum L10n {
             "密码不正确，请重试。|||The password is incorrect. Try again.": "Неверный пароль. Повторите попытку.",
             "文件可能已损坏，或不是 PDF 文档。|||The file may be damaged or isn't a PDF document.": "Возможно, файл поврежден или не является документом PDF.",
             "找不到该文件，它可能已被移动或删除。|||The file can't be found. It may have been moved or deleted.": "Файл не найден. Возможно, он был перемещен или удален.",
+            "输入书籍页码，或输入 (n) 跳至第 n 页|||Enter Book Page, or (n) for PDF Page n": "Введите страницу книги или (n) для страницы PDF n",
         ],
         "uk": [
             "重新打开关闭的标签|||Reopen Closed Tab": "Відкрити закриту вкладку",
@@ -1857,6 +1866,7 @@ public enum L10n {
             "密码不正确，请重试。|||The password is incorrect. Try again.": "Неправильний пароль. Спробуйте ще раз.",
             "文件可能已损坏，或不是 PDF 文档。|||The file may be damaged or isn't a PDF document.": "Можливо, файл пошкоджено або це не документ PDF.",
             "找不到该文件，它可能已被移动或删除。|||The file can't be found. It may have been moved or deleted.": "Файл не знайдено. Можливо, його переміщено або видалено.",
+            "输入书籍页码，或输入 (n) 跳至第 n 页|||Enter Book Page, or (n) for PDF Page n": "Введіть сторінку книги або (n) для сторінки PDF n",
         ],
     ]
 }

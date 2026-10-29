@@ -51,6 +51,12 @@ public struct HomeTabRootView: View {
                     .transition(.opacity)
             }
         }
+        .onAppear {
+            store.pruneMissingDocuments()
+        }
+        .onChange(of: store.homeCurrentPage) { _, _ in
+            store.pruneMissingDocuments()
+        }
         .onDrop(of: [.fileURL, .pdf], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)
         }

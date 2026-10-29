@@ -108,9 +108,7 @@ public struct PDFReaderView: View {
             layoutToken: tab.clearMarginsLayoutToken,
             readingSpot: tab.readingSpotBeforeCropChange,
             onAutoScalesChange: { autoScales in
-                if tab.isAutoScaling != autoScales {
-                    tab.isAutoScaling = autoScales
-                }
+                tab.updateAutoScalingFromView(autoScales)
             },
             onStepPage: { delta in
                 tab.navigateToPage(tab.currentPageIndex + delta)
@@ -233,9 +231,15 @@ public struct PDFReaderView: View {
                     isClearMarginsEnabled: tab.isClearMarginsEnabled,
                     pdfTheme: store.resolvedPDFTheme(isDark: isDark),
                     isDarkUI: isDark,
+                    isAutoScaling: tab.secondaryIsAutoScaling,
                     layoutToken: tab.clearMarginsLayoutToken,
                     readingSpot: tab.secondaryReadingSpotBeforeCropChange,
                     handlesUnfocusedArrowKeys: false,
+                    onAutoScalesChange: { autoScales in
+                        if tab.secondaryIsAutoScaling != autoScales {
+                            tab.secondaryIsAutoScaling = autoScales
+                        }
+                    },
                     onStepPage: { delta in
                         let clamped = max(0, min(max(0, secDoc.pageCount - 1), tab.secondaryPageIndex + delta))
                         tab.secondaryPageIndex = clamped

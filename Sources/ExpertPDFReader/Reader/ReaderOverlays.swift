@@ -277,16 +277,23 @@ struct PageIndicatorOverlay: View {
             hideTask?.cancel()
         }
         .popover(isPresented: $showGoToPage, arrowEdge: .top) {
-            HStack(spacing: 8) {
-                Text(L10n.tr("前往页码", "Go to Page"))
-                    .font(.system(size: 12))
-                TextField(goToPagePlaceholder, text: $goToPageInput)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 64)
-                    .onSubmit(commitGoToPage)
-                Button(L10n.tr("前往", "Go"), action: commitGoToPage)
-                    .keyboardShortcut(.defaultAction)
-                    .controlSize(.small)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Text(L10n.tr("前往页码", "Go to Page"))
+                        .font(.system(size: 12))
+                    TextField(goToPagePlaceholder, text: $goToPageInput)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 84)
+                        .onSubmit(commitGoToPage)
+                    Button(L10n.tr("前往", "Go"), action: commitGoToPage)
+                        .keyboardShortcut(.defaultAction)
+                        .controlSize(.small)
+                }
+                if hasPrintedPageNumbers {
+                    Text(L10n.tr("输入书籍页码，或输入 (n) 跳至第 n 页", "Enter Book Page, or (n) for PDF Page n"))
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                }
             }
             .padding(12)
         }
@@ -304,8 +311,14 @@ struct PageIndicatorOverlay: View {
 
     private var goToPagePlaceholder: String {
         let indices = 0..<tab.pageCount
-        guard hasPrintedPageNumbers,
-              let first = indices.lazy.compactMap({ tab.printedNumber(at: $0) }).first,
+        guard hasPrintedPageNumbers else {
+            return "1–\(tab.pageCount)"
+        }
+        if let firstArabic = indices.lazy.compactMap({ tab.printedNumber(at: $0) }).first(where: { Int($0) != nil }),
+           let lastArabic = indices.reversed().lazy.compactMap({ tab.printedNumber(at: $0) }).first(where: { Int($0) != nil }) {
+            return "\(firstArabic)–\(lastArabic)"
+        }
+        guard let first = indices.lazy.compactMap({ tab.printedNumber(at: $0) }).first,
               let last = indices.reversed().lazy.compactMap({ tab.printedNumber(at: $0) }).first else {
             return "1–\(tab.pageCount)"
         }

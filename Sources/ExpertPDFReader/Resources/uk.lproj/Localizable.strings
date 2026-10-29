@@ -309,3 +309,5 @@
 "Right to Left" = "Справа наліво";
 "重新打开关闭的标签|||Reopen Closed Tab" = "Відкрити закриту вкладку";
 "Reopen Closed Tab" = "Відкрити закриту вкладку";
+"输入书籍页码，或输入 (n) 跳至第 n 页|||Enter Book Page, or (n) for PDF Page n" = "Введіть сторінку книги або (n) для сторінки PDF n";
+"Enter Book Page, or (n) for PDF Page n" = "Введіть сторінку книги або (n) для сторінки PDF n";

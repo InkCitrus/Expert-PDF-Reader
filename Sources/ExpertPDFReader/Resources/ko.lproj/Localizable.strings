@@ -309,3 +309,5 @@
 "Right to Left" = "오른쪽에서 왼쪽";
 "重新打开关闭的标签|||Reopen Closed Tab" = "닫은 탭 다시 열기";
 "Reopen Closed Tab" = "닫은 탭 다시 열기";
+"输入书籍页码，或输入 (n) 跳至第 n 页|||Enter Book Page, or (n) for PDF Page n" = "책 페이지 번호 입력, 또는 (n)으로 PDF n번째 페이지 이동";
+"Enter Book Page, or (n) for PDF Page n" = "책 페이지 번호 입력, 또는 (n)으로 PDF n번째 페이지 이동";

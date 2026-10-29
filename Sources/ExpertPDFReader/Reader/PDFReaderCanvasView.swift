@@ -109,8 +109,11 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
 
         // Reopen where the document was left (see `AppStore.openDocument` / `DocumentTabState.restore`).
         // The zoom is applied once the view has a size: before that PDFKit clamps it to its minimum.
+        pdfView.wantsAutoScales = isAutoScaling
         if !isAutoScaling {
+            pdfView.isApplyingConfiguration = true
             pdfView.autoScales = false
+            pdfView.isApplyingConfiguration = false
             pdfView.pendingInitialScale = max(0.1, min(10, zoomScale))
         }
         if currentPageIndex > 0, let page = pdfDocument.page(at: currentPageIndex) {
@@ -132,14 +135,25 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         context.coordinator.parent = self
 
         if pdfView.document !== pdfDocument {
+            let themed = pdfView as? ThemedPDFView
+            themed?.isApplyingConfiguration = true
             pdfView.document = pdfDocument
-            pdfView.autoScales = true
+            themed?.wantsAutoScales = isAutoScaling
+            pdfView.autoScales = isAutoScaling
+            if !isAutoScaling {
+                pdfView.scaleFactor = max(0.1, min(10, zoomScale))
+            }
+            themed?.isApplyingConfiguration = false
         }
 
         applyConfiguration(to: pdfView, coordinator: context.coordinator)
     }
 
     private func applyConfiguration(to pdfView: PDFView, coordinator: Coordinator) {
+        let themedView = pdfView as? ThemedPDFView
+        themedView?.isApplyingConfiguration = true
+        defer { themedView?.isApplyingConfiguration = false }
+
         // 1. Display Layout Mode & Display Box (Clear Margins)
         let targetDisplayMode: PDFDisplayMode
         let targetDisplaysAsBook: Bool
@@ -166,7 +180,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         if layoutChanged {
             let isInitialLayout = !coordinator.hasAppliedLayout
             coordinator.hasAppliedLayout = true
-            let wasAutoScaling = pdfView.autoScales
+            let wasAutoScaling = isInitialLayout ? isAutoScaling : pdfView.autoScales
             let pageModeChanged = pdfView.displayMode != targetDisplayMode || pdfView.displaysAsBook != targetDisplaysAsBook
             // Captured before the change: after a display box change `pdfView.currentPage` still names the old
             // page while the same scroll offset already shows an earlier (taller) or later (shorter) one
@@ -195,6 +209,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
             // the first layout keeps the zoom a document reopens with
             let refitsWidth = pageModeChanged && !isInitialLayout
             if wasAutoScaling || refitsWidth {
+                themedView?.wantsAutoScales = true
                 pdfView.autoScales = true
             }
             if let savedDestination {
@@ -259,7 +274,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                pdfView.currentPage !== targetPage {
                 pdfView.go(to: targetPage)
             }
-        } else if let current = pdfView.currentPage {
+        } else if let current = pdfView.currentPage, Coordinator.isLive(pdfView) {
             let actualIdx = pdfDocument.index(for: current)
             if actualIdx != currentPageIndex && actualIdx >= 0 && actualIdx < pdfDocument.pageCount {
                 if let targetPage = pdfDocument.page(at: currentPageIndex) {
@@ -274,17 +289,22 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
             if let action = pendingZoomAction {
                 switch action {
                 case .zoomIn:
+                    themedView?.wantsAutoScales = false
                     pdfView.autoScales = false
                     pdfView.scaleFactor = min(pdfView.maxScaleFactor, pdfView.scaleFactor * 1.2)
                 case .zoomOut:
+                    themedView?.wantsAutoScales = false
                     pdfView.autoScales = false
                     pdfView.scaleFactor = max(pdfView.minScaleFactor, pdfView.scaleFactor / 1.2)
                 case .actualSize:
+                    themedView?.wantsAutoScales = false
                     pdfView.autoScales = false
                     pdfView.scaleFactor = 1.0
                 case .fitWidth:
+                    themedView?.wantsAutoScales = true
                     pdfView.autoScales = true
                 case .fitPage:
+                    themedView?.wantsAutoScales = false
                     pdfView.autoScales = false
                     if let page = pdfView.currentPage {
                         let bounds = page.bounds(for: pdfView.displayBox)
@@ -302,6 +322,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                         }
                     }
                 case .scale(let value):
+                    themedView?.wantsAutoScales = false
                     pdfView.autoScales = false
                     pdfView.scaleFactor = max(pdfView.minScaleFactor, min(pdfView.maxScaleFactor, value))
                 }
@@ -352,8 +373,8 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
 
     public final class Coordinator: NSObject {
         var parent: PDFReaderCanvasView
-        var lastPageJumpToken: Int = -1
-        var lastZoomCommandToken: Int = -1
+        var lastPageJumpToken: Int
+        var lastZoomCommandToken: Int
         var lastLayoutToken: Int
         /// The spread layout last applied, so pages whose boxes change later (Clear Margins) are aligned too
         var spread: SpreadAlignment.Spread?
@@ -369,6 +390,8 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
 
         init(parent: PDFReaderCanvasView) {
             self.parent = parent
+            self.lastPageJumpToken = parent.pageJumpToken
+            self.lastZoomCommandToken = parent.zoomCommandToken
             self.lastLayoutToken = parent.layoutToken
         }
 
@@ -426,6 +449,25 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
 
             observers.append(contentsOf: [pageObs, scaleObs])
 
+            if let themed = pdfView as? ThemedPDFView {
+                themed.onAutoScalesDidChange = { [weak self, weak pdfView] autoScales in
+                    guard let self, let pdfView, Self.isLive(pdfView) else { return }
+                    self.parent.onAutoScalesChange?(autoScales)
+                    if abs(pdfView.scaleFactor - self.parent.zoomScale) > 0.005 {
+                        self.parent.zoomScale = pdfView.scaleFactor
+                    }
+                }
+                themed.onDidSettleLiveLayout = { [weak self, weak pdfView] in
+                    guard let self, let pdfView, Self.isLive(pdfView) else { return }
+                    if abs(pdfView.scaleFactor - self.parent.zoomScale) > 0.005 {
+                        self.parent.zoomScale = pdfView.scaleFactor
+                    }
+                    self.parent.onAutoScalesChange?(pdfView.autoScales)
+                    self.reportReadingLocation(of: pdfView)
+                    (pdfView as? ThemedPDFView)?.applyThemeLayers()
+                }
+            }
+
             if let scrollView = pdfView.enclosingScrollView ?? pdfView.subviews.compactMap({ $0 as? NSScrollView }).first {
                 scrollView.contentView.postsBoundsChangedNotifications = true
                 let scrollObs = nc.addObserver(
@@ -440,7 +482,22 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                         self?.lastDestination = pdfView.currentDestination
                     }
                 }
-                observers.append(scrollObs)
+                let magnifyObs = nc.addObserver(
+                    forName: NSScrollView.willStartLiveMagnifyNotification,
+                    object: scrollView,
+                    queue: .main
+                ) { [weak self, weak pdfView] _ in
+                    guard let self, let pdfView, Self.isLive(pdfView) else { return }
+                    if pdfView.autoScales {
+                        let themed = pdfView as? ThemedPDFView
+                        themed?.wantsAutoScales = false
+                        themed?.isApplyingConfiguration = true
+                        pdfView.autoScales = false
+                        themed?.isApplyingConfiguration = false
+                        self.parent.onAutoScalesChange?(false)
+                    }
+                }
+                observers.append(contentsOf: [scrollObs, magnifyObs])
             }
 
             reportReadingLocation(of: pdfView)
@@ -509,15 +566,33 @@ final class ThemedPDFView: PDFView {
     var onStepPage: ((Int) -> Void)?
     var handlesUnfocusedArrowKeys = true
     var readsRightToLeft = false
+    var wantsAutoScales = true
+    var isApplyingConfiguration = false
+    var onAutoScalesDidChange: ((Bool) -> Void)?
+    var onDidSettleLiveLayout: (() -> Void)?
 
     /// Page and zoom to show once the view has a size: `go(to:)` and `scaleFactor` before the first layout are lost.
     var pendingInitialPage: PDFPage?
     var pendingInitialScale: CGFloat?
     private var isShowingInitialPage = false
+    private var hasSettledLiveLayout = false
+    private var lastSettledSize: CGSize = .zero
 
     /// Until the saved page and zoom are shown, PDFKit reports page 1 and a clamped zoom of the fresh layout
     var isRestoringInitialState: Bool {
         pendingInitialPage != nil || pendingInitialScale != nil
+    }
+
+    override var autoScales: Bool {
+        didSet {
+            guard autoScales != oldValue, !isApplyingConfiguration else { return }
+            wantsAutoScales = autoScales
+            let newValue = autoScales
+            DispatchQueue.main.async { [weak self] in
+                guard let self, PDFReaderCanvasView.Coordinator.isLive(self) else { return }
+                self.onAutoScalesDidChange?(newValue)
+            }
+        }
     }
 
     override func keyDown(with event: NSEvent) {
@@ -574,30 +649,13 @@ final class ThemedPDFView: PDFView {
 
     override func layout() {
         super.layout()
-        if isRestoringInitialState, !isShowingInitialPage, bounds.width > 0, bounds.height > 0 {
-            isShowingInitialPage = true
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                if let scale = self.pendingInitialScale {
-                    self.autoScales = false
-                    self.scaleFactor = scale
-                }
-                if let page = self.pendingInitialPage {
-                    self.go(to: page)
-                }
-                self.pendingInitialScale = nil
-                self.pendingInitialPage = nil
-                self.isShowingInitialPage = false
-                // Scale changes were ignored while restoring: report the zoom the view settled on
-                // (e.g. fit width), so the toolbar's percentage matches the page
-                NotificationCenter.default.post(name: .PDFViewScaleChanged, object: self)
-            }
-        }
+        settleLiveStateIfNeeded()
         applyThemeLayers()
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        settleLiveStateIfNeeded()
         applyThemeLayers()
         // A newly shown document (opened, or its tab selected) takes the keyboard so ←/→ turn pages right away;
         // otherwise AppKit hands it to the toolbar's search field and the arrows move its caret. Only the
@@ -608,6 +666,79 @@ final class ThemedPDFView: PDFView {
             let responder = window.firstResponder
             if responder == nil || responder === window || responder is NSText {
                 window.makeFirstResponder(self)
+            }
+        }
+    }
+
+    /// Synchronizes initial page/zoom and fit-width scaling once `PDFView` has both a non-zero frame and a window
+    /// (macOS `NSHostingView` sizes `PDFView` before attaching it to `window`, so early `ScaleChanged` events fire
+    /// while `window == nil` and would otherwise leave `zoomScale` out of sync).
+    private func settleLiveStateIfNeeded() {
+        guard window != nil, bounds.width > 1, bounds.height > 1 else { return }
+
+        if isRestoringInitialState {
+            guard !isShowingInitialPage else { return }
+            isShowingInitialPage = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard self.window != nil, self.bounds.width > 1, self.bounds.height > 1 else {
+                    self.isShowingInitialPage = false
+                    return
+                }
+                self.isApplyingConfiguration = true
+                if let scale = self.pendingInitialScale {
+                    self.wantsAutoScales = false
+                    self.autoScales = false
+                    self.scaleFactor = scale
+                } else if self.wantsAutoScales {
+                    self.autoScales = true
+                }
+                if let page = self.pendingInitialPage {
+                    self.go(to: page)
+                    if self.wantsAutoScales {
+                        self.autoScales = true
+                    }
+                }
+                self.pendingInitialScale = nil
+                self.pendingInitialPage = nil
+                self.isShowingInitialPage = false
+                self.hasSettledLiveLayout = true
+                self.lastSettledSize = self.bounds.size
+                self.isApplyingConfiguration = false
+                self.onDidSettleLiveLayout?()
+            }
+        } else if !hasSettledLiveLayout {
+            hasSettledLiveLayout = true
+            lastSettledSize = bounds.size
+            if wantsAutoScales && !autoScales {
+                isApplyingConfiguration = true
+                autoScales = true
+                isApplyingConfiguration = false
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard self.window != nil, self.bounds.width > 1, self.bounds.height > 1 else {
+                    self.hasSettledLiveLayout = false
+                    return
+                }
+                if self.wantsAutoScales && !self.autoScales {
+                    self.isApplyingConfiguration = true
+                    self.autoScales = true
+                    self.isApplyingConfiguration = false
+                }
+                self.lastSettledSize = self.bounds.size
+                self.onDidSettleLiveLayout?()
+            }
+        } else if abs(bounds.width - lastSettledSize.width) > 0.5 || abs(bounds.height - lastSettledSize.height) > 0.5 {
+            lastSettledSize = bounds.size
+            if autoScales {
+                isApplyingConfiguration = true
+                autoScales = true
+                isApplyingConfiguration = false
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, PDFReaderCanvasView.Coordinator.isLive(self) else { return }
+                self.onDidSettleLiveLayout?()
             }
         }
     }

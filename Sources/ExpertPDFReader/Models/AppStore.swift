@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import CryptoKit
+import Darwin
 import Foundation
 import PDFKit
 import SwiftUI
@@ -619,6 +620,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     @Published public var secondaryPDFDocument: PDFDocument?
     @Published public var secondaryPageIndex: Int = 0
     @Published public var secondaryZoomScale: CGFloat = 1.0
+    @Published public var secondaryIsAutoScaling: Bool = true
     @Published public var showSplitDocumentPicker: Bool = false
 
     // Navigation History (Go Back / Go Forward)
@@ -697,9 +699,10 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         guard pageScan == nil, pageScanTask == nil, pageCount >= 16 else { return }
         let url = documentID.url
         let password = self.password
+        let isFastText = BookPageScanner.hasEmbeddedText(pdfDocument)
         pageScanTask = Task.detached(priority: .utility) { [weak self] in
-            // Let the pages being read render first
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            // Digital PDFs finish in milliseconds; image scans wait briefly so the first visible page renders first
+            try? await Task.sleep(nanoseconds: isFastText ? 80_000_000 : 1_200_000_000)
             guard !Task.isCancelled, let document = PDFDocumentLoader.openCopy(of: url, password: password) else { return }
             let scan = BookPageScanner.scan(document)
             await self?.finishPageScan(scan)
@@ -715,7 +718,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     /// else the PDF's page label
     public func printedNumber(at index: Int) -> String? {
         if let numbers = pageScan?.printedNumbers, numbers.replacesPageLabels {
-            return numbers.number(at: index).map(String.init)
+            return numbers.label(at: index)
         }
         return pdfDocument.page(at: index)?.printedNumber
     }
@@ -796,8 +799,19 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         if let pageDirection = position.pageDirection {
             self.pageDirection = pageDirection
         }
-        if let pageScan = position.bookPageScan {
+        if let pageScan = position.bookPageScan, pageScan.version == BookPageScan.currentVersion {
             self.pageScan = pageScan
+        }
+    }
+
+    /// Keeps `isAutoScaling` in sync with `PDFView.autoScales` (including native context-menu "Automatically Resize")
+    /// and clears any stale `pendingZoomAction` when auto-scaling is active so switching tabs never replays an old zoom.
+    public func updateAutoScalingFromView(_ autoScales: Bool) {
+        if isAutoScaling != autoScales {
+            isAutoScaling = autoScales
+        }
+        if autoScales {
+            pendingZoomAction = nil
         }
     }
 
@@ -891,6 +905,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
             self.secondaryDocumentURL = url
             self.secondaryPDFDocument = loaded.document
             self.secondaryPageIndex = 0
+            self.secondaryIsAutoScaling = true
             self.showSplitDocumentPicker = false
             secondaryCropper = makeCropper(for: loaded.document, url: url, password: loaded.password)
             if isClearMarginsEnabled {
@@ -1168,7 +1183,7 @@ public final class PDFThumbnailCache: ObservableObject {
         return cache
     }()
 
-    public struct ThumbnailRequest: Hashable {
+    public struct ThumbnailRequest: Hashable, Sendable {
         public let documentID: String
         public let documentURL: URL
         public let password: String?
@@ -1416,6 +1431,9 @@ public final class AppStore: ObservableObject {
 
     private var dateFormatter: DateFormatter
     private var localeObserver: NSObjectProtocol?
+    private var appDidBecomeActiveObserver: NSObjectProtocol?
+    private var directoryWatchers: [String: (fd: Int32, source: DispatchSourceFileSystemObject)] = [:]
+    private var pruneDebounceTask: Task<Void, Never>?
 
     /// Keyed by `DocumentID.normalizedPath`
     private var readingPositions: [String: ReadingPosition] = [:]
@@ -1488,6 +1506,7 @@ public final class AppStore: ObservableObject {
         restoreOpenTabs()
         ensureSampleDocumentInRecents()
         applyAppAppearance()
+        rebuildDirectoryWatchers()
 
         // Observe locale changes to re-format DocumentItem.dateOpenedText
         localeObserver = NotificationCenter.default.addObserver(
@@ -1497,6 +1516,17 @@ public final class AppStore: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor in
                 self?.handleLocaleChange()
+            }
+        }
+
+        // Re-check remembered files whenever the user switches back from Finder / Terminal
+        appDidBecomeActiveObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.pruneMissingDocuments()
             }
         }
     }
@@ -1555,6 +1585,7 @@ public final class AppStore: ObservableObject {
     // MARK: - Tab & Document Actions
 
     public func selectHomeTab() {
+        pruneMissingDocuments()
         if let existing = tabs.first(where: { $0.isHome }) {
             selectedTabID = existing.id
         } else {
@@ -1590,6 +1621,22 @@ public final class AppStore: ObservableObject {
     /// it was last read with. `interactive: false` skips password prompts and error alerts.
     @discardableResult
     public func openDocument(at url: URL, recordInRecents: Bool = true, interactive: Bool = true) -> DocumentTabState? {
+        var url = url
+        let initialID = DocumentID(url: url)
+
+        if !Self.isUsableDocumentFile(at: url) {
+            if let movedURL = resolveFileURL(path: initialID.normalizedPath) {
+                url = movedURL
+                pruneMissingDocuments()
+            } else {
+                pruneMissingDocuments()
+                if Self.isFileInTrash(url) {
+                    if interactive { NSSound.beep() }
+                    return nil
+                }
+            }
+        }
+
         let docID = DocumentID(url: url)
 
         // If already open in a tab, switch to it
@@ -1676,7 +1723,7 @@ public final class AppStore: ObservableObject {
     /// Opens the most recently closed document again, at the page it was left on
     public func reopenClosedTab() {
         while let url = closedDocumentURLs.popLast() {
-            if FileManager.default.fileExists(atPath: url.path), openDocument(at: url) != nil {
+            if Self.isUsableDocumentFile(at: url), openDocument(at: url) != nil {
                 return
             }
         }
@@ -1720,12 +1767,14 @@ public final class AppStore: ObservableObject {
             documents.removeAll(where: { $0.documentID == id })
         }
         savePersistedState()
+        rebuildDirectoryWatchers()
     }
 
     public func clearAllRecents() {
         recentDocumentIDs.removeAll()
         documents.removeAll(where: { !favoriteDocumentIDs.contains($0.documentID) })
         savePersistedState()
+        rebuildDirectoryWatchers()
     }
 
     public func clearAllFavorites() {
@@ -1733,7 +1782,71 @@ public final class AppStore: ObservableObject {
         for idx in documents.indices {
             documents[idx].isFavorite = false
         }
+        documents.removeAll(where: { !recentDocumentIDs.contains($0.documentID) })
         savePersistedState()
+        rebuildDirectoryWatchers()
+    }
+
+    /// Removes remembered documents whose original files were deleted or moved to Trash, and updates
+    /// paths/titles in-place when files were moved or renamed in Finder.
+    public func pruneMissingDocuments() {
+        var idMapping: [DocumentID: DocumentID] = [:]
+        var removedIDs = Set<DocumentID>()
+
+        for item in documents {
+            let oldID = item.documentID
+            if let resolvedURL = resolveFileURL(path: oldID.normalizedPath) {
+                let newID = DocumentID(url: resolvedURL)
+                if newID != oldID {
+                    idMapping[oldID] = newID
+                }
+            } else {
+                removedIDs.insert(oldID)
+            }
+        }
+
+        closedDocumentURLs.removeAll { !Self.isUsableDocumentFile(at: $0) }
+
+        guard !removedIDs.isEmpty || !idMapping.isEmpty else { return }
+
+        // Update Recent IDs (preserving order and deduplicating)
+        var seenRecent = Set<DocumentID>()
+        var updatedRecents: [DocumentID] = []
+        for id in recentDocumentIDs where !removedIDs.contains(id) {
+            let mapped = idMapping[id] ?? id
+            if seenRecent.insert(mapped).inserted {
+                updatedRecents.append(mapped)
+            }
+        }
+        recentDocumentIDs = updatedRecents
+
+        // Update Favorite IDs
+        var updatedFavorites = Set<DocumentID>()
+        for id in favoriteDocumentIDs where !removedIDs.contains(id) {
+            updatedFavorites.insert(idMapping[id] ?? id)
+        }
+        favoriteDocumentIDs = updatedFavorites
+
+        // Update DocumentItems
+        var seenDocs = Set<DocumentID>()
+        var updatedDocs: [DocumentItem] = []
+        for var item in documents where !removedIDs.contains(item.documentID) {
+            if let newID = idMapping[item.documentID] {
+                var renamed = makeDocumentItem(for: newID, dateOpened: item.dateOpened, pageCount: item.pageCount)
+                renamed.thumbnail = item.thumbnail
+                item = renamed
+            } else {
+                item.isFavorite = updatedFavorites.contains(item.documentID)
+            }
+            if seenDocs.insert(item.documentID).inserted {
+                updatedDocs.append(item)
+            }
+        }
+        documents = updatedDocs
+
+        savePersistedState()
+        saveReadingPositions()
+        rebuildDirectoryWatchers()
     }
 
     public func showInFinder(id: DocumentID) {
@@ -1865,6 +1978,7 @@ public final class AppStore: ObservableObject {
         trimRecents()
         rememberFileBookmark(for: url)
         savePersistedState()
+        rebuildDirectoryWatchers()
         loadDocumentDetailsInBackground([(id: docID, needsPageCount: false)])
     }
 
@@ -2093,15 +2207,38 @@ public final class AppStore: ObservableObject {
         saveOpenTabs()
     }
 
-    // MARK: - Moved / Renamed Files
+    // MARK: - Moved / Renamed / Deleted Files
+
+    nonisolated static func isFileInTrash(_ url: URL) -> Bool {
+        let normalized = url.symlinkNormalizedURL.path
+        if normalized.contains("/.Trash/") || normalized.hasSuffix("/.Trash")
+            || normalized.contains("/.Trashes/") || normalized.hasSuffix("/.Trashes") {
+            return true
+        }
+        var relationship: FileManager.URLRelationship = .other
+        if (try? FileManager.default.getRelationship(&relationship, of: .trashDirectory, in: [], toItemAt: url)) != nil,
+           relationship == .contains || relationship == .same {
+            return true
+        }
+        return false
+    }
+
+    nonisolated static func isUsableDocumentFile(at url: URL) -> Bool {
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), !isDir.boolValue else {
+            return false
+        }
+        return !isFileInTrash(url)
+    }
 
     /// Where a remembered file is now: its saved path, or wherever its bookmark points after a move or
     /// rename (not the Trash). Bookmarks and the reading position saved for the old path move with it.
     private func resolveFileURL(path: String) -> URL? {
-        if FileManager.default.fileExists(atPath: path) {
-            return URL(fileURLWithPath: path)
+        let directURL = URL(fileURLWithPath: path)
+        if Self.isUsableDocumentFile(at: directURL) {
+            return directURL
         }
-        let oldKey = DocumentID(url: URL(fileURLWithPath: path)).normalizedPath
+        let oldKey = DocumentID(url: directURL).normalizedPath
         guard let data = fileBookmarks[oldKey] ?? fileBookmarks[path] else { return nil }
 
         var isStale = false
@@ -2111,8 +2248,7 @@ public final class AppStore: ObservableObject {
             relativeTo: nil,
             bookmarkDataIsStale: &isStale
         ),
-            !url.path.contains("/.Trash/"),
-            FileManager.default.fileExists(atPath: url.path) else {
+            Self.isUsableDocumentFile(at: url) else {
             return nil
         }
 
@@ -2124,6 +2260,55 @@ public final class AppStore: ObservableObject {
             rememberFileBookmark(for: url)
         }
         return url
+    }
+
+    private func rebuildDirectoryWatchers() {
+        var wanted = Set<String>()
+        for doc in documents {
+            let parent = doc.documentID.url.deletingLastPathComponent().symlinkNormalizedURL.path
+            if !parent.isEmpty {
+                wanted.insert(parent)
+            }
+            if wanted.count >= 32 { break }
+        }
+        if let trashPath = FileManager.default.urls(for: .trashDirectory, in: .userDomainMask).first?.symlinkNormalizedURL.path,
+           FileManager.default.fileExists(atPath: trashPath) {
+            wanted.insert(trashPath)
+        }
+
+        for (dir, entry) in Array(directoryWatchers) where !wanted.contains(dir) {
+            entry.source.cancel()
+            directoryWatchers.removeValue(forKey: dir)
+        }
+
+        for dir in wanted where directoryWatchers[dir] == nil {
+            let fd = Darwin.open(dir, O_EVTONLY)
+            guard fd >= 0 else { continue }
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: fd,
+                eventMask: [.write, .delete, .rename, .attrib],
+                queue: .main
+            )
+            source.setEventHandler { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.schedulePruneMissingDocuments()
+                }
+            }
+            source.setCancelHandler {
+                Darwin.close(fd)
+            }
+            source.resume()
+            directoryWatchers[dir] = (fd: fd, source: source)
+        }
+    }
+
+    private func schedulePruneMissingDocuments() {
+        pruneDebounceTask?.cancel()
+        pruneDebounceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard !Task.isCancelled else { return }
+            self?.pruneMissingDocuments()
+        }
     }
 
     private func moveSavedState(from oldKey: String, to newKey: String) {

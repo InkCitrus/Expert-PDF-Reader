@@ -309,3 +309,5 @@
 "Right to Left" = "右から左";
 "重新打开关闭的标签|||Reopen Closed Tab" = "閉じたタブを再度開く";
 "Reopen Closed Tab" = "閉じたタブを再度開く";
+"输入书籍页码，或输入 (n) 跳至第 n 页|||Enter Book Page, or (n) for PDF Page n" = "書籍のページ番号、または (n) で PDF の n ページ目へ移動";
+"Enter Book Page, or (n) for PDF Page n" = "書籍のページ番号、または (n) で PDF の n ページ目へ移動";

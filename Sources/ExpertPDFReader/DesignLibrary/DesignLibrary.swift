@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// Reading theme applied to the PDF pages (see `MetalShaderRenderer` for the color matrices).
-public enum PDFViewTheme: Int, CaseIterable, Identifiable, Codable {
+public enum PDFViewTheme: Int, CaseIterable, Identifiable, Codable, Sendable {
     case day = 0
     case sepia = 2
     case night = 1

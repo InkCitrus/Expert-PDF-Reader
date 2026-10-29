@@ -231,13 +231,13 @@ public struct ReaderToolbarView: View {
     private func presentZoomMenu(below zoomAnchor: NSViewAnchor) {
         let currentPercent = Int((tab.zoomScale * 100).rounded())
         var items: [NativeMenuItem] = [
-            .action(L10n.tr("缩放至适应宽度", "Zoom to Fit Width"), keyEquivalent: "8") { tab.triggerZoom(.fitWidth) },
+            .action(L10n.tr("缩放至适应宽度", "Zoom to Fit Width"), keyEquivalent: "8", isChecked: tab.isAutoScaling) { tab.triggerZoom(.fitWidth) },
             .action(L10n.tr("缩放至适应页面", "Zoom to Fit Page"), keyEquivalent: "9") { tab.triggerZoom(.fitPage) },
             .action(L10n.tr("实际大小", "Actual Size"), keyEquivalent: "0") { tab.triggerZoom(.actualSize) },
             .separator
         ]
         for percent in [50, 75, 100, 125, 150, 200, 300, 400] {
-            items.append(.action("\(percent)%", isChecked: percent == currentPercent) {
+            items.append(.action("\(percent)%", isChecked: !tab.isAutoScaling && percent == currentPercent) {
                 tab.triggerZoom(.scale(CGFloat(percent) / 100))
             })
         }
@@ -881,7 +881,6 @@ struct PDFOutlineNode: Identifiable {
     let id = UUID()
     let title: String
     let pageIndex: Int?
-    let pageLabel: String?
     /// Destination's y in page space (origin bottom-left); `nil` means the top of the page
     let top: CGFloat?
     let children: [PDFOutlineNode]
@@ -920,6 +919,7 @@ struct PDFOutlinePanel: View {
                         ForEach(rows) { row in
                             PDFOutlineRowView(
                                 node: row.node,
+                                pageLabel: row.node.pageIndex.map { tab.displayPageNumber(at: $0) },
                                 level: row.level,
                                 isExpanded: expandedIDs.contains(row.node.id),
                                 isActive: row.node.id == activeID,
@@ -1017,13 +1017,11 @@ struct PDFOutlinePanel: View {
         for i in 0..<parent.numberOfChildren {
             guard let child = parent.child(at: i) else { continue }
             var pageIdx: Int?
-            var pageLabel: String?
             let destination = child.destination ?? (child.action as? PDFActionGoTo)?.destination
             if let page = destination?.page {
                 let idx = tab.pdfDocument.index(for: page)
                 if idx >= 0 && idx < tab.pageCount {
                     pageIdx = idx
-                    pageLabel = tab.displayPageNumber(at: idx)
                 }
             }
             // kPDFDestinationUnspecifiedValue (FLT_MAX) leaves the position on the page open
@@ -1032,7 +1030,6 @@ struct PDFOutlinePanel: View {
                 PDFOutlineNode(
                     title: child.label ?? L10n.tr("未命名章节", "Untitled Section"),
                     pageIndex: pageIdx,
-                    pageLabel: pageLabel,
                     top: top,
                     children: buildOutlineNodes(from: child)
                 )
@@ -1044,6 +1041,7 @@ struct PDFOutlinePanel: View {
 
 struct PDFOutlineRowView: View {
     let node: PDFOutlineNode
+    let pageLabel: String?
     let level: Int
     let isExpanded: Bool
     let isActive: Bool
@@ -1080,7 +1078,7 @@ struct PDFOutlineRowView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, 1)
 
-            if let label = node.pageLabel {
+            if let label = pageLabel {
                 Text(label)
                     .font(.system(size: 11))
                     .monospacedDigit()

@@ -25,7 +25,7 @@ A native macOS PDF reader built for reading: tabs, Split View, and Day / Sepia /
 - **Tabs & Split View**: `⌃⇥` / `⌃⇧⇥` (or `⇧⌘]` / `⇧⌘[`) switch tabs and `⇧⌘T` reopens the last closed one; vertical (left / right) or horizontal (top / bottom) Split View with Swap Sides, Sync Scroll & Zoom, and the Home tab as a picker for the second document.
 - **Reading**
   - Single Page, Two Pages and Two Pages with Single Cover (`⌘1`, `⌘2`, `⌘3`); the pages of a spread meet at the spine. Books bound on the right are detected (from the PDF, or from where the page numbers sit on vertically set pages) and read right to left; View › Page Direction overrides it.
-  - **Printed page numbers**: the page counter and Go to Page use the numbers printed on the pages — read from the pages themselves when the PDF's own page labels are missing or wrong — and show both pages of a spread.
+  - **Printed page numbers**: the page counter and Go to Page use the numbers printed on the pages — read from the pages themselves when the PDF's own page labels are missing or wrong — and show both pages of a spread. Roman-numeral front matter followed by Arabic numbering is recognized, the outline and thumbnails show the same numbers, and Go to Page also takes `(n)` for the n-th page of the file.
   - **`←` / `→`** turn the page in the focused pane.
   - **Clear Margins (`⇧⌘M`)** detects the content bounds of each page and crops the margins, computed in the background.
   - **Left sidebar (`⌘B`)**: themed page thumbnails, the document outline and bookmarks (`⌘D`).
@@ -33,7 +33,7 @@ A native macOS PDF reader built for reading: tabs, Split View, and Day / Sepia /
   - **Picks up where you left off**: every document reopens at its last page, zoom and layout, and the last session's tabs are restored on launch.
   - **Password-protected PDFs** ask for their password; files that can't be opened say why.
   - Drop PDFs anywhere on the window or on the Dock icon; `⌘=` zooms in as well as `⌘+`.
-- **Fast Home Tab**: Recents keep up to 50 documents (the latest 10 also under File › Open Recent), cover thumbnails load in the background and are cached on disk, and moved or renamed files stay in Recents / Favorites with their bookmarks and reading position.
+- **Fast Home Tab**: Recents keep up to 50 documents (the latest 10 also under File › Open Recent), cover thumbnails load in the background and are cached on disk, and moved or renamed files stay in Recents / Favorites with their bookmarks and reading position, while files that are deleted or moved to the Trash drop out of them automatically.
 - **Original App Icon**: a dog-eared page shifting diagonally through Day → Sepia → Night, drawn in code by `scripts/make_app_icon.swift`.
 
 ---

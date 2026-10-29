@@ -329,6 +329,7 @@ public enum PDFDocumentLoader {
             }
             return nil
         }
+        ScannedPageCache.install(on: document)
         guard document.isLocked else {
             return Loaded(document: document, password: nil)
         }
@@ -485,7 +486,7 @@ extension PDFPage {
     /// front matter an empty label, which counts as none
     public var printedNumber: String? {
         guard let label = label?.trimmingCharacters(in: .whitespaces), !label.isEmpty else { return nil }
-        return label
+        return PageNumberLabel.canonical(label)
     }
 }
 
@@ -682,6 +683,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     private let declaresRightToLeft: Bool
 
     public init(url: URL, pdfDocument: PDFDocument, password: String? = nil) {
+        ScannedPageCache.install(on: pdfDocument)
         self.documentID = DocumentID(url: url)
         self.pdfDocument = pdfDocument
         self.password = password
@@ -2358,43 +2360,22 @@ public final class AppStore: ObservableObject {
         NSSound.beep()
     }
 
-    public func selectNextTab(in sessionID: UUID? = nil) {
-        let targetSession = session(withID: sessionID)
-        guard targetSession.tabs.count > 1,
-              let idx = targetSession.tabs.firstIndex(where: { $0.id == targetSession.selectedTabID }) else { return }
-        performAnimated(AppAnimation.tab) {
-            targetSession.selectedTabID = targetSession.tabs[(idx + 1) % targetSession.tabs.count].id
-        }
+    public var canSelectAdjacentDocumentTab: Bool {
+        let documents = activeSession.tabs.filter { !$0.isHome }
+        return documents.count > 1 || (!documents.isEmpty && activeSession.activeDocumentTab == nil)
     }
 
-    public func selectPreviousTab(in sessionID: UUID? = nil) {
-        let targetSession = session(withID: sessionID)
-        guard targetSession.tabs.count > 1,
-              let idx = targetSession.tabs.firstIndex(where: { $0.id == targetSession.selectedTabID }) else { return }
-        performAnimated(AppAnimation.tab) {
-            targetSession.selectedTabID = targetSession.tabs[(idx - 1 + targetSession.tabs.count) % targetSession.tabs.count].id
-        }
-    }
+    public func selectNextTab(in sessionID: UUID? = nil) { selectAdjacentDocumentTab(1, in: sessionID) }
+    public func selectPreviousTab(in sessionID: UUID? = nil) { selectAdjacentDocumentTab(-1, in: sessionID) }
 
-    /// Selects tab 1…8 directly, or the last tab when `number == 9` (like Safari / Chrome).
-    @discardableResult
-    public func selectTab(atShortcutNumber number: Int, in sessionID: UUID? = nil) -> Bool {
-        let targetSession = session(withID: sessionID)
-        guard !targetSession.tabs.isEmpty, (1...9).contains(number) else { return false }
-        let targetIndex: Int
-        if number == 9 {
-            targetIndex = targetSession.tabs.count - 1
-        } else {
-            guard number - 1 < targetSession.tabs.count else { return false }
-            targetIndex = number - 1
-        }
-        let targetID = targetSession.tabs[targetIndex].id
-        if targetSession.selectedTabID != targetID {
-            performAnimated(AppAnimation.tab) {
-                targetSession.selectedTabID = targetID
-            }
-        }
-        return true
+    /// Home is a launcher, so cycling while reading stays among PDFs.
+    private func selectAdjacentDocumentTab(_ step: Int, in sessionID: UUID?) {
+        let target = session(withID: sessionID)
+        let documents = target.tabs.filter { !$0.isHome }
+        guard !documents.isEmpty else { return }
+        let index = documents.firstIndex { $0.id == target.selectedTabID }
+        let next = index.map { ($0 + step + documents.count) % documents.count } ?? (step > 0 ? 0 : documents.count - 1)
+        target.selectedTabID = documents[next].id
     }
 
     /// Moves a document tab to `toDocumentIndex` among the open document tabs (keeping Home pinned at the start).

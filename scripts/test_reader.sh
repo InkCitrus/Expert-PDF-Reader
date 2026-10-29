@@ -10,7 +10,7 @@ done
 mkdir -p build/ModuleCache
 TEST_SOURCE=scripts/ReaderRegressionTests.swift
 TEST_BINARY=build/ReaderRegressionTests
-if [[ "${1:-}" == "--ui" ]]; then
+if [[ "${1:-}" == "--ui" || "${1:-}" == "--scene" ]]; then
     TEST_SOURCE=scripts/TabDragQATests.swift
     TEST_APP="build/Tab Drag QA.app"
     TEST_BINARY="$TEST_APP/Contents/MacOS/TabDragQATests"
@@ -20,6 +20,12 @@ if [[ "${1:-}" == "--ui" ]]; then
     /usr/libexec/PlistBuddy -c 'Set :CFBundleExecutable TabDragQATests' "$TEST_APP/Contents/Info.plist"
     /usr/libexec/PlistBuddy -c 'Set :CFBundleName Tab Drag QA' "$TEST_APP/Contents/Info.plist"
     /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName Tab Drag QA' "$TEST_APP/Contents/Info.plist"
+    if [[ "${1:-}" == "--scene" ]]; then
+        TEST_SOURCE=scripts/WindowSceneQATests.swift
+        /usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier io.github.inkcitrus.expertpdfreader.sceneqa' "$TEST_APP/Contents/Info.plist"
+        /usr/libexec/PlistBuddy -c 'Set :CFBundleName Window Scene QA' "$TEST_APP/Contents/Info.plist"
+        /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName Window Scene QA' "$TEST_APP/Contents/Info.plist"
+    fi
 fi
 swiftc -sdk "$SDK_PATH" -target "$(uname -m)-apple-macos14.0" -module-cache-path build/ModuleCache -parse-as-library \
     "${SOURCES[@]}" "$TEST_SOURCE" -o "$TEST_BINARY"

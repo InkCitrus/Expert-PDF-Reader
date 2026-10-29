@@ -70,51 +70,9 @@ public final class ExpertPDFReaderAppDelegate: NSObject, NSApplicationDelegate {
                     return true
                 }
 
-                // ⇧⌘] / ⇧⌘[ (by hardware keyCode so Chinese / non-ASCII IMEs never swallow '[' or ']')
-                if modifiers == [.command, .shift] {
-                    if event.keyCode == 30 {
-                        store.selectNextTab()
-                        return true
-                    }
-                    if event.keyCode == 33 {
-                        store.selectPreviousTab()
-                        return true
-                    }
-                    // ⇧⌘T reopens the most recently closed tab even when an IME is active
-                    if event.keyCode == 17, !store.closedTabs.isEmpty {
-                        store.reopenClosedTab()
-                        return true
-                    }
-                }
-
-                // ⌥⌘→ / ⌥⌘← switch tabs as in Chrome, VS Code and PDF Expert
-                if modifiers == [.command, .option] {
-                    if event.keyCode == 124 {
-                        store.selectNextTab()
-                        return true
-                    }
-                    if event.keyCode == 123 {
-                        store.selectPreviousTab()
-                        return true
-                    }
-                }
-
-                // ⌃PageDown / ⌃PageUp switch tabs
-                if modifiers == .control {
-                    if event.keyCode == 121 {
-                        store.selectNextTab()
-                        return true
-                    }
-                    if event.keyCode == 116 {
-                        store.selectPreviousTab()
-                        return true
-                    }
-                }
-
-                // ⌃1…⌃9 and ⌥⌘1…⌥⌘9 jump directly to tab 1…8, or the last tab for 9
-                if modifiers == .control || modifiers == [.command, .option],
-                   let number = Self.shortcutDigit(forKeyCode: event.keyCode) {
-                    return store.selectTab(atShortcutNumber: number)
+                if modifiers == [.command, .shift], event.keyCode == 17, !store.closedTabs.isEmpty {
+                    store.reopenClosedTab()
+                    return true
                 }
 
                 return false
@@ -264,20 +222,7 @@ public final class ExpertPDFReaderAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private static func shortcutDigit(forKeyCode keyCode: UInt16) -> Int? {
-        switch keyCode {
-        case 18: return 1
-        case 19: return 2
-        case 20: return 3
-        case 21: return 4
-        case 23: return 5
-        case 22: return 6
-        case 26: return 7
-        case 28: return 8
-        case 25: return 9
-        default: return nil
-        }
-    }
+
 }
 
 @main
@@ -293,8 +238,9 @@ public struct ExpertPDFReaderApp: App {
         Window("Expert PDF Reader", id: "main") {
             PrimaryWindowSceneRoot(store: store, appDelegate: appDelegate)
         }
-        // Keep document tabs out of the system titlebar drag region.
-        .windowStyle(.titleBar)
+        // WindowChrome installs the interactive unified titlebar accessory.
+        .windowStyle(.hiddenTitleBar)
+        .windowToolbarStyle(.unifiedCompact)
         .defaultSize(width: 1180, height: 780)
         .commands {
             ReaderMenuCommands(store: store)
@@ -666,17 +612,17 @@ struct ReaderMenuCommands: Commands {
             Button(L10n.tr("显示下一标签", "Show Next Tab")) {
                 store.selectNextTab()
             }
-            .keyboardShortcut("]", modifiers: [.shift, .command])
-            .disabled(store.tabs.count <= 1)
+            .keyboardShortcut(.tab, modifiers: [.control])
+            .disabled(!store.canSelectAdjacentDocumentTab)
 
             Button(L10n.tr("显示上一标签", "Show Previous Tab")) {
                 store.selectPreviousTab()
             }
-            .keyboardShortcut("[", modifiers: [.shift, .command])
-            .disabled(store.tabs.count <= 1)
+            .keyboardShortcut(.tab, modifiers: [.control, .shift])
+            .disabled(!store.canSelectAdjacentDocumentTab)
         }
 
-        // Window Menu: detach/merge window actions + open tabs with ⌥⌘1…⌥⌘9 shortcuts
+        // Window Menu: moving and merging document windows
         CommandGroup(before: .windowList) {
             Divider()
             Button(L10n.tr("将标签移至新窗口", "Move Tab to New Window")) {
@@ -691,39 +637,7 @@ struct ReaderMenuCommands: Commands {
             .disabled(store.detachedSessions.isEmpty)
             Divider()
 
-            if store.tabs.count > 1 {
-                ForEach(Array(store.tabs.enumerated()), id: \.element.id) { idx, tab in
-                    let shortcutChar: Character? = idx < 8
-                        ? Character("\(idx + 1)")
-                        : (idx == store.tabs.count - 1 ? "9" : nil)
-                    let title: String = {
-                        switch tab {
-                        case .home:
-                            return L10n.tr("主页", "Home")
-                        case .document(let state):
-                            if let folder = store.disambiguatedFolder(for: state) {
-                                return "\(state.title) — \(folder)"
-                            }
-                            return state.title
-                        }
-                    }()
-                    if let shortcutChar {
-                        Button(store.selectedTabID == tab.id ? "• \(title)" : title) {
-                            withAnimation(AppAnimation.tab) {
-                                store.selectedTabID = tab.id
-                            }
-                        }
-                        .keyboardShortcut(KeyEquivalent(shortcutChar), modifiers: [.option, .command])
-                    } else {
-                        Button(store.selectedTabID == tab.id ? "• \(title)" : title) {
-                            withAnimation(AppAnimation.tab) {
-                                store.selectedTabID = tab.id
-                            }
-                        }
-                    }
-                }
-                Divider()
-            }
+
         }
 
         // Help Menu: Shortcuts & Tips cheat sheet + built-in Reading Guide

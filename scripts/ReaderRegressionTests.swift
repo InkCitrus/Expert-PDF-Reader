@@ -65,6 +65,11 @@ struct ReaderRegressionTests {
             store.moveDocumentTab(id: c.id, toDocumentIndex: 0)
             check(defaults.stringArray(forKey: "expertPDFReader.OpenTabs") == [c.documentID.normalizedPath, a.documentID.normalizedPath],
                   "reordered tabs persist in their final order")
+            store.selectHomeTab()
+            store.selectNextTab()
+            check(store.activeDocumentTab === c, "next tab from Home selects the first document")
+            store.selectPreviousTab()
+            check(store.activeDocumentTab === a, "previous tab wraps between documents without visiting Home")
             a.currentPageIndex = 2
             a.readingSpot = .init(pageIndex: 2, point: CGPoint(x: 280, y: 420))
             a.zoomScale = 1.7
@@ -180,6 +185,27 @@ struct ReaderRegressionTests {
                   "single-space running titles below publisher text recognize repeated inserted pages")
         }
         do {
+            check(PageNumberLabel.canonical("1,210") == "1210" && PageNumberLabel.canonical("1.210") == "1210"
+                  && PageNumberLabel.canonical("1\u{202F}210") == "1210" && PageNumberLabel.canonical("A-1,210") == "A-1,210",
+                  "localized numeric PDF labels do not create duplicate book page indicators")
+            check(PDFTextCleanup.normalize("再前方就是千反田的家，就在那\n里。这段路要沿着一条小河下坡。\n\n第二段。")
+                  == "再前方就是千反田的家，就在那里。这段路要沿着一条小河下坡。\n\n第二段。",
+                  "copied Chinese sentences join soft line wraps and retain paragraph breaks")
+            func line(_ text: String, _ x: Double, _ y: Double, _ width: Double, _ height: Double) -> RecognizedTextLine {
+                .init(text: text, confidence: 0.99, x: x, y: y, width: width, height: height)
+            }
+            check(OCRTextLayout.text(from: [line("一段很长的中文句子", 0, 100, 300, 20),
+                       line("继续到下一行。", 0, 140, 240, 20), line("新的段落。", 40, 180, 200, 20)], vertical: false)
+                  == "一段很长的中文句子继续到下一行。\n\n新的段落。",
+                  "OCR joins physical rows and uses indentation for actual paragraph boundaries")
+            check(OCRTextLayout.text(from: [line("不要反转列。", 240, 100, 20, 500),
+                       line("从右向左阅读，", 300, 100, 20, 500), line("这是新的一段。", 180, 140, 20, 450),
+                       line("99", 300, 960, 20, 20)], vertical: true, pageHeight: 1000)
+                  == "从右向左阅读，不要反转列。\n\n这是新的一段。",
+                  "vertical OCR reads columns right to left and excludes the printed footer")
+            check(OCRTextLayout.text(from: [line("A sentence,", 0, 100, 400, 20), line("with 3", 0, 150, 400, 20),
+                       line("examples.", 0, 200, 400, 20)], vertical: false) == "A sentence, with 3 examples.",
+                  "English OCR retains word spaces across physical line breaks after punctuation and digits")
             let text = "  中 文 ， 复 制。\n\n第 二 段\tPDF Reader 2026，版本 2.0"
             let expected = "  中文，复制。\n\n第二段\tPDF Reader 2026，版本 2.0"
             check(PDFTextCleanup.normalize(text) == expected,
@@ -218,6 +244,12 @@ struct ReaderRegressionTests {
                     }
                     check(boxes.allSatisfy { abs($0.width - 600) < 0.01 } && keepsSpine,
                           "cropped spreads share column width and preserve the spine (cover=\(book), RTL=\(rtl))")
+                    let topsAndPairs = content.indices.allSatisfy { index in
+                        let partner = book ? (index == 0 ? -1 : (index % 2 == 1 ? index + 1 : index - 1)) : index ^ 1
+                        return abs(boxes[index].maxY - content[index].maxY) < 0.01
+                            && (!content.indices.contains(partner) || abs(boxes[index].height - boxes[partner].height) < 0.01)
+                    }
+                    check(topsAndPairs, "unequal-height cropped pages align at the top without removing content (cover=\(book), RTL=\(rtl))")
                     SpreadAlignment.apply(to: document, holdsContent: true, spread: nil)
                     check(content.indices.allSatisfy { document.page(at: $0)!.bounds(for: .cropBox) == content[$0]
                           && document.page(at: $0)!.bounds(for: .mediaBox) == originalMedia[$0] },

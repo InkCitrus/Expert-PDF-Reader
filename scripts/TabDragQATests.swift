@@ -28,12 +28,10 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         return view.window!.convertPoint(toScreen: view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil))
     }
     func tabsAreInContent(_ session: ReaderWindowSession) -> Bool {
-        guard let window = session.nsWindow else { return false }
-        return session.tabs.filter { !$0.isHome }.allSatisfy { tab in
-            guard let view = session.tabViews.object(forKey: tab.id as NSUUID) else { return false }
-            let frame = view.convert(view.bounds.insetBy(dx: 0.5, dy: 0.5), to: nil)
-            return window.contentLayoutRect.contains(frame)
-        }
+        guard let window = session.nsWindow, let strip = session.tabStripView else { return false }
+        let rect = window.convertToScreen(strip.convert(strip.bounds, to: nil))
+        return !window.titlebarAccessoryViewControllers.isEmpty && abs(rect.maxY - window.frame.maxY) < 2
+            && abs(rect.height - MainWindowView.tabStripHeight) < 1
     }
     func settle() async { try? await Task.sleep(nanoseconds: 650_000_000) }
     func drag(_ title: String, from session: ReaderWindowSession, to point: NSPoint) async {
@@ -88,7 +86,7 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
             await settle()
             let primary = store.primarySession
             check(names(primary) == ["Alpha", "Beta", "Gamma"], "three real document tabs appear")
-            check(tabsAreInContent(primary), "primary tab hit regions stay below the native titlebar")
+            check(tabsAreInContent(primary), "primary tabs use the unified native titlebar accessory")
             await drag("Gamma", from: primary, to: center("Alpha", in: primary))
             check(names(primary) == ["Gamma", "Alpha", "Beta"], "drag last tab to first using AppKit mouse events")
             await drag("Gamma", from: primary, to: center("Beta", in: primary))
@@ -107,7 +105,7 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
             check(store.detachedSessions.count == 1 && names(primary) == ["Beta", "Gamma"],
                   "dragging below the strip opens an independent window")
             if let detached = store.detachedSessions.first {
-                check(tabsAreInContent(detached), "detached tab hit regions stay below the native titlebar")
+                check(tabsAreInContent(detached), "detached tabs use the unified native titlebar accessory")
                 check(detached.activeDocumentTab === alpha && detached.nsWindow?.isVisible == true,
                       "detaching transfers the same state into a visible native window")
                 window.setFrame(NSRect(x: 40, y: 350, width: 820, height: 600), display: true)

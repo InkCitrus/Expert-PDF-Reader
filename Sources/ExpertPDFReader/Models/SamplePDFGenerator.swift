@@ -21,7 +21,7 @@ public enum SamplePDFGenerator {
         public let pages: [(title: String, subtitle: String, sections: [(heading: String, body: String)])]
     }
 
-    public static let guideDirectoryName = "Guides_v8"
+    public static let guideDirectoryName = "Guides_v9"
 
     public static func supportDirectory() -> URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -611,7 +611,7 @@ public enum SamplePDFGenerator {
                 shortcuts: [
                     ("识别并复制本页", "⌥⌘C"),
                     ("快捷键与技巧面板", "⌘/"),
-                    ("切换上/下一标签页", "⌃⇥ / ⇧⌘["),
+                    ("切换上/下一标签页", "⌃⇥ / ⌃⇧⇥"),
                     ("恢复刚关闭的标签页", "⇧⌘T"),
                     ("前往页码（含印刷页码）", "⌥⌘G"),
                     ("跳转后返回 / 前进", "⌘[ / ⌘]"),
@@ -680,7 +680,7 @@ public enum SamplePDFGenerator {
                 shortcuts: [
                     ("辨識並複製本頁", "⌥⌘C"),
                     ("快捷鍵與技巧面板", "⌘/"),
-                    ("切換上/下一分頁", "⌃⇥ / ⇧⌘["),
+                    ("切換上/下一分頁", "⌃⇥ / ⌃⇧⇥"),
                     ("重新打開關閉的分頁", "⇧⌘T"),
                     ("前往頁碼（含印刷頁碼）", "⌥⌘G"),
                     ("跳轉後返回 / 前進", "⌘[ / ⌘]"),
@@ -1370,7 +1370,7 @@ public enum SamplePDFGenerator {
                 shortcuts: [
                     ("Copy page text (OCR)", "⌥⌘C"),
                     ("Shortcuts & Tips Sheet", "⌘/"),
-                    ("Switch Next / Prev Tab", "⌃⇥ / ⇧⌘["),
+                    ("Switch Next / Prev Tab", "⌃⇥ / ⌃⇧⇥"),
                     ("Reopen Closed Tab", "⇧⌘T"),
                     ("Go to Page (Printed #)", "⌥⌘G"),
                     ("Navigate Back / Forward", "⌘[ / ⌘]"),

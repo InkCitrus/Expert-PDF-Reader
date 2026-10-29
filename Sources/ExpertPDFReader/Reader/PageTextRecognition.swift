@@ -2,11 +2,16 @@ import AppKit
 import PDFKit
 import Vision
 
-/// Clipboard cleanup is deliberately limited to horizontal spacing between CJK glyphs. Paragraphs,
-/// indentation, tabs and the spaces in Latin words keep their meaning.
+/// Remove PDF glyph spacing and soft Chinese wraps. Keep paragraph breaks, indentation and Latin spacing.
 enum PDFTextCleanup {
     private static let extraSpaces = try! NSRegularExpression(
         pattern: #"(?<=[\p{Han}\p{Hiragana}\p{Katakana}，。！？；：、（）「」『』《》〈〉【】“”‘’])[\p{Zs}]+(?=[\p{Han}\p{Hiragana}\p{Katakana}，。！？；：、（）「」『』《》〈〉【】“”‘’])"#
+    )
+
+    // A single line break inside a Chinese sentence is page wrapping. Keep blank lines, indentation,
+    // and sentence-ending paragraph boundaries; Latin code and lists are left alone.
+    private static let wrappedChineseLine = try! NSRegularExpression(
+        pattern: #"(?<=[\p{Han}\p{Hiragana}\p{Katakana}，、：])\r?\n(?=[\p{Han}\p{Hiragana}\p{Katakana}])"#
     )
 
     private static func compatibilityReplacements(in text: String) -> [(NSRange, String)] {
@@ -25,13 +30,17 @@ enum PDFTextCleanup {
         let result = NSMutableString(string: text)
         for (range, glyph) in compatibilityReplacements(in: text).reversed() { result.replaceCharacters(in: range, with: glyph) }
         let normalized = result as String
-        return extraSpaces.stringByReplacingMatches(in: normalized, range: NSRange(normalized.startIndex..., in: normalized), withTemplate: "")
+        let compact = extraSpaces.stringByReplacingMatches(in: normalized, range: NSRange(normalized.startIndex..., in: normalized), withTemplate: "")
+        return wrappedChineseLine.stringByReplacingMatches(in: compact, range: NSRange(compact.startIndex..., in: compact), withTemplate: "")
     }
 
     static func normalize(_ text: NSAttributedString) -> NSAttributedString {
         let result = NSMutableAttributedString(attributedString: text)
         for (range, glyph) in compatibilityReplacements(in: text.string).reversed() { result.replaceCharacters(in: range, with: glyph) }
         for match in extraSpaces.matches(in: result.string, range: NSRange(location: 0, length: result.length)).reversed() {
+            result.deleteCharacters(in: match.range)
+        }
+        for match in wrappedChineseLine.matches(in: result.string, range: NSRange(location: 0, length: result.length)).reversed() {
             result.deleteCharacters(in: match.range)
         }
         return result
@@ -86,12 +95,32 @@ enum PageTextRecognition {
         }
     }
 
-    static func recognize(pageData: Data) throws -> String {
+    static func recognize(pageData: Data, selectionBounds: CGRect? = nil) throws -> String {
         guard let document = PDFDocument(data: pageData), let page = document.page(at: 0),
-              let image = render(page) else { throw Failure.unreadable }
+              var image = render(page) else { throw Failure.unreadable }
         defer { withExtendedLifetime(document) {} }
         let vertical = BookPageScanner.writingDirection(in: image) == .vertical
-        let input = vertical ? reflowVerticalText(in: image) ?? image.cgImage : image.cgImage
+        if let selectionBounds, page.rotation == 0 {
+            let box = page.bounds(for: .cropBox)
+            let selected = selectionBounds.intersection(box)
+            let scaleX = CGFloat(image.width) / box.width, scaleY = CGFloat(image.height) / box.height
+            let rect = CGRect(x: (selected.minX - box.minX) * scaleX, y: (box.maxY - selected.maxY) * scaleY,
+                              width: selected.width * scaleX, height: selected.height * scaleY)
+                .insetBy(dx: -3, dy: -3).integral.intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            guard !rect.isEmpty, let cropped = image.cgImage.cropping(to: rect) else { throw Failure.noText }
+            var pixels: [UInt8] = []
+            pixels.reserveCapacity(Int(rect.width * rect.height))
+            for row in Int(rect.minY)..<Int(rect.maxY) {
+                pixels.append(contentsOf: image.pixels[(row * image.width + Int(rect.minX))..<(row * image.width + Int(rect.maxX))])
+            }
+            image = .init(pixels: pixels, width: Int(rect.width), height: Int(rect.height), cgImage: cropped)
+        }
+        if let lines = try NativeOCR.recognize(image) {
+            let text = OCRTextLayout.text(from: lines, vertical: vertical, pageHeight: selectionBounds == nil ? image.height : nil)
+            guard !text.isEmpty else { throw Failure.noText }
+            return text
+        }
+        let input = image.cgImage
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.recognitionLanguages = ["zh-Hant", "zh-Hans", "en-US"]
@@ -128,76 +157,4 @@ enum PageTextRecognition {
         return image.map { .init(pixels: pixels, width: width, height: height, cgImage: $0) }
     }
 
-    /// Vision recognizes horizontal Chinese. Segment upright vertical glyphs, then lay those same glyphs
-    /// into horizontal rows, with columns taken from right to left. Rotating a whole page would turn the glyphs.
-    static func reflowVerticalText(in image: BookPageScanner.PageImage) -> CGImage? {
-        let w = image.width, h = image.height
-        func runs(_ counts: [Int], threshold: Int, closing: Int) -> [Range<Int>] {
-            var ranges: [Range<Int>] = []
-            var start: Int?, last = 0
-            for (index, count) in counts.enumerated() where count > threshold {
-                if let lower = start, index - last > closing + 1 {
-                    ranges.append(lower..<(last + 1))
-                    start = index
-                } else if start == nil { start = index }
-                last = index
-            }
-            if let start { ranges.append(start..<(last + 1)) }
-            return ranges
-        }
-        var rows = [Int](repeating: 0, count: h)
-        var columns = [Int](repeating: 0, count: w)
-        for y in h / 50..<h * 49 / 50 {
-            for x in w / 50..<w * 49 / 50 where image.pixels[y * w + x] < 160 {
-                rows[y] += 1
-                columns[x] += 1
-            }
-        }
-        let columnRuns = runs(columns, threshold: max(2, h / 500), closing: max(1, w / 600))
-            .filter { $0.count > w / 150 && $0.count < w / 5 }
-        guard columnRuns.count >= 3 else { return nil }
-        let characterWidth = columnRuns.map(\.count).sorted()[columnRuns.count / 2]
-        // Large empty horizontal bands separate a title from its body; read each block top to bottom.
-        let blocks = runs(rows, threshold: 1, closing: characterWidth * 2)
-        var glyphLines: [[CGRect]] = []
-        for block in blocks {
-            var blockColumns = [Int](repeating: 0, count: w)
-            for y in block {
-                for x in w / 50..<w * 49 / 50 where image.pixels[y * w + x] < 160 { blockColumns[x] += 1 }
-            }
-            let blockRuns = runs(blockColumns, threshold: max(1, block.count / 500), closing: max(1, w / 600))
-                .filter { $0.count > w / 150 && $0.count < w / 5 }
-            for column in blockRuns.reversed() {
-                var ink = [Int](repeating: 0, count: block.count)
-                for y in block {
-                    for x in column where image.pixels[y * w + x] < 160 { ink[y - block.lowerBound] += 1 }
-                }
-                let glyphs = runs(ink, threshold: 0, closing: max(1, characterWidth / 9)).map {
-                    CGRect(x: column.lowerBound, y: $0.lowerBound + block.lowerBound, width: column.count, height: $0.count)
-                }
-                guard !glyphs.isEmpty else { continue }
-                // Bound the image fed to Vision even on very tall pages.
-                for offset in stride(from: 0, to: glyphs.count, by: 28) {
-                    glyphLines.append(Array(glyphs[offset..<min(offset + 28, glyphs.count)]))
-                }
-            }
-        }
-        guard !glyphLines.isEmpty else { return nil }
-        let cell = 48, rowHeight = 68, width = 28 * cell + 24, height = glyphLines.count * rowHeight + 24
-        guard height < 16000, let context = CGContext(data: nil, width: width, height: height,
-            bitsPerComponent: 8, bytesPerRow: width, space: CGColorSpaceCreateDeviceGray(), bitmapInfo: 0) else { return nil }
-        context.setFillColor(gray: 1, alpha: 1)
-        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
-        for (row, glyphs) in glyphLines.enumerated() {
-            for (column, rect) in glyphs.enumerated() {
-                guard let glyph = image.cgImage.cropping(to: rect) else { continue }
-                let scale = min(CGFloat(cell - 6) / rect.width, CGFloat(cell - 6) / rect.height)
-                let size = CGSize(width: rect.width * scale, height: rect.height * scale)
-                context.draw(glyph, in: CGRect(x: CGFloat(12 + column * cell) + (CGFloat(cell) - size.width) / 2,
-                    y: CGFloat(height - 12 - (row + 1) * rowHeight) + (CGFloat(rowHeight) - size.height) / 2,
-                    width: size.width, height: size.height))
-            }
-        }
-        return context.makeImage()
-    }
 }

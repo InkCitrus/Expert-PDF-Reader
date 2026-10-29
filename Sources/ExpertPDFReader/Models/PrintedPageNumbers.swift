@@ -9,7 +9,7 @@ import Vision
 /// (vertical Chinese and Japanese) may be stored in reading order or, as the Internet Archive scans it, with
 /// each spread's left page first.
 public struct BookPageScan: Codable, Equatable {
-    public static let currentVersion = 3
+    public static let currentVersion = 4
 
     public var version: Int? = Self.currentVersion
     public var printedNumbers: PrintedPageNumbers?
@@ -59,6 +59,14 @@ public struct PrintedPageNumbers: Codable, Equatable {
     }
 }
 
+enum PageNumberLabel {
+    static func canonical(_ label: String) -> String {
+        let value = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let plain = value.replacingOccurrences(of: #"(?<=\d)[,.\u00A0\u202F](?=\d{3}(?:\D|$))"#, with: "", options: .regularExpression)
+        return plain.allSatisfy({ $0.isASCII && $0.isNumber }) ? Int(plain).map(String.init) ?? value : value
+    }
+}
+
 public enum BookPageScanner {
     enum WritingDirection {
         case horizontal, vertical
@@ -98,7 +106,9 @@ public enum BookPageScanner {
 
             // Digital PDFs already carry selectable text with exact character bounds: reading the header/footer
             // directly takes microseconds per page and avoids OCR errors on code listings or small fonts.
-            let textReading = readFromTextLayer(page: page, index: index)
+            // Hidden OCR in a scan can be badly wrong, including its digits and writing direction.
+            // Read visible ink for image pages instead of treating that text as authoritative.
+            let textReading = page.hasFullPageScanImage ? nil : readFromTextLayer(page: page, index: index)
             if let textReading, textReading.number != nil {
                 readings[index] = textReading
                 return textReading
@@ -634,13 +644,13 @@ public enum BookPageScanner {
         let cgImage: CGImage
     }
 
-    /// The page in grey, 700 px wide: drawn once, since a scanned page's image is slow to decode
+    /// Enough resolution for small printed footer digits, drawn only on sampled pages.
     static func render(_ page: PDFPage) -> PageImage? {
         let box = page.bounds(for: .mediaBox)
         guard box.width > 0, box.height > 0, page.rotation % 360 == 0 else { return nil }
-        let width = 700
+        let width = 1400
         let height = Int(CGFloat(width) * box.height / box.width)
-        guard height > 100, height < 4000 else { return nil }
+        guard height > 100, height < 8000 else { return nil }
         var pixels = [UInt8](repeating: 255, count: width * height)
         let image: CGImage? = pixels.withUnsafeMutableBytes { buffer in
             guard let context = CGContext(

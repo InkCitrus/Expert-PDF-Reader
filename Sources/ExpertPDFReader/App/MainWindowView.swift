@@ -3,7 +3,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// Main window:
-/// Native titlebar for window dragging, then a 40pt strip for Home and document tabs.
+/// A unified native titlebar contains window controls, Home and document tabs.
 /// Unlike PDF Expert (always graphite), the strip follows the system / app appearance.
 /// Enforces a minimum window width of `600pt`.
 public struct MainWindowView: View {
@@ -22,15 +22,6 @@ public struct MainWindowView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            // Interactive tabs stay below the native titlebar.
-            TopTabBarView(
-                store: store,
-                session: session,
-                isDark: isDark
-            )
-            .frame(height: Self.tabStripHeight)
-            .zIndex(2)
-
             // Active Tab Content (disable spring overlap between heavyweight PDFView NSViews during rapid tab cycling)
             ZStack {
                 if let activeTab = session.tabs.first(where: { $0.id == session.selectedTabID }) {
@@ -49,6 +40,8 @@ public struct MainWindowView: View {
                 transaction.animation = nil
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(AppPalette.homeContentBackground(isDark), ignoresSafeAreaEdges: [])
+            .clipped()
             .overlay {
                 // PDFs dropped onto a document tab or the tab strip (the Home tab shows its own drop area)
                 if isDropTargeted && session.activeDocumentTab != nil {
@@ -66,14 +59,22 @@ public struct MainWindowView: View {
             }
         }
         .frame(minWidth: 600, minHeight: 520)
+        .toolbar {
+            // Keep the compact native toolbar alive: SwiftUI removes an empty one and shrinks tabs to 32pt.
+            // The titlebar accessory supplies all visible controls in this 40pt row.
+            ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1).accessibilityHidden(true) }
+        }
         .sheet(isPresented: $session.isShortcutsSheetPresented) {
             ShortcutsAndTipsSheetView(store: store, session: session)
         }
-        .background(AppPalette.homeContentBackground(isDark))
+        // Full-size content extends under the native traffic lights. Its backdrop must match the accessory.
+        .background(AppPalette.tabStripBackground(isDark))
         .background(
             WindowChromeConfigurator(
                 windowTitle: store.windowTitle(for: session),
                 representedURL: store.windowRepresentedURL(for: session),
+                tabBar: AnyView(TopTabBarView(store: store, session: session, isDark: isDark)),
+                tabBarBackground: NSColor(AppPalette.tabStripBackground(isDark)),
                 onWindowAttached: { window in
                     session.nsWindow = window
                 },
@@ -103,6 +104,7 @@ struct TopTabBarView: View {
     @State private var allTabsAnchor = NSViewAnchor()
 
     @State private var draggingTabID: UUID?
+    @State private var dragFeedback = TabDragFeedback()
 
     private static let homeTabWidth: CGFloat = 46
     private static let newTabButtonWidth: CGFloat = 36
@@ -168,6 +170,7 @@ struct TopTabBarView: View {
                 }
 
                 Spacer(minLength: Self.reservedTrailingWidth)
+                    .background(WindowDragArea())
 
                 shortcutsHelpButton
             }
@@ -223,11 +226,15 @@ struct TopTabBarView: View {
                     onHoverChanged: { hovering in
                         hoveredTabID = hovering ? state.id : (hoveredTabID == state.id ? nil : hoveredTabID)
                     },
-                    onDragChanged: { _ in
+                    onDragChanged: { point in
                         draggingTabID = state.id
+                        let target = store.dropTargetWindowAndIndex(atScreenPoint: point, excluding: session.id)?.session
+                            ?? (session.containsTabStrip(point) ? session : nil)
+                        dragFeedback.update(title: state.title, at: point, target: target)
                     },
                     onDragEnded: { point in
                         draggingTabID = nil
+                        dragFeedback.end()
                         guard let point else { return }
                         if let target = store.dropTargetWindowAndIndex(atScreenPoint: point, excluding: session.id) {
                             store.moveTab(id: state.id, from: session.id, to: target.session.id,
@@ -247,9 +254,11 @@ struct TopTabBarView: View {
                 )
                 .frame(width: tabWidth)
                 .id(state.id)
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
                 tabSeparator
             }
         }
+        .animation(AppAnimation.tab, value: documentTabs.map(\.id))
     }
 
     private var tabSeparator: some View {
@@ -376,17 +385,7 @@ struct TopTabBarView: View {
 
     private func presentAllTabsMenu() {
         var items: [NativeMenuItem] = []
-        let total = session.tabs.count
-        for (idx, tab) in session.tabs.enumerated() {
-            let shortcutNum: String
-            if idx < 8 {
-                shortcutNum = "\(idx + 1)"
-            } else if idx == total - 1 {
-                shortcutNum = "9"
-            } else {
-                shortcutNum = ""
-            }
-
+        for tab in session.tabs {
             let label: String
             switch tab {
             case .home:
@@ -400,8 +399,6 @@ struct TopTabBarView: View {
             items.append(
                 .action(
                     label,
-                    keyEquivalent: shortcutNum,
-                    keyModifiers: [.option, .command],
                     isChecked: session.selectedTabID == tab.id
                 ) {
                     store.activateWindowSession(session.id)
@@ -521,7 +518,7 @@ struct DocumentTabItemView: View {
                     .matchedGeometryEffect(id: "activeTabAccent", in: tabBarNamespace)
             }
         }
-        .opacity(isDragging ? 0.7 : 1)
+        .opacity(isDragging ? 0.3 : 1)
         .overlay {
             TabInteractionArea(session: session, tabID: state.id, toolTip: state.documentID.url.path, onSelect: selectTab,
                                onDragChanged: onDragChanged, onDragEnded: onDragEnded)

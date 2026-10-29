@@ -592,6 +592,12 @@ final class ThemedPDFView: PDFView {
     private let recognizedPageText = NSCache<PDFPage, NSString>()
 
     override func copy(_ sender: Any?) {
+        if let selection = currentSelection, selection.pages.count == 1,
+           let page = selection.pages.first, page.rotation == 0, page.hasFullPageScanImage,
+           document?.allowsCopying == true {
+            recognizeText(on: page, selectionBounds: selection.bounds(for: page))
+            return
+        }
         let pasteboard = NSPasteboard.general
         let before = pasteboard.changeCount
         super.copy(sender)
@@ -614,7 +620,12 @@ final class ThemedPDFView: PDFView {
     @objc func recognizePageText(_ sender: Any?) {
         guard textRecognitionTask == nil, document?.allowsCopying == true,
               let page = (sender as? NSMenuItem)?.representedObject as? PDFPage ?? currentPage else { return }
-        if let cached = recognizedPageText.object(forKey: page) {
+        recognizeText(on: page)
+    }
+
+    private func recognizeText(on page: PDFPage, selectionBounds: CGRect? = nil) {
+        guard textRecognitionTask == nil else { return }
+        if selectionBounds == nil, let cached = recognizedPageText.object(forKey: page) {
             copyRecognizedText(cached as String)
             return
         }
@@ -643,15 +654,17 @@ final class ThemedPDFView: PDFView {
         ])
         let originalDocument = document
         textRecognitionTask = Task { [weak self] in
-            let result = await Task.detached(priority: .userInitiated) { Result { try PageTextRecognition.recognize(pageData: data) } }.value
+            let result = await Task.detached(priority: .userInitiated) { Result { try PageTextRecognition.recognize(pageData: data, selectionBounds: selectionBounds) } }.value
             backdrop.removeFromSuperview()
             guard let self else { return }
             self.textRecognitionTask = nil
             guard self.document === originalDocument else { return }
             switch result {
             case .success(let text):
-                self.recognizedPageText.countLimit = 12
-                self.recognizedPageText.setObject(text as NSString, forKey: page)
+                if selectionBounds == nil {
+                    self.recognizedPageText.countLimit = 12
+                    self.recognizedPageText.setObject(text as NSString, forKey: page)
+                }
                 self.copyRecognizedText(text)
             case .failure(let error):
                 guard let window = self.window else { return }
@@ -843,75 +856,36 @@ final class ThemedPDFView: PDFView {
         }
     }
 
+    private var appliedTheme: PDFViewTheme?
+    private var appliedDarkUI: Bool?
+    private var appliedBackingScale: CGFloat = 0
+    private weak var filteredScrollLayer: CALayer?
+
     func applyThemeLayers() {
-        self.wantsLayer = true
-        self.layerUsesCoreImageFilters = true
-
-        // 1. Paint the exact canvas background on ThemedPDFView's own backing layer (outside PDFScrollView)
-        if self.backgroundColor != .clear {
-            self.backgroundColor = .clear
+        let changed = appliedTheme != currentTheme || appliedDarkUI != isDarkUI
+        if !wantsLayer { wantsLayer = true }
+        if backgroundColor != .clear { backgroundColor = .clear }
+        if changed {
+            layer?.backgroundColor = currentTheme.documentBackgroundNSColor(isDarkUI: isDarkUI).cgColor
+            // Public PDFKit API; no per-page private layer traversal on every layout/scroll.
+            pageShadowsEnabled = currentTheme != .night
         }
-        let bgCGColor = currentTheme.documentBackgroundNSColor(isDarkUI: isDarkUI).cgColor
-        self.layer?.backgroundColor = bgCGColor
-
-        let backingScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
-        let filters = MetalShaderRenderer.shared.pageLayerFilters(for: currentTheme)
-
-        // 2. Attach the theme CIFilter to PDFScrollView's layer (which sits ABOVE NSClipView's magnification
-        //    transform). Because PDFScrollView has identity transform and full Retina contentsScale,
-        //    CoreAnimation composites all PDFPageLayerTile IOSurfaces at 100% native zoomed resolution
-        //    before running the shader on the viewport — zero intermediate 1x downsampling or blur!
-        if let scrollView = self.subviews.compactMap({ $0 as? NSScrollView }).first {
-            scrollView.wantsLayer = true
-            scrollView.layerUsesCoreImageFilters = true
-            if scrollView.drawsBackground {
-                scrollView.drawsBackground = false
-            }
-            for sub in scrollView.subviews where String(describing: type(of: sub)).contains("Background") {
-                if !sub.isHidden {
-                    sub.isHidden = true
-                }
-            }
-            if let svLayer = scrollView.layer {
-                svLayer.contentsScale = backingScale
-                svLayer.rasterizationScale = backingScale
-                svLayer.backgroundColor = NSColor.clear.cgColor
-                let hadFilters = !(svLayer.filters?.isEmpty ?? true)
-                let wantsFilters = !filters.isEmpty
-                if wantsFilters || hadFilters {
-                    svLayer.filters = filters
-                }
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        if let scroll = subviews.compactMap({ $0 as? NSScrollView }).first {
+            if !scroll.wantsLayer { scroll.wantsLayer = true }
+            if scroll.drawsBackground { scroll.drawsBackground = false }
+            if changed || filteredScrollLayer !== scroll.layer || appliedBackingScale != scale {
+                scroll.layerUsesCoreImageFilters = currentTheme != .day
+                scroll.layer?.contentsScale = scale
+                scroll.layer?.backgroundColor = NSColor.clear.cgColor
+                // Reassigning these filters on each PDFKit layout invalidated the entire scan viewport.
+                scroll.layer?.filters = MetalShaderRenderer.shared.pageLayerFilters(for: currentTheme)
+                filteredScrollLayer = scroll.layer
             }
         }
-
-        // 3. Ensure PDFPageLayer sublayers have no sub-clipView filters (which would force 1x rasterization)
-        //    and hide drop shadows in Night mode so they aren't inverted into a light halo.
-        guard let docView = self.documentView else { return }
-        let isNight = (currentTheme == .night)
-        for pageView in docView.subviews {
-            guard let pageLayer = pageView.layer else { continue }
-            if pageLayer.filters != nil {
-                pageLayer.filters = nil
-            }
-            if let sublayers = pageLayer.sublayers, sublayers.count >= 4 {
-                if sublayers[0].isHidden != isNight {
-                    sublayers[0].isHidden = isNight
-                }
-                if sublayers[1].isHidden != isNight {
-                    sublayers[1].isHidden = isNight
-                }
-                let contentContainer = sublayers[2]
-                if contentContainer.filters != nil {
-                    contentContainer.filters = nil
-                }
-                if let tilesContainer = contentContainer.sublayers?.first,
-                   tilesContainer.filters != nil {
-                    tilesContainer.filters = nil
-                }
-                let paperLayer = sublayers[3]
-                paperLayer.backgroundColor = NSColor.white.cgColor
-            }
-        }
+        appliedTheme = currentTheme
+        appliedDarkUI = isDarkUI
+        appliedBackingScale = scale
     }
 
     // Keep PDFKit's native accessibility tree: it exposes full text, links and tables.
@@ -979,25 +953,36 @@ enum SpreadAlignment {
         }
         guard let target = holdsContent ? widths.values.max() : commonWidth(of: Array(widths.values)) else { return }
 
-        for (index, width) in widths where abs(width - target) > 0.5 && (holdsContent || abs(width - target) <= target * tolerance) {
+        for (index, width) in widths {
             guard let page = document.page(at: index) else { continue }
             let original = page.bounds(for: .cropBox)
             var aligned = original
+            let upsideDown = page.rotation % 360 != 0
+            if abs(width - target) > 0.5 && (holdsContent || abs(width - target) <= target * tolerance) {
+                if width > target {
+                    if !holdsContent { aligned = original.insetBy(dx: (width - target) / 2, dy: 0) }
+                } else {
+                    if isInLeftColumn(index, spread: spread) != upsideDown { aligned.origin.x -= target - width }
+                    aligned.size.width = target
+                }
+            }
+            // PDFKit centres unequal-height pages in their row. Add blank paper BELOW the shorter
+            // page so both paper edges and the top of the cropped content start at the same height.
+            let partner = spread.isBook ? (index == 0 ? -1 : (index % 2 == 1 ? index + 1 : index - 1)) : index ^ 1
+            if widths[partner] != nil, let other = document.page(at: partner) {
+                let height = max(original.height, other.bounds(for: .cropBox).height)
+                if height - original.height > 0.5 {
+                    if !upsideDown { aligned.origin.y -= height - original.height }
+                    aligned.size.height = height
+                }
+            }
+            guard !original.isAlmostEqual(to: aligned) else { continue }
             var pageAdjustments: [Adjustment] = []
-            if width > target {
-                guard !holdsContent else { continue }
-                aligned = original.insetBy(dx: (width - target) / 2, dy: 0)
-            } else {
-                if isInLeftColumn(index, spread: spread) {
-                    aligned.origin.x -= target - width
-                }
-                aligned.size.width = target
-                let paper = page.bounds(for: .mediaBox)
-                if !paper.contains(aligned) {
-                    // Blank paper beyond the page's edge: the media box grows with it
-                    page.setBounds(paper.union(aligned), for: .mediaBox)
-                    pageAdjustments.append(Adjustment(box: .mediaBox, original: paper, applied: page.bounds(for: .mediaBox)))
-                }
+            let paper = page.bounds(for: .mediaBox)
+            if !paper.contains(aligned) {
+                let extended = paper.union(aligned)
+                page.setBounds(extended, for: .mediaBox)
+                pageAdjustments.append(Adjustment(box: .mediaBox, original: paper, applied: page.bounds(for: .mediaBox)))
             }
             page.setBounds(aligned, for: .cropBox)
             pageAdjustments.append(Adjustment(box: .cropBox, original: original, applied: page.bounds(for: .cropBox)))

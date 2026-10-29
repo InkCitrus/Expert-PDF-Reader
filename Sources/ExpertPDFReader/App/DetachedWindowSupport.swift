@@ -20,21 +20,21 @@ final class DetachedReaderWindowController: NSObject, NSWindowDelegate {
         self.store = store
         self.session = session
 
-        let baseSize = sourceWindow?.contentLayoutRect.size ?? NSSize(width: 1180, height: 780)
+        let baseSize = sourceWindow?.frame.size ?? NSSize(width: 1180, height: 780)
         let targetScreen = Self.screen(containing: screenDropPoint)
             ?? sourceWindow?.screen
             ?? NSScreen.main
             ?? NSScreen.screens.first
 
         let visibleFrame = targetScreen?.visibleFrame ?? NSRect(x: 80, y: 80, width: 1440, height: 900)
-        let style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
+        let style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         let titlebarHeight = NSWindow.frameRect(forContentRect: .zero, styleMask: style).height
         let width = min(max(600, baseSize.width), visibleFrame.width)
         let height = min(max(520, baseSize.height), visibleFrame.height - titlebarHeight)
 
         let origin: NSPoint
         if let drop = screenDropPoint {
-            // Place the detached window's content tab strip under the cursor.
+            // Keep the unified titlebar under the same cursor position when tearing off a tab.
             let unclampedX = drop.x - min(180, width * 0.25)
             let unclampedY = drop.y - height + MainWindowView.tabStripHeight * 0.5
             origin = NSPoint(
@@ -64,9 +64,9 @@ final class DetachedReaderWindowController: NSObject, NSWindowDelegate {
         )
         win.isReleasedWhenClosed = false
         win.minSize = NSSize(width: 600, height: 520)
-        win.titleVisibility = .visible
-        win.titlebarAppearsTransparent = false
-        win.titlebarSeparatorStyle = .automatic
+        win.titleVisibility = .hidden
+        win.titlebarAppearsTransparent = true
+        win.titlebarSeparatorStyle = .none
         win.isMovableByWindowBackground = false
         self.window = win
         super.init()
@@ -77,7 +77,15 @@ final class DetachedReaderWindowController: NSObject, NSWindowDelegate {
     }
 
     func showWindow() {
+        let animate = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if animate { window.alphaValue = 0 }
         window.makeKeyAndOrderFront(nil)
+        if animate {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.16
+                window.animator().alphaValue = 1
+            }
+        }
     }
 
     func closeProgrammatically() {

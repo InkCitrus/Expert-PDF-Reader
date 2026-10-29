@@ -420,7 +420,7 @@ public struct ShortcutsAndTipsSheetView: View {
                 icon: "arrow.right.square",
                 title: L10n.tr("显示下一标签", "Show Next Tab"),
                 subtitle: nil,
-                chords: [["⌃", "⇥"], ["⇧", "⌘", "]"], ["⌥", "⌘", "→"]]
+                chords: [["⌃", "⇥"]]
             ),
             ShortcutEntry(
                 id: "prev_tab",
@@ -428,15 +428,7 @@ public struct ShortcutsAndTipsSheetView: View {
                 icon: "arrow.left.square",
                 title: L10n.tr("显示上一标签", "Show Previous Tab"),
                 subtitle: nil,
-                chords: [["⌃", "⇧", "⇥"], ["⇧", "⌘", "["], ["⌥", "⌘", "←"]]
-            ),
-            ShortcutEntry(
-                id: "tab_by_number",
-                category: .tabs,
-                icon: "number.square",
-                title: L10n.tr("按序号切换标签页", "Switch Tab by Number"),
-                subtitle: nil,
-                chords: [["⌃", "1–9"], ["⌥", "⌘", "1–9"]]
+                chords: [["⌃", "⇧", "⇥"]]
             ),
             ShortcutEntry(
                 id: "close_tab",

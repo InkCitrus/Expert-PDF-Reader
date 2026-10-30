@@ -864,6 +864,7 @@ final class ThemedPDFView: PDFView {
     func applyThemeLayers() {
         let changed = appliedTheme != currentTheme || appliedDarkUI != isDarkUI
         if !wantsLayer { wantsLayer = true }
+        if !layerUsesCoreImageFilters { layerUsesCoreImageFilters = true }
         if backgroundColor != .clear { backgroundColor = .clear }
         if changed {
             layer?.backgroundColor = currentTheme.documentBackgroundNSColor(isDarkUI: isDarkUI).cgColor
@@ -877,6 +878,7 @@ final class ThemedPDFView: PDFView {
             if changed || filteredScrollLayer !== scroll.layer || appliedBackingScale != scale {
                 scroll.layerUsesCoreImageFilters = currentTheme != .day
                 scroll.layer?.contentsScale = scale
+                scroll.layer?.rasterizationScale = scale
                 scroll.layer?.backgroundColor = NSColor.clear.cgColor
                 // Reassigning these filters on each PDFKit layout invalidated the entire scan viewport.
                 scroll.layer?.filters = MetalShaderRenderer.shared.pageLayerFilters(for: currentTheme)

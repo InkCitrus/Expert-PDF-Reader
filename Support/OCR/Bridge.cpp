@@ -1,4 +1,5 @@
 #include "rapidocrlite/rapidocrlite.h"
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <exception>
@@ -25,7 +26,7 @@ char* error(const char* message) { return strdup(("{\"error\":" + quoted(message
 
 // One lazily loaded model shared by all windows; callers run on a worker thread.
 // The reader's C ABI avoids exposing C++ or model dependencies to Swift/PDFKit.
-extern "C" char* reader_ocr(const char* models, const unsigned char* rgb, int width, int height) {
+static char* recognize(const char* models, const unsigned char* rgb, int width, int height, bool includeCharacters) {
     std::lock_guard<std::mutex> lock(mutex);
     try {
         if (!engine) {
@@ -50,11 +51,39 @@ extern "C" char* reader_ocr(const char* models, const unsigned char* rgb, int wi
             if (i) json += ',';
             json += "{\"text\":" + quoted(box.text) + ",\"confidence\":" + std::to_string(box.confidence)
                 + ",\"x\":" + std::to_string(box.bbox_x) + ",\"y\":" + std::to_string(box.bbox_y)
-                + ",\"width\":" + std::to_string(box.bbox_w) + ",\"height\":" + std::to_string(box.bbox_h) + '}';
+                + ",\"width\":" + std::to_string(box.bbox_w) + ",\"height\":" + std::to_string(box.bbox_h);
+            if (includeCharacters) {
+                json += ",\"characters\":[";
+                rpocr_words characters = {};
+                if (rpocr_result_words(&result, i, 1, &characters) == RPOCR_OK) {
+                    for (size_t j = 0; j < characters.count; ++j) {
+                        const auto& character = characters.items[j];
+                        float minX = character.box[0].x, maxX = minX;
+                        float minY = character.box[0].y, maxY = minY;
+                        for (const auto& point : character.box) {
+                            minX = std::min(minX, point.x); maxX = std::max(maxX, point.x);
+                            minY = std::min(minY, point.y); maxY = std::max(maxY, point.y);
+                        }
+                        if (j) json += ',';
+                        json += "{\"text\":" + quoted(character.text) + ",\"confidence\":" + std::to_string(character.confidence)
+                            + ",\"x\":" + std::to_string(minX) + ",\"y\":" + std::to_string(minY)
+                            + ",\"width\":" + std::to_string(maxX - minX) + ",\"height\":" + std::to_string(maxY - minY) + '}';
+                    }
+                }
+                rpocr_words_free(&characters);
+                json += ']';
+            }
+            json += '}';
         }
         rpocr_result_free(&result);
         json += "]}";
         return strdup(json.c_str());
     } catch (const std::exception& exception) { return error(exception.what()); }
+}
+extern "C" char* reader_ocr(const char* models, const unsigned char* rgb, int width, int height) {
+    return recognize(models, rgb, width, height, false);
+}
+extern "C" char* reader_ocr_characters(const char* models, const unsigned char* rgb, int width, int height) {
+    return recognize(models, rgb, width, height, true);
 }
 extern "C" void reader_ocr_free(char* result) { free(result); }

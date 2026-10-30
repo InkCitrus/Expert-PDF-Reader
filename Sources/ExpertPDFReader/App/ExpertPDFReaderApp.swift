@@ -20,9 +20,6 @@ public final class ExpertPDFReaderAppDelegate: NSObject, NSApplicationDelegate {
     public func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
-        // Keep Spotlight for Help off the visible menu: it also searches unrelated macOS help.
-        // AppKit supports assigning an off-menu help menu; our command search uses the app's menus.
-        NSApp.helpMenu = NSMenu()
 
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
@@ -338,14 +335,6 @@ struct ReaderMenuCommands: Commands {
             .keyboardShortcut("w", modifiers: [.command, .shift])
         }
 
-        CommandGroup(after: .pasteboard) {
-            Button(L10n.tr("识别并复制本页文字", "Recognize and Copy Page Text")) {
-                ThemedPDFView.focused(in: NSApp.keyWindow)?.recognizePageText(nil)
-            }
-            .keyboardShortcut("c", modifiers: [.command, .option])
-            .disabled(store.activeDocumentTab?.pdfDocument.allowsCopying != true)
-        }
-
         // View Menu: the reader's commands join the system View menu (above Enter Full Screen)
         // instead of a second menu titled View
         CommandGroup(before: .toolbar) {
@@ -647,12 +636,6 @@ struct ReaderMenuCommands: Commands {
 
         // Help Menu: Shortcuts & Tips cheat sheet + built-in Reading Guide
         CommandGroup(replacing: .help) {
-            Button(MenuCommandSearch.title) {
-                MenuCommandSearch.shared.show()
-            }
-
-            Divider()
-
             Button(L10n.tr("快捷键与技巧", "Shortcuts & Tips")) {
                 store.toggleShortcutsSheet()
             }

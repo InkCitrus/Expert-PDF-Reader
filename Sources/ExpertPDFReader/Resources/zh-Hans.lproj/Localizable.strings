@@ -406,8 +406,6 @@
 "页码|||Page" = "页码";
 
 /* On-demand page text recognition */
-"识别并复制本页文字|||Recognize and Copy Page Text" = "识别并复制本页文字";
-"Recognize and Copy Page Text" = "识别并复制本页文字";
 "正在识别文字…|||Recognizing text…" = "正在识别文字…";
 "Recognizing text…" = "正在识别文字…";
 "无法读取此页。|||This page could not be read." = "无法读取此页。";

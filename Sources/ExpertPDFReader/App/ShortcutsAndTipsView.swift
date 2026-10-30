@@ -533,14 +533,6 @@ public struct ShortcutsAndTipsSheetView: View {
 
             // Search & Bookmarks
             ShortcutEntry(
-                id: "copy_page_text",
-                category: .searchAndBookmarks,
-                icon: "text.viewfinder",
-                title: L10n.tr("识别并复制本页文字", "Recognize and Copy Page Text"),
-                subtitle: nil,
-                chords: [["⌥", "⌘", "C"]]
-            ),
-            ShortcutEntry(
                 id: "find",
                 category: .searchAndBookmarks,
                 icon: "magnifyingglass",

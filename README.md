@@ -23,7 +23,6 @@ A native macOS PDF reader built for reading: tabs, Split View, and Day / Sepia /
   - Tab strip, toolbar and panels follow the **System / Light / Dark** appearance.
 - **Home Tab**: sidebar with Home, Recents and Favorites (plus Open File…, Shortcuts & Tips, Reading Guide and Settings; Help › Reading Guide, `⌘?`, opens the guide from anywhere), a drag-and-drop area, reading-theme cards, and document grids with locale-aware dates.
 - **Shortcuts & Tips Guide (`⌘/`)**: a dedicated, searchable keyboard cheat sheet with tactile keycap badges and category filters (*Tabs*, *Navigation*, *View & Zoom*, *Search & Bookmarks*, *Tips*). Open anytime with `⌘/`, the `?` button on the tab bar, or Help › Shortcuts & Tips.
-- **Menu command search**: Help › Search Menu Commands… searches this app’s menus, including commands in menus you have not opened. Use ↑ / ↓ and Return, or click a result. macOS help articles are excluded.
 - **Tabs & Windows**:
   - **Browser-style multi-window**: drag a tab out of the tab bar to detach it into a new window, drag tabs between windows to merge, or choose Window › Merge All Windows.
   - **Dock & New Window (`⌘N`)**: right-click the Dock icon for New Window, Open… and recent files.
@@ -37,7 +36,7 @@ A native macOS PDF reader built for reading: tabs, Split View, and Day / Sepia /
   - **`←` / `→`** turn the page in the focused pane.
   - **Clear Margins (`⇧⌘M`)** detects the content bounds of each page and crops the margins, computed in the background.
   - **Left sidebar (`⌘B`)**: themed page thumbnails, the document outline and bookmarks (`⌘D`).
-  - **Local OCR**: bundled PP-OCRv6 models run through [RapidOCRLite](https://github.com/RapidAI/RapidOCRLite). `⌘C` recognizes selected scan text; `⌥⌘C` recognizes the whole page, including traditional Chinese and vertical columns. Copies join physical wraps, remove extra Chinese glyph spaces and retain paragraph breaks. No upload or Python runtime is needed.
+  - **Local OCR**: bundled [RapidOCRLite](https://github.com/RapidAI/RapidOCRLite) models provide character positions for selecting scanned text, including traditional Chinese and vertical columns. Drag to select and use `⌘C`; the original PDF is not rewritten. Recognition runs on demand and copies join physical wraps while preserving paragraphs. No upload or Python runtime is needed.
   - **Full-text search (`⌘F`)** runs in the background and lists results per page as they are found, with highlighted context.
   - **Picks up where you left off**: every document reopens at its last page, zoom and layout, and the last session's tabs are restored on launch.
   - **Password-protected PDFs** ask for their password; files that can't be opened say why.

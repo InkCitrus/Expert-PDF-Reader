@@ -34,15 +34,4 @@ if [[ "${1:-}" != "--ui" && "${1:-}" != "--scene" ]]; then
     swiftc -sdk "$SDK_PATH" -module-cache-path build/ModuleCache -parse-as-library \
         Sources/ExpertPDFReader/Models/ReaderRelease.swift scripts/UpdateCheckTests.swift -o build/UpdateCheckTests
     build/UpdateCheckTests
-    SEARCH_TEST_APP="build/Menu Command Search QA.app"
-    SEARCH_TEST_BINARY="$SEARCH_TEST_APP/Contents/MacOS/MenuCommandSearchTests"
-    mkdir -p "$SEARCH_TEST_APP/Contents/MacOS"
-    cp Support/Info.plist "$SEARCH_TEST_APP/Contents/Info.plist"
-    /usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier io.github.inkcitrus.expertpdfreader.menusearchqa' "$SEARCH_TEST_APP/Contents/Info.plist"
-    /usr/libexec/PlistBuddy -c 'Set :CFBundleExecutable MenuCommandSearchTests' "$SEARCH_TEST_APP/Contents/Info.plist"
-    /usr/libexec/PlistBuddy -c 'Set :CFBundleName Menu Command Search QA' "$SEARCH_TEST_APP/Contents/Info.plist"
-    /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName Menu Command Search QA' "$SEARCH_TEST_APP/Contents/Info.plist"
-    swiftc -sdk "$SDK_PATH" -module-cache-path build/ModuleCache -parse-as-library \
-        Sources/ExpertPDFReader/App/MenuCommandSearch.swift scripts/MenuCommandSearchTests.swift -o "$SEARCH_TEST_BINARY"
-    "$SEARCH_TEST_BINARY"
 fi

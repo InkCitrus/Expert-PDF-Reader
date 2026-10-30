@@ -126,6 +126,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
 
         context.coordinator.setupNotifications(for: pdfView)
         applyConfiguration(to: pdfView, coordinator: context.coordinator)
+        pdfView.installOCRSelection()
         return pdfView
     }
 
@@ -140,6 +141,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
 
         if pdfView.document !== pdfDocument {
             let themed = pdfView as? ThemedPDFView
+            themed?.ocrSelectionOverlay.clear(documentChanged: true)
             themed?.isApplyingConfiguration = true
             pdfView.document = pdfDocument
             themed?.wantsAutoScales = isAutoScaling
@@ -594,6 +596,21 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
 // MARK: - ThemedPDFView (Sharp Retina Viewport Shader Filtering + Arrow Key Navigation)
 
 final class ThemedPDFView: PDFView {
+    lazy var ocrSelectionOverlay = OCRTextSelectionOverlay(pdfView: self)
+
+    func installOCRSelection() {
+        if ocrSelectionOverlay.superview == nil { addSubview(ocrSelectionOverlay, positioned: .above, relativeTo: nil) }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if ocrSelectionOverlay.superview != nil,
+           let target = ocrSelectionOverlay.hitTest(convert(point, from: superview)) { return target }
+        if NSApp.currentEvent?.type == .leftMouseDown, bounds.contains(convert(point, from: superview)) {
+            ocrSelectionOverlay.clear()
+            if window?.firstResponder === ocrSelectionOverlay { window?.makeFirstResponder(self) }
+        }
+        return super.hitTest(point)
+    }
     var currentTheme: PDFViewTheme = .day
     var isDarkUI: Bool = false
     var onStepPage: ((Int) -> Void)?
@@ -618,9 +635,9 @@ final class ThemedPDFView: PDFView {
     }
 
     private var textRecognitionTask: Task<Void, Never>?
-    private let recognizedPageText = NSCache<PDFPage, NSString>()
 
     override func copy(_ sender: Any?) {
+        if ocrSelectionOverlay.copySelectionIfPresent() { return }
         if let selection = currentSelection, selection.pages.count == 1,
            let page = selection.pages.first, page.rotation == 0,
            (page.hasFullPageScanImage || PDFSelectionVisibility.hasOverlappingText(selection, on: page)),
@@ -634,31 +651,8 @@ final class ThemedPDFView: PDFView {
         if pasteboard.changeCount != before { PDFTextCleanup.normalize(pasteboard) }
     }
 
-    override func menu(for event: NSEvent) -> NSMenu? {
-        let menu = super.menu(for: event) ?? NSMenu()
-        if let page = page(for: convert(event.locationInWindow, from: nil), nearest: false) {
-            menu.addItem(.separator())
-            let item = NSMenuItem(title: L10n.tr("识别并复制本页文字", "Recognize and Copy Page Text"),
-                action: #selector(recognizePageText(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = page
-            menu.addItem(item)
-        }
-        return menu
-    }
-
-    @objc func recognizePageText(_ sender: Any?) {
-        guard textRecognitionTask == nil, document?.allowsCopying == true,
-              let page = (sender as? NSMenuItem)?.representedObject as? PDFPage ?? currentPage else { return }
-        recognizeText(on: page)
-    }
-
-    private func recognizeText(on page: PDFPage, selectionBounds: CGRect? = nil) {
+    private func recognizeText(on page: PDFPage, selectionBounds: CGRect) {
         guard textRecognitionTask == nil else { return }
-        if selectionBounds == nil, let cached = recognizedPageText.object(forKey: page) {
-            copyRecognizedText(cached as String)
-            return
-        }
         guard let data = page.dataRepresentation else { return }
         let progress = NSProgressIndicator()
         progress.style = .spinning
@@ -691,15 +685,11 @@ final class ThemedPDFView: PDFView {
             guard self.document === originalDocument else { return }
             switch result {
             case .success(let text):
-                if selectionBounds == nil {
-                    self.recognizedPageText.countLimit = 12
-                    self.recognizedPageText.setObject(text as NSString, forKey: page)
-                }
                 self.copyRecognizedText(text)
             case .failure(let error):
                 guard let window = self.window else { return }
                 let alert = NSAlert()
-                alert.messageText = L10n.tr("识别并复制本页文字", "Recognize and Copy Page Text")
+                alert.messageText = L10n.tr("复制", "Copy")
                 alert.informativeText = error.localizedDescription
                 alert.beginSheetModal(for: window, completionHandler: nil)
             }

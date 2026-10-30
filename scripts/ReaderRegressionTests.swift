@@ -306,6 +306,30 @@ struct ReaderRegressionTests {
             board.releaseGlobally()
         }
         do {
+            func column(_ text: String, x: Double) -> RecognizedTextLine {
+                let characters = text.enumerated().map { index, character in
+                    RecognizedTextCharacter(text: String(character), confidence: 0.99, x: x, y: 40 + Double(index) * 16, width: 12, height: 36)
+                }
+                return RecognizedTextLine(text: text, confidence: 0.99, x: x, y: 40, width: 12,
+                                          height: Double(characters.count - 1) * 16 + 36, characters: characters)
+            }
+            let right = "甲乙丙丁戊己庚辛壬癸子丑寅", left = "天地玄黃宇宙洪荒日月盈昃辰"
+            let text = OCRPageText(lines: [column(left, x: 40), column(right, x: 100)], vertical: true,
+                                   imageSize: CGSize(width: 200, height: 300), cropBox: CGRect(x: 20, y: 30, width: 200, height: 300))
+            check(text.text == right + left && text.glyphs.count == 26, "OCR character geometry follows vertical reading order rather than input box order")
+            check(text.selectedText(from: 11, through: 15) == "丑寅天地玄", "OCR selection joins column wraps without copying unrelated columns")
+            check(text.selectedText(from: 15, through: 11) == "丑寅天地玄", "reverse OCR selection copies in reading order")
+            check(text.selectedBounds(from: 11, through: 15).count == 2, "cross-column selection highlights each selected column separately")
+            let target = text.glyphs[1].bounds
+            check(text.nearestGlyph(to: CGPoint(x: target.midX, y: target.midY)) == 1, "overlapping character boxes choose the closest character center")
+            check(abs(text.glyphs[0].bounds.minX - 120) < 0.001 && abs(text.glyphs[0].bounds.maxY - 290) < 0.001,
+                  "OCR image coordinates preserve a nonzero PDF crop origin")
+            let unicode = OCRPageText(lines: [column("甲😀乙丙丁戊己庚辛壬癸子丑", x: 100)], vertical: true,
+                                      imageSize: CGSize(width: 200, height: 300), cropBox: CGRect(x: 0, y: 0, width: 200, height: 300))
+            check(unicode.selectedText(from: 0, through: 2) == "甲😀乙", "OCR text ranges preserve Unicode surrogate pairs")
+            check(text.selectedText(from: -1, through: 1).isEmpty, "invalid OCR selection indices return no text")
+        }
+        do {
             let document = PDFDocument(url: alpha)!
             let originalMedia = (0..<document.pageCount).map { document.page(at: $0)!.bounds(for: .mediaBox) }
             let content = [CGRect(x: 0, y: 0, width: 600, height: 800),

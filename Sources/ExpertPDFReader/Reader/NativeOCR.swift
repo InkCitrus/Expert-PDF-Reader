@@ -5,7 +5,21 @@ struct RecognizedTextLine: Decodable {
     let text: String
     let confidence: Double
     let x, y, width, height: Double
+    let characters: [RecognizedTextCharacter]?
     var maxY: Double { y + height }
+
+    init(text: String, confidence: Double, x: Double, y: Double, width: Double, height: Double,
+         characters: [RecognizedTextCharacter]? = nil) {
+        self.text = text; self.confidence = confidence
+        self.x = x; self.y = y; self.width = width; self.height = height
+        self.characters = characters
+    }
+}
+
+struct RecognizedTextCharacter: Decodable {
+    let text: String
+    let confidence: Double
+    let x, y, width, height: Double
 }
 
 /// A CPU-only native PP-OCRv6 model, loaded once on demand. No Python process or network is used at runtime.
@@ -18,8 +32,8 @@ enum NativeOCR {
         return dlopen(url.path, RTLD_NOW | RTLD_LOCAL)
     }()
 
-    static func recognize(_ image: BookPageScanner.PageImage) throws -> [RecognizedTextLine]? {
-        guard let library, let symbol = dlsym(library, "reader_ocr"), let freeSymbol = dlsym(library, "reader_ocr_free"),
+    static func recognize(_ image: BookPageScanner.PageImage, includingCharacters: Bool = false) throws -> [RecognizedTextLine]? {
+        guard let library, let symbol = dlsym(library, includingCharacters ? "reader_ocr_characters" : "reader_ocr"), let freeSymbol = dlsym(library, "reader_ocr_free"),
               let models = Bundle.main.resourceURL?.appendingPathComponent("OCR") else { return nil }
         let recognize = unsafeBitCast(symbol, to: Recognize.self)
         let release = unsafeBitCast(freeSymbol, to: Release.self)
@@ -40,7 +54,7 @@ enum NativeOCR {
 
 /// Preserve paragraph gaps and indents, but join physical line/column wraps in a sentence.
 enum OCRTextLayout {
-    static func text(from recognized: [RecognizedTextLine], vertical: Bool, pageHeight: Int? = nil) -> String {
+    private static func blocks(from recognized: [RecognizedTextLine], vertical: Bool, pageHeight: Int?) -> ([[RecognizedTextLine]], Double) {
         let lines = recognized.filter { line in
             let text = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
             let pageNumber = pageHeight.map { height in line.y > Double(height) * 0.93 && text.count <= 5 && text.allSatisfy(\.isNumber) } ?? false
@@ -48,7 +62,7 @@ enum OCRTextLayout {
             let rule = text == "—" || text == "——" || (line.confidence < 0.8 && text.hasPrefix("—") && text.count <= 3)
             return line.confidence >= 0.35 && !text.isEmpty && !pageNumber && !ornament && !rule
         }
-        guard !lines.isEmpty else { return "" }
+        guard !lines.isEmpty else { return ([], 1) }
         let sizes = lines.map { vertical ? $0.width : $0.height }.sorted()
         let glyph = sizes[sizes.count / 2]
         var blocks: [[RecognizedTextLine]] = []
@@ -57,8 +71,8 @@ enum OCRTextLayout {
                 blocks[blocks.count - 1].append(line)
             } else { blocks.append([line]) }
         }
-        return blocks.map { block in
-            let sorted = block.sorted { a, b in
+        return (blocks.map { block in
+            block.sorted { a, b in
                 if vertical {
                     if abs(a.x - b.x) > glyph * 0.5 { return a.x > b.x }
                     return a.y < b.y
@@ -66,6 +80,17 @@ enum OCRTextLayout {
                 if abs(a.y - b.y) > glyph * 0.5 { return a.y < b.y }
                 return a.x < b.x
             }
+        }, glyph)
+    }
+
+    static func orderedLines(from recognized: [RecognizedTextLine], vertical: Bool, pageHeight: Int? = nil) -> [RecognizedTextLine] {
+        blocks(from: recognized, vertical: vertical, pageHeight: pageHeight).0.flatMap { $0 }
+    }
+
+    static func text(from recognized: [RecognizedTextLine], vertical: Bool, pageHeight: Int? = nil) -> String {
+        let (blocks, glyph) = Self.blocks(from: recognized, vertical: vertical, pageHeight: pageHeight)
+        return blocks.map { sorted in
+            let block = sorted
             let start = block.map { vertical ? $0.y : $0.x }.min() ?? 0
             let pitches = zip(sorted, sorted.dropFirst()).map { $1.y - $0.y }.filter { $0 > glyph * 0.5 }.sorted()
             let pitch = pitches.isEmpty ? glyph * 2 : pitches[pitches.count / 2]

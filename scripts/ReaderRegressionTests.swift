@@ -128,6 +128,39 @@ struct ReaderRegressionTests {
         }
         do {
             let store = freshStore()
+            let original = try fixture("MovedWithFolder")
+            let folder = root.appendingPathComponent("BeforeFolderRename")
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let nested = folder.appendingPathComponent("BeforeFileRename.pdf")
+            try FileManager.default.moveItem(at: original, to: nested)
+            let tab = store.openDocument(at: nested, interactive: false)!
+            store.setFavorite(id: tab.documentID, isFavorite: true)
+            store.toggleBookmark(pageIndex: 2, in: tab.documentID)
+            tab.currentPageIndex = 2
+            tab.zoomScale = 1.7
+            tab.isAutoScaling = false
+            store.saveSession()
+            let newFolder = root.appendingPathComponent("AfterFolderRename")
+            try FileManager.default.moveItem(at: folder, to: newFolder)
+            let renamed = newFolder.appendingPathComponent("AfterFileRename.pdf")
+            try FileManager.default.moveItem(at: newFolder.appendingPathComponent(nested.lastPathComponent), to: renamed)
+            store.pruneMissingDocuments()
+            let newID = DocumentID(url: renamed)
+            let oldID = DocumentID(url: nested)
+            check(tab.documentID == newID && tab.title == "AfterFileRename",
+                  "folder and file renames update the open tab path and title")
+            check(store.recentDocumentIDs.filter { $0 == newID } == [newID]
+                  && !store.recentDocumentIDs.contains(oldID) && store.favoriteDocumentIDs.contains(newID)
+                  && !store.favoriteDocumentIDs.contains(oldID) && store.bookmarks(for: newID).count == 1,
+                  "folder and file renames migrate recents, favorites and bookmarks without stale entries")
+            store.closeTab(id: tab.id)
+            store.reopenClosedTab()
+            check(store.activeDocumentTab?.documentID == newID && store.activeDocumentTab?.currentPageIndex == 2
+                  && store.activeDocumentTab?.zoomScale == 1.7 && store.activeDocumentTab?.isAutoScaling == false,
+                  "moved and renamed file reopens at the same page and zoom")
+        }
+        do {
+            let store = freshStore()
             let original = try fixture("Deleted")
             let tab = store.openDocument(at: original, interactive: false)!
             store.setFavorite(id: tab.documentID, isFavorite: true)

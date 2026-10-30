@@ -2107,7 +2107,8 @@ public final class AppStore: ObservableObject {
     public func detachTabToNewWindow(
         id: UUID,
         from sourceSessionID: UUID,
-        screenDropPoint: NSPoint? = nil
+        screenDropPoint: NSPoint? = nil,
+        tabGrabOffset: NSPoint? = nil
     ) -> ReaderWindowSession? {
         let sourceSession = session(withID: sourceSessionID)
         guard sourceSession.tabs.count > 1,
@@ -2142,7 +2143,8 @@ public final class AppStore: ObservableObject {
             store: self,
             session: newSession,
             sourceWindow: sourceSession.nsWindow,
-            screenDropPoint: screenDropPoint
+            screenDropPoint: screenDropPoint,
+            tabGrabOffset: tabGrabOffset
         )
         detachedWindowControllers[newSession.id] = controller
         controller.showWindow()

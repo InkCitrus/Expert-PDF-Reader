@@ -1,14 +1,28 @@
 import AppKit
 import SwiftUI
 
+struct TabDragLocation {
+    let screenPoint: NSPoint
+    /// Distance from the tab's top-left corner, in screen points.
+    let grabOffset: NSPoint
+    let tabSize: NSSize
+
+    var previewFrame: NSRect {
+        NSRect(x: screenPoint.x - grabOffset.x,
+               y: screenPoint.y + grabOffset.y - tabSize.height,
+               width: tabSize.width, height: tabSize.height)
+    }
+}
+
 /// A native mouse sequence survives SwiftUI moving/rebuilding the tab while it is being dragged.
 struct TabInteractionArea: NSViewRepresentable {
     let session: ReaderWindowSession
     let tabID: UUID
     let toolTip: String
+    let excludedTrailingWidth: CGFloat
     let onSelect: () -> Void
-    let onDragChanged: (NSPoint) -> Void
-    let onDragEnded: (NSPoint?) -> Void
+    let onDragChanged: (TabDragLocation) -> Void
+    let onDragEnded: (TabDragLocation?) -> Void
 
     func makeNSView(context: Context) -> TabInteractionView {
         let view = TabInteractionView()
@@ -19,6 +33,7 @@ struct TabInteractionArea: NSViewRepresentable {
     func updateNSView(_ view: TabInteractionView, context: Context) {
         view.onSelect = onSelect
         view.toolTip = toolTip
+        view.excludedTrailingWidth = excludedTrailingWidth
         view.onDragChanged = onDragChanged
         view.onDragEnded = onDragEnded
         session.tabViews.setObject(view, forKey: tabID as NSUUID)
@@ -26,17 +41,26 @@ struct TabInteractionArea: NSViewRepresentable {
 }
 
 final class TabInteractionView: NSView {
+    var excludedTrailingWidth: CGFloat = 0
     var onSelect: (() -> Void)?
-    var onDragChanged: ((NSPoint) -> Void)?
-    var onDragEnded: ((NSPoint?) -> Void)?
+    var onDragChanged: ((TabDragLocation) -> Void)?
+    var onDragEnded: ((TabDragLocation?) -> Void)?
 
     override var mouseDownCanMoveWindow: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func isAccessibilityElement() -> Bool { false }
 
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let local = convert(point, from: superview)
+        guard local.x < bounds.maxX - excludedTrailingWidth else { return nil }
+        return super.hitTest(point)
+    }
+
     override func mouseDown(with event: NSEvent) {
         guard let window else { return }
         let start = window.convertPoint(toScreen: event.locationInWindow)
+        let frame = window.convertToScreen(convert(bounds, to: nil))
+        let grabOffset = NSPoint(x: start.x - frame.minX, y: frame.maxY - start.y)
         // Keep callbacks alive even if SwiftUI replaces this view after selection or reordering.
         let changed = onDragChanged
         let ended = onDragEnded
@@ -52,14 +76,15 @@ final class TabInteractionView: NSView {
                 continue
             }
             let point = window.convertPoint(toScreen: next.locationInWindow)
+            let location = TabDragLocation(screenPoint: point, grabOffset: grabOffset, tabSize: frame.size)
             if next.type == .leftMouseUp {
-                if isDragging { ended?(point) }
+                if isDragging { ended?(location) }
                 return
             }
             if !isDragging && hypot(point.x - start.x, point.y - start.y) < 5 { continue }
             isDragging = true
             _ = autoscroll(with: next)
-            changed?(point)
+            changed?(location)
         }
         if isDragging { ended?(nil) }
     }
@@ -92,6 +117,19 @@ private final class TabStripAnchorView: NSView {
 }
 
 extension ReaderWindowSession {
+    /// Align the released tab with the same grab point after a tear-off, including its new width.
+    func positionWindowForTabDrop(tabID: UUID, grabOffset: NSPoint, at point: NSPoint) {
+        guard let view = tabViews.object(forKey: tabID as NSUUID), let window = view.window else { return }
+        let frame = window.convertToScreen(view.convert(view.bounds, to: nil))
+        let anchor = NSPoint(x: frame.minX + min(grabOffset.x, frame.width),
+                             y: frame.maxY - grabOffset.y)
+        // Keep the titlebar under the pointer even when the window's bottom/right extends off screen,
+        // just as it can during a normal window drag. Fitting the entire window would make the tab jump.
+        let origin = NSPoint(x: window.frame.minX + point.x - anchor.x,
+                             y: window.frame.minY + point.y - anchor.y)
+        window.setFrameOrigin(origin)
+    }
+
     func containsTabStrip(_ point: NSPoint) -> Bool {
         guard let view = tabStripView, let window = view.window else { return false }
         let rect = window.convertToScreen(view.convert(view.bounds, to: nil))
@@ -133,9 +171,9 @@ extension ReaderWindowSession {
     private var label: NSTextField?
     private weak var markedSession: ReaderWindowSession?
 
-    func update(title: String, at point: NSPoint, target: ReaderWindowSession?) {
+    func update(title: String, at location: TabDragLocation, target: ReaderWindowSession?) {
         if panel == nil {
-            let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 250, height: 36),
+            let panel = NSPanel(contentRect: location.previewFrame,
                                 styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             panel.isReleasedWhenClosed = false
             panel.ignoresMouseEvents = true
@@ -148,7 +186,9 @@ extension ReaderWindowSession {
             view.layer?.cornerRadius = 8
             view.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.96).cgColor
             let label = NSTextField(labelWithString: title)
-            label.frame = NSRect(x: 12, y: 9, width: 226, height: 18)
+            label.frame = NSRect(x: 12, y: (location.tabSize.height - 18) * 0.5,
+                                 width: location.tabSize.width - 24, height: 18)
+            label.autoresizingMask = [.width, .minYMargin, .maxYMargin]
             label.font = .systemFont(ofSize: 12, weight: .medium)
             label.lineBreakMode = .byTruncatingMiddle
             view.addSubview(label)
@@ -157,11 +197,11 @@ extension ReaderWindowSession {
             self.label = label
         }
         label?.stringValue = title
-        panel?.setFrameOrigin(NSPoint(x: point.x + 14, y: point.y - 24))
+        panel?.setFrame(location.previewFrame, display: true)
         panel?.orderFront(nil)
         if markedSession !== target { markedSession?.showTabInsertion(at: nil) }
         markedSession = target
-        target?.showTabInsertion(at: point)
+        target?.showTabInsertion(at: location.screenPoint)
     }
 
     func end() {
@@ -172,10 +212,35 @@ extension ReaderWindowSession {
 }
 
 struct WindowDragArea: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView { WindowDragView() }
-    func updateNSView(_ nsView: NSView, context: Context) {}
-    private final class WindowDragView: NSView {
-        override var mouseDownCanMoveWindow: Bool { true }
-        override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
+    var onClick: (() -> Void)? = nil
+    func makeNSView(context: Context) -> NSView {
+        let view = WindowDragView()
+        view.onClick = onClick
+        return view
+    }
+    func updateNSView(_ nsView: NSView, context: Context) { (nsView as? WindowDragView)?.onClick = onClick }
+}
+
+final class WindowDragView: NSView {
+    var onClick: (() -> Void)?
+    override var mouseDownCanMoveWindow: Bool { onClick == nil }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func isAccessibilityElement() -> Bool { false }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let window else { return }
+        guard let onClick else { window.performDrag(with: event); return }
+        let start = event.locationInWindow
+        while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp],
+                                          until: .distantFuture, inMode: .eventTracking, dequeue: true) {
+            if next.type == .leftMouseUp {
+                if bounds.contains(convert(next.locationInWindow, from: nil)) { onClick() }
+                return
+            }
+            if hypot(next.locationInWindow.x - start.x, next.locationInWindow.y - start.y) >= 5 {
+                window.performDrag(with: event)
+                return
+            }
+        }
     }
 }

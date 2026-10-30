@@ -8,6 +8,8 @@ final class DetachedReaderWindowController: NSObject, NSWindowDelegate {
     let session: ReaderWindowSession
     let window: NSWindow
     weak var store: AppStore?
+    private let screenDropPoint: NSPoint?
+    private let tabGrabOffset: NSPoint?
     /// Set when the window is closed programmatically because its tabs were merged into another window or on app quit
     var suppressCloseRecording = false
 
@@ -15,10 +17,13 @@ final class DetachedReaderWindowController: NSObject, NSWindowDelegate {
         store: AppStore,
         session: ReaderWindowSession,
         sourceWindow: NSWindow?,
-        screenDropPoint: NSPoint?
+        screenDropPoint: NSPoint?,
+        tabGrabOffset: NSPoint? = nil
     ) {
         self.store = store
         self.session = session
+        self.screenDropPoint = screenDropPoint
+        self.tabGrabOffset = tabGrabOffset
 
         let baseSize = sourceWindow?.frame.size ?? NSSize(width: 1180, height: 780)
         let targetScreen = Self.screen(containing: screenDropPoint)
@@ -80,6 +85,11 @@ final class DetachedReaderWindowController: NSObject, NSWindowDelegate {
         let animate = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         if animate { window.alphaValue = 0 }
         window.makeKeyAndOrderFront(nil)
+        if let screenDropPoint, let tabGrabOffset, let tabID = session.activeDocumentTab?.id {
+            window.contentView?.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            session.positionWindowForTabDrop(tabID: tabID, grabOffset: tabGrabOffset, at: screenDropPoint)
+        }
         if animate {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.16

@@ -3,6 +3,11 @@ import Foundation
 import PDFKit
 import SwiftUI
 
+final class DragQAWindow: NSWindow {
+    var windowDragEvents: [NSEvent] = []
+    override func performDrag(with event: NSEvent) { windowDragEvents.append(event) }
+}
+
 @MainActor
 final class DragQARunner: NSObject, NSApplicationDelegate {
     var store: AppStore!
@@ -34,11 +39,35 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
             && abs(rect.height - MainWindowView.tabStripHeight) < 1
     }
     func settle() async { try? await Task.sleep(nanoseconds: 650_000_000) }
-    func drag(_ title: String, from session: ReaderWindowSession, to point: NSPoint) async {
+    func drag(_ title: String, from session: ReaderWindowSession, to point: NSPoint,
+              grabFraction: CGFloat = 0.5) async {
         let sourceWindow = session.nsWindow!
         sourceWindow.makeKeyAndOrderFront(nil)
         let originalFrame = sourceWindow.frame
-        let start = center(title, in: session)
+        let view = session.tabViews.object(forKey: tab(title, in: session).id as NSUUID)! as! TabInteractionView
+        let tabFrame = sourceWindow.convertToScreen(view.convert(view.bounds, to: nil))
+        let start = NSPoint(x: tabFrame.minX + tabFrame.width * grabFraction, y: tabFrame.maxY - 13)
+        let expectedOffset = NSPoint(x: start.x - tabFrame.minX, y: tabFrame.maxY - start.y)
+        var previewChecks = 0
+        var anchored = true
+        // Install immediately before delivery: pending SwiftUI updates can replace the view's callbacks.
+        let monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
+            let changed = view.onDragChanged
+            view.onDragChanged = { location in
+                changed?(location)
+                guard let panel = NSApp.windows.first(where: { $0 is NSPanel && $0.ignoresMouseEvents && $0.isVisible }) else {
+                    anchored = false
+                    return
+                }
+                previewChecks += 1
+                // AppKit rounds top-level window origins to integral screen points.
+                anchored = anchored && abs(location.screenPoint.x - panel.frame.minX - expectedOffset.x) <= 1
+                    && abs(panel.frame.maxY - location.screenPoint.y - expectedOffset.y) <= 1
+                    && panel.frame.size == tabFrame.size
+            }
+            return event
+        }
+        defer { if let monitor { NSEvent.removeMonitor(monitor) } }
         let timestamp = ProcessInfo.processInfo.systemUptime
         func post(_ type: NSEvent.EventType, _ globalPoint: NSPoint, _ delta: Double) {
             let event = NSEvent.mouseEvent(with: type, location: sourceWindow.convertPoint(fromScreen: globalPoint),
@@ -55,6 +84,42 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         post(.leftMouseUp, point, 0.4)
         await settle()
         check(sourceWindow.frame == originalFrame, "dragging \(title) leaves the source window frame unchanged")
+        check(previewChecks > 0 && anchored, "drag preview preserves the \(Int(grabFraction * 100))% grab point and full tab size")
+    }
+
+    func click(_ view: NSView, at localPoint: NSPoint? = nil) async {
+        let window = view.window!
+        let point = view.convert(localPoint ?? NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            NSApp.postEvent(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 0, clickCount: 1, pressure: 0)!, atStart: false)
+        }
+        await settle()
+    }
+
+    func homeDragView(in view: NSView) -> WindowDragView? {
+        if let view = view as? WindowDragView, view.onClick != nil { return view }
+        return view.subviews.lazy.compactMap { self.homeDragView(in: $0) }.first
+    }
+
+    func checkHomeDrag(_ home: NSView, in session: ReaderWindowSession) async {
+        let window = home.window! as! DragQAWindow
+        let selectedID = session.selectedTabID
+        let tabOrder = session.tabs.map(\.id)
+        let start = home.convert(NSPoint(x: home.bounds.midX, y: home.bounds.midY), to: nil)
+        let drag = NSPoint(x: start.x + 50, y: start.y - 40)
+        for (type, point) in [(NSEvent.EventType.leftMouseDown, start), (.leftMouseDragged, drag), (.leftMouseUp, drag)] {
+            NSApp.postEvent(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!, atStart: false)
+        }
+        await settle()
+        check(window.windowDragEvents.count == 1 && window.windowDragEvents.first?.type == .leftMouseDown
+              && window.windowDragEvents.first?.locationInWindow == start,
+              "Home drag hands its original mouse-down event to native window dragging")
+        check(session.selectedTabID == selectedID && session.tabs.map(\.id) == tabOrder,
+              "Home drag neither selects Home nor reorders document tabs")
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSWindow.allowsAutomaticWindowTabbing = false
@@ -75,7 +140,7 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
             precondition(document.write(to: url), "Could not create QA fixture")
             store.openDocument(at: url, interactive: false)
         }
-        window = NSWindow(contentRect: NSRect(x: 60, y: 90, width: 1180, height: 780),
+        window = DragQAWindow(contentRect: NSRect(x: 60, y: 90, width: 1180, height: 780),
                           styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: MainWindowView(store: store, session: store.primarySession))
@@ -87,9 +152,22 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
             let primary = store.primarySession
             check(names(primary) == ["Alpha", "Beta", "Gamma"], "three real document tabs appear")
             check(tabsAreInContent(primary), "primary tabs use the unified native titlebar accessory")
-            await drag("Gamma", from: primary, to: center("Alpha", in: primary))
+            let home = window.titlebarAccessoryViewControllers.compactMap { homeDragView(in: $0.view) }.first!
+            let beforeHomeClick = window.frame
+            await click(home)
+            check(primary.activeDocumentTab == nil && window.frame == beforeHomeClick,
+                  "Home click selects Home without moving the window")
+            primary.selectedTabID = tab("Gamma", in: primary).id
+            await settle()
+            await checkHomeDrag(home, in: primary)
+            let gammaView = primary.tabViews.object(forKey: tab("Gamma", in: primary).id as NSUUID)!
+            await click(gammaView, at: NSPoint(x: gammaView.bounds.maxX - 17, y: gammaView.bounds.midY))
+            check(names(primary) == ["Alpha", "Beta"], "full-width tab interaction still lets the close button receive clicks")
+            store.reopenClosedTab(in: primary.id)
+            await settle()
+            await drag("Gamma", from: primary, to: center("Alpha", in: primary), grabFraction: 0.1)
             check(names(primary) == ["Gamma", "Alpha", "Beta"], "drag last tab to first using AppKit mouse events")
-            await drag("Gamma", from: primary, to: center("Beta", in: primary))
+            await drag("Gamma", from: primary, to: center("Beta", in: primary), grabFraction: 0.8)
             check(names(primary) == ["Alpha", "Beta", "Gamma"], "drag first tab to last at the release position")
             await drag("Alpha", from: primary, to: center("Beta", in: primary))
             check(names(primary) == ["Beta", "Alpha", "Gamma"] && primary.activeDocumentTab?.title == "Alpha",
@@ -101,6 +179,8 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
             alpha.readingSpot = .init(pageIndex: 2, point: CGPoint(x: 200, y: 400))
             var outside = center("Alpha", in: primary)
             outside.y -= 150
+            let alphaView = primary.tabViews.object(forKey: alpha.id as NSUUID)!
+            let grabOffset = NSPoint(x: alphaView.bounds.width * 0.5, y: 13)
             await drag("Alpha", from: primary, to: outside)
             check(store.detachedSessions.count == 1 && names(primary) == ["Beta", "Gamma"],
                   "dragging below the strip opens an independent window")
@@ -108,6 +188,11 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
                 check(tabsAreInContent(detached), "detached tabs use the unified native titlebar accessory")
                 check(detached.activeDocumentTab === alpha && detached.nsWindow?.isVisible == true,
                       "detaching transfers the same state into a visible native window")
+                let newView = detached.tabViews.object(forKey: alpha.id as NSUUID)!
+                let newFrame = newView.window!.convertToScreen(newView.convert(newView.bounds, to: nil))
+                check(abs(newFrame.minX + grabOffset.x - outside.x) <= 1
+                      && abs(newFrame.maxY - grabOffset.y - outside.y) <= 1,
+                      "released tab stays under its original grab point after detaching")
                 window.setFrame(NSRect(x: 40, y: 350, width: 820, height: 600), display: true)
                 detached.nsWindow?.setFrame(NSRect(x: 400, y: 80, width: 820, height: 600), display: true)
                 await settle()
@@ -130,6 +215,9 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
             await settle()
             check(!store.recentDocumentIDs.contains(removed) && !store.favoriteDocumentIDs.contains(removed),
                   "file vnode deletion removes recents and favorites automatically")
+            check(primary.tabs.contains { if case .document(let tab) = $0 { return tab.documentID == removed }; return false }
+                  && !store.documents.contains { $0.documentID == removed },
+                  "deleting a source file retains its open tab but removes its Home entry")
             let log = checks.joined(separator: "\n") + "\n"
             try? log.write(toFile: CommandLine.arguments[0] + ".results", atomically: true, encoding: .utf8)
             UserDefaults.standard.removePersistentDomain(forName: domain)

@@ -226,16 +226,18 @@ struct TopTabBarView: View {
                     onHoverChanged: { hovering in
                         hoveredTabID = hovering ? state.id : (hoveredTabID == state.id ? nil : hoveredTabID)
                     },
-                    onDragChanged: { point in
+                    onDragChanged: { location in
+                        let point = location.screenPoint
                         draggingTabID = state.id
                         let target = store.dropTargetWindowAndIndex(atScreenPoint: point, excluding: session.id)?.session
                             ?? (session.containsTabStrip(point) ? session : nil)
-                        dragFeedback.update(title: state.title, at: point, target: target)
+                        dragFeedback.update(title: state.title, at: location, target: target)
                     },
-                    onDragEnded: { point in
+                    onDragEnded: { location in
                         draggingTabID = nil
                         dragFeedback.end()
-                        guard let point else { return }
+                        guard let location else { return }
+                        let point = location.screenPoint
                         if let target = store.dropTargetWindowAndIndex(atScreenPoint: point, excluding: session.id) {
                             store.moveTab(id: state.id, from: session.id, to: target.session.id,
                                           atDocumentIndex: target.documentIndex)
@@ -245,9 +247,11 @@ struct TopTabBarView: View {
                             }
                         } else {
                             if store.canDetachTab(id: state.id, in: session.id) {
-                                store.detachTabToNewWindow(id: state.id, from: session.id, screenDropPoint: point)
+                                store.detachTabToNewWindow(id: state.id, from: session.id,
+                                                          screenDropPoint: point, tabGrabOffset: location.grabOffset)
                             } else if !session.isPrimary, let window = session.nsWindow {
-                                window.setFrameTopLeftPoint(NSPoint(x: point.x - 100, y: point.y + 20 + window.frame.height - window.contentLayoutRect.height))
+                                window.contentView?.layoutSubtreeIfNeeded()
+                                session.positionWindowForTabDrop(tabID: state.id, grabOffset: location.grabOffset, at: point)
                             }
                         }
                     }
@@ -294,6 +298,12 @@ struct TopTabBarView: View {
                 .animation(AppAnimation.micro, value: isHovered)
         }
         .buttonStyle(.plain)
+        .overlay {
+            WindowDragArea {
+                store.activateWindowSession(session.id)
+                store.selectHomeTab(in: session.id)
+            }
+        }
         .help(L10n.tr("主页", "Home"))
         .accessibilityLabel(Text(L10n.tr("主页", "Home")))
         .accessibilityAddTraits(isHomeSelected ? .isSelected : [])
@@ -445,8 +455,8 @@ struct DocumentTabItemView: View {
     let isDark: Bool
     let tabBarNamespace: Namespace.ID
     let onHoverChanged: (Bool) -> Void
-    let onDragChanged: (NSPoint) -> Void
-    let onDragEnded: (NSPoint?) -> Void
+    let onDragChanged: (TabDragLocation) -> Void
+    let onDragEnded: (TabDragLocation?) -> Void
 
     @State private var isCloseHovered = false
 
@@ -520,9 +530,9 @@ struct DocumentTabItemView: View {
         }
         .opacity(isDragging ? 0.3 : 1)
         .overlay {
-            TabInteractionArea(session: session, tabID: state.id, toolTip: state.documentID.url.path, onSelect: selectTab,
+            TabInteractionArea(session: session, tabID: state.id, toolTip: state.documentID.url.path,
+                               excludedTrailingWidth: showsCloseButton ? 30 : 0, onSelect: selectTab,
                                onDragChanged: onDragChanged, onDragEnded: onDragEnded)
-                .padding(.trailing, showsCloseButton ? 30 : 0)
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .contain)

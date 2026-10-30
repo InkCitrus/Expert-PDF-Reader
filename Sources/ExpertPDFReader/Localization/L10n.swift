@@ -289,6 +289,10 @@ public enum L10n {
 
     private static let catalog: [String: [String: String]] = [
         "zh-Hant": [
+            "搜索菜单命令…|||Search Menu Commands…": "搜尋選單指令…",
+            "菜单命令|||Menu Commands": "選單指令",
+            "输入命令名称|||Type a command name": "輸入指令名稱",
+            "没有匹配的命令|||No matching commands": "沒有符合的指令",
             "识别并复制本页文字|||Recognize and Copy Page Text": "辨識並複製本頁文字",
             "正在识别文字…|||Recognizing text…": "正在辨識文字…",
             "无法读取此页。|||This page could not be read.": "無法讀取此頁。",
@@ -499,6 +503,10 @@ public enum L10n {
             "页码|||Page": "頁碼",
         ],
         "ja": [
+            "搜索菜单命令…|||Search Menu Commands…": "メニューコマンドを検索…",
+            "菜单命令|||Menu Commands": "メニューコマンド",
+            "输入命令名称|||Type a command name": "コマンド名を入力",
+            "没有匹配的命令|||No matching commands": "一致するコマンドがありません",
             "识别并复制本页文字|||Recognize and Copy Page Text": "このページの文字を認識してコピー",
             "正在识别文字…|||Recognizing text…": "文字を認識中…",
             "无法读取此页。|||This page could not be read.": "このページを読み取れませんでした。",
@@ -709,6 +717,10 @@ public enum L10n {
             "页码|||Page": "ページ",
         ],
         "ko": [
+            "搜索菜单命令…|||Search Menu Commands…": "메뉴 명령 검색…",
+            "菜单命令|||Menu Commands": "메뉴 명령",
+            "输入命令名称|||Type a command name": "명령 이름 입력",
+            "没有匹配的命令|||No matching commands": "일치하는 명령 없음",
             "识别并复制本页文字|||Recognize and Copy Page Text": "이 페이지의 텍스트 인식 및 복사",
             "正在识别文字…|||Recognizing text…": "텍스트 인식 중…",
             "无法读取此页。|||This page could not be read.": "이 페이지를 읽을 수 없습니다.",
@@ -919,6 +931,10 @@ public enum L10n {
             "页码|||Page": "페이지",
         ],
         "fr": [
+            "搜索菜单命令…|||Search Menu Commands…": "Rechercher une commande…",
+            "菜单命令|||Menu Commands": "Commandes des menus",
+            "输入命令名称|||Type a command name": "Saisissez le nom d’une commande",
+            "没有匹配的命令|||No matching commands": "Aucune commande correspondante",
             "识别并复制本页文字|||Recognize and Copy Page Text": "Reconnaître et copier le texte de cette page",
             "正在识别文字…|||Recognizing text…": "Reconnaissance du texte…",
             "无法读取此页。|||This page could not be read.": "Impossible de lire cette page.",
@@ -1129,6 +1145,10 @@ public enum L10n {
             "页码|||Page": "Page",
         ],
         "de": [
+            "搜索菜单命令…|||Search Menu Commands…": "Menübefehle suchen…",
+            "菜单命令|||Menu Commands": "Menübefehle",
+            "输入命令名称|||Type a command name": "Befehlsnamen eingeben",
+            "没有匹配的命令|||No matching commands": "Keine passenden Befehle",
             "识别并复制本页文字|||Recognize and Copy Page Text": "Text dieser Seite erkennen und kopieren",
             "正在识别文字…|||Recognizing text…": "Text wird erkannt…",
             "无法读取此页。|||This page could not be read.": "Diese Seite konnte nicht gelesen werden.",
@@ -1339,6 +1359,10 @@ public enum L10n {
             "页码|||Page": "Seite",
         ],
         "es": [
+            "搜索菜单命令…|||Search Menu Commands…": "Buscar comandos de menú…",
+            "菜单命令|||Menu Commands": "Comandos de menú",
+            "输入命令名称|||Type a command name": "Escribe el nombre de un comando",
+            "没有匹配的命令|||No matching commands": "No hay comandos coincidentes",
             "识别并复制本页文字|||Recognize and Copy Page Text": "Reconocer y copiar el texto de esta página",
             "正在识别文字…|||Recognizing text…": "Reconociendo texto…",
             "无法读取此页。|||This page could not be read.": "No se pudo leer esta página.",
@@ -1549,6 +1573,10 @@ public enum L10n {
             "页码|||Page": "Página",
         ],
         "it": [
+            "搜索菜单命令…|||Search Menu Commands…": "Cerca comandi del menu…",
+            "菜单命令|||Menu Commands": "Comandi del menu",
+            "输入命令名称|||Type a command name": "Inserisci il nome di un comando",
+            "没有匹配的命令|||No matching commands": "Nessun comando corrispondente",
             "识别并复制本页文字|||Recognize and Copy Page Text": "Riconosci e copia il testo di questa pagina",
             "正在识别文字…|||Recognizing text…": "Riconoscimento del testo…",
             "无法读取此页。|||This page could not be read.": "Impossibile leggere questa pagina.",
@@ -1759,6 +1787,10 @@ public enum L10n {
             "页码|||Page": "Pagina",
         ],
         "pt": [
+            "搜索菜单命令…|||Search Menu Commands…": "Pesquisar comandos do menu…",
+            "菜单命令|||Menu Commands": "Comandos do menu",
+            "输入命令名称|||Type a command name": "Introduza o nome de um comando",
+            "没有匹配的命令|||No matching commands": "Nenhum comando correspondente",
             "识别并复制本页文字|||Recognize and Copy Page Text": "Reconhecer e copiar o texto desta página",
             "正在识别文字…|||Recognizing text…": "A reconhecer texto…",
             "无法读取此页。|||This page could not be read.": "Não foi possível ler esta página.",
@@ -1969,6 +2001,10 @@ public enum L10n {
             "页码|||Page": "Página",
         ],
         "ru": [
+            "搜索菜单命令…|||Search Menu Commands…": "Найти команду меню…",
+            "菜单命令|||Menu Commands": "Команды меню",
+            "输入命令名称|||Type a command name": "Введите название команды",
+            "没有匹配的命令|||No matching commands": "Совпадающих команд нет",
             "识别并复制本页文字|||Recognize and Copy Page Text": "Распознать и скопировать текст страницы",
             "正在识别文字…|||Recognizing text…": "Распознавание текста…",
             "无法读取此页。|||This page could not be read.": "Не удалось прочитать эту страницу.",
@@ -2179,6 +2215,10 @@ public enum L10n {
             "页码|||Page": "Страница",
         ],
         "uk": [
+            "搜索菜单命令…|||Search Menu Commands…": "Знайти команду меню…",
+            "菜单命令|||Menu Commands": "Команди меню",
+            "输入命令名称|||Type a command name": "Введіть назву команди",
+            "没有匹配的命令|||No matching commands": "Відповідних команд немає",
             "识别并复制本页文字|||Recognize and Copy Page Text": "Розпізнати й скопіювати текст сторінки",
             "正在识别文字…|||Recognizing text…": "Розпізнавання тексту…",
             "无法读取此页。|||This page could not be read.": "Не вдалося прочитати цю сторінку.",

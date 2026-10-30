@@ -30,3 +30,8 @@ fi
 swiftc -sdk "$SDK_PATH" -target "$(uname -m)-apple-macos14.0" -module-cache-path build/ModuleCache -parse-as-library \
     "${SOURCES[@]}" "$TEST_SOURCE" -o "$TEST_BINARY"
 "$TEST_BINARY"
+if [[ "${1:-}" != "--ui" && "${1:-}" != "--scene" ]]; then
+    swiftc -sdk "$SDK_PATH" -module-cache-path build/ModuleCache -parse-as-library \
+        Sources/ExpertPDFReader/Models/ReaderRelease.swift scripts/UpdateCheckTests.swift -o build/UpdateCheckTests
+    build/UpdateCheckTests
+fi

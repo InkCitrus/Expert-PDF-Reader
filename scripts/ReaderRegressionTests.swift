@@ -185,6 +185,52 @@ struct ReaderRegressionTests {
             check(restored.closedTabs.last?.documentID == id && restored.favoriteDocumentIDs.contains(id)
                   && restored.recentDocumentIDs.contains(id), "launch resolves one renamed file for every persisted consumer")
         }
+        let coveredData = NSMutableData()
+        var coveredBox = CGRect(x:0,y:0,width:600,height:800)
+        let coveredContext = CGContext(consumer:CGDataConsumer(data:coveredData)!,mediaBox:&coveredBox,nil)!
+        coveredContext.beginPDFPage(nil)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext:coveredContext,flipped:false)
+        for y:CGFloat in [500,477] {
+            ("A hidden explanation left behind in the original material." as NSString).draw(at:CGPoint(x:90,y:y),withAttributes:[.font:NSFont.systemFont(ofSize:12)])
+        }
+        NSColor.white.setFill();CGRect(x:30,y:450,width:550,height:100).fill()
+        for y:CGFloat in [499,476] {
+            ("The visible replacement explanation." as NSString).draw(at:CGPoint(x:50,y:y),withAttributes:[.font:NSFont.systemFont(ofSize:18)])
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        coveredContext.endPDFPage();coveredContext.closePDF()
+        let coveredDocument = PDFDocument(data:coveredData as Data)!
+        let coveredPage = coveredDocument.page(at:0)!
+        let coveredSelection = coveredPage.selection(for:CGRect(x:30,y:450,width:550,height:100))!
+        check(coveredSelection.string?.contains("hidden explanation") == true
+              && PDFSelectionVisibility.hasOverlappingText(coveredSelection,on:coveredPage),
+              "covered PDF text is recognized as overlapping layers rather than copied as visible prose")
+
+        let spreadTab = freshStore().openDocument(at: try fixture("SpreadNavigation"), interactive: false)!
+        spreadTab.layoutMode = .twoPages
+        spreadTab.stepPage(by: 1)
+        check(spreadTab.currentPageIndex == 2, "one forward step skips to the next complete two-page spread")
+        spreadTab.currentPageIndex = 3
+        spreadTab.stepPage(by: -1)
+        check(spreadTab.currentPageIndex == 0, "backward stepping works when PDFKit reports the second page of a spread")
+        spreadTab.layoutMode = .twoPagesCover
+        spreadTab.stepPage(by: 1)
+        let firstSpread = spreadTab.currentPageIndex
+        spreadTab.stepPage(by: 1)
+        check(firstSpread == 1 && spreadTab.currentPageIndex == 3, "cover navigation steps from cover to pages 2-3 and then the final spread")
+        let endToken = spreadTab.pageJumpToken
+        spreadTab.stepPage(by: 1)
+        check(spreadTab.currentPageIndex == 3 && spreadTab.pageJumpToken == endToken,
+              "stepping past the final spread does not jump within it or add navigation history")
+        spreadTab.stepPage(by: -1)
+        spreadTab.stepPage(by: -1)
+        check(spreadTab.currentPageIndex == 0, "backward cover navigation returns to the single cover")
+        check(ReaderLayoutMode.singlePage.pageIndex(afterStepping:1,from:1,pageCount:4) == 2
+              && ReaderLayoutMode.twoPages.pageIndex(afterStepping:1,from:1,pageCount:5) == 2
+              && ReaderLayoutMode.twoPagesCover.pageIndex(afterStepping:-1,from:2,pageCount:6) == 0,
+              "single pages, odd final spreads and the second cover-spread page have consistent boundaries")
+
         let mixed = PDFDocument(url: try fixture("MixedNumbers", mixedNumbers: true))!
         let numbers = BookPageScanner.scan(mixed).printedNumbers
         check(numbers?.label(at: 1) == "i" && numbers?.label(at: 4) == "iv"

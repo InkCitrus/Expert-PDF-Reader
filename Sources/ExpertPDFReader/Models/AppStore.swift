@@ -136,6 +136,8 @@ public enum HomeTabPage: String, CaseIterable, Identifiable {
         case .favorites: return "star"
         }
     }
+
+
 }
 
 public enum ReaderLayoutMode: String, CaseIterable, Identifiable, Codable {
@@ -167,6 +169,22 @@ public enum ReaderLayoutMode: String, CaseIterable, Identifiable, Codable {
         case .twoPages:      return "book"
         case .twoPagesCover: return "book.closed"
         }
+    }
+}
+
+extension ReaderLayoutMode {
+    /// Step between complete visible spreads, regardless of which page PDFKit reports as current.
+    public func pageIndex(afterStepping direction: Int, from index: Int, pageCount: Int) -> Int {
+        guard pageCount > 0 else { return 0 }
+        let index = max(0, min(index, pageCount - 1))
+        guard direction != 0 else { return index }
+        if self == .singlePage { return max(0, min(pageCount - 1, index + (direction > 0 ? 1 : -1))) }
+        let start = self == .twoPages ? index - index % 2 : (index == 0 ? 0 : 1 + (index - 1) / 2 * 2)
+        let target: Int
+        if self == .twoPagesCover && start == 0 { target = direction > 0 ? 1 : -1 }
+        else if self == .twoPagesCover && start == 1 && direction < 0 { target = 0 }
+        else { target = start + (direction > 0 ? 2 : -2) }
+        return (0..<pageCount).contains(target) ? target : index
     }
 }
 
@@ -856,6 +874,10 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         if autoScales {
             pendingZoomAction = nil
         }
+    }
+
+    public func stepPage(by direction: Int) {
+        navigateToPage(layoutMode.pageIndex(afterStepping: direction, from: currentPageIndex, pageCount: pageCount))
     }
 
     public func navigateToPage(_ index: Int, recordHistory: Bool = true) {
@@ -1962,7 +1984,6 @@ public final class AppStore: ObservableObject {
             tabState.restore(position)
         }
         observeReadingPosition(of: tabState)
-        tabState.scanPagesIfNeeded()
         let newTab = AppTab.document(tabState)
         performAnimated(AppAnimation.tab) {
             if let insertionIndex {

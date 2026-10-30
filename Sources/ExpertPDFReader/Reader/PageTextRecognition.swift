@@ -2,6 +2,37 @@ import AppKit
 import PDFKit
 import Vision
 
+/// Some slides cover an imported page's text with a new explanation. PDFKit still selects both layers.
+enum PDFSelectionVisibility {
+    static func hasOverlappingText(_ selection: PDFSelection, on page: PDFPage) -> Bool {
+        let lines = selection.selectionsByLine().filter { ($0.string?.count ?? 0) >= 12 }
+            .map { $0.bounds(for: page) }.filter { !$0.isEmpty && !$0.isInfinite && !$0.isNull }
+            .sorted { $0.minY < $1.minY }
+        guard lines.count >= 3 else { return false }
+        let maxHeight = lines.map(\.height).max() ?? 0
+        var overlaps = 0
+        for index in lines.indices {
+            let line = lines[index]
+            for previous in (0..<index).reversed() {
+                let other = lines[previous]
+                if other.minY + maxHeight < line.minY { break }
+                let intersection = line.intersection(other)
+                // Exclude ordinary adjacent lines, separate columns, short formula fragments and
+                // a font's duplicate overprint on the same baseline.
+                if !intersection.isNull,
+                   intersection.height > min(line.height, other.height) * 0.55,
+                   intersection.width > min(line.width, other.width) * 0.5,
+                   (abs(line.midY - other.midY) > min(line.height, other.height) * 0.12
+                    || abs(line.height - other.height) > min(line.height, other.height) * 0.15) {
+                    overlaps += 1
+                    if overlaps >= 2 { return true }
+                }
+            }
+        }
+        return false
+    }
+}
+
 /// Remove PDF glyph spacing and soft Chinese wraps. Keep paragraph breaks, indentation and Latin spacing.
 enum PDFTextCleanup {
     private static let extraSpaces = try! NSRegularExpression(

@@ -52,6 +52,10 @@ public struct PDFReaderView: View {
             .animation(AppAnimation.panel, value: tab.splitMode)
         }
         .background(store.resolvedPDFTheme(isDark: isDark).documentBackgroundColor(isDarkUI: isDark))
+        .task(id: tab.documentID) {
+            // Restoring background tabs must not compete with the first visible scan for CPU and OCR.
+            tab.scanPagesIfNeeded()
+        }
     }
 
     // MARK: - Split or Single Canvas Area
@@ -117,7 +121,7 @@ public struct PDFReaderView: View {
                 tab.updateAutoScalingFromView(autoScales)
             },
             onStepPage: { delta in
-                tab.navigateToPage(tab.currentPageIndex + delta)
+                tab.stepPage(by: delta)
             },
             onReadingLocationChange: { pageIndex, readingLineY in
                 tab.readingLocation.update(pageIndex: pageIndex, readingLineY: readingLineY)
@@ -256,7 +260,8 @@ public struct PDFReaderView: View {
                         }
                     },
                     onStepPage: { delta in
-                        let clamped = max(0, min(max(0, secDoc.pageCount - 1), tab.secondaryPageIndex + delta))
+                        let clamped = tab.layoutMode.pageIndex(afterStepping: delta, from: tab.secondaryPageIndex,
+                                                              pageCount: secDoc.pageCount)
                         tab.secondaryPageIndex = clamped
                         if tab.syncScrollAndZoom && clamped < tab.pageCount {
                             tab.currentPageIndex = clamped

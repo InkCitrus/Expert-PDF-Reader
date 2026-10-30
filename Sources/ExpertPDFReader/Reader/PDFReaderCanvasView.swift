@@ -404,6 +404,8 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         }
 
         func stopObserving() {
+            scanPrefetchTask?.cancel()
+            scanPrefetchTask = nil
             for obs in observers {
                 NotificationCenter.default.removeObserver(obs)
             }
@@ -423,6 +425,30 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
             return pdfView.window != nil && pdfView.bounds.width > 1 && pdfView.bounds.height > 1
         }
 
+        private var scanPrefetchTask: Task<Void, Never>?
+        private var lastPrefetchKey: String?
+        private var lastPrefetchPage = 0
+
+        private func prefetchAdjacentPages(in pdfView: PDFView) {
+            guard Self.isLive(pdfView), let document = pdfView.document, !document.isEncrypted,
+                  let url = document.documentURL, let page = pdfView.currentPage, page.hasFullPageScanImage else { return }
+            let index = document.index(for: page)
+            let scale = pdfView.scaleFactor * (pdfView.window?.backingScaleFactor ?? 2)
+            let key = "\(ObjectIdentifier(document)):\(index):\(scale):\(parent.layoutToken):\(pdfView.displayMode.rawValue)"
+            guard key != lastPrefetchKey else { return }
+            let direction = index < lastPrefetchPage ? -1 : 1
+            lastPrefetchKey = key
+            lastPrefetchPage = index
+            scanPrefetchTask?.cancel()
+            let count = pdfView.displayMode == .twoUpContinuous ? 2 : 1
+            let pages = (0...count).compactMap { offset -> ScannedPageCache.PrefetchPage? in
+                let next = index + direction * offset
+                guard (0..<document.pageCount).contains(next), let page = document.page(at: next) else { return nil }
+                return .init(index: next, mediaBox: page.bounds(for: .mediaBox), cropBox: page.bounds(for: .cropBox), rotation: page.rotation)
+            }
+            scanPrefetchTask = ScannedPageCache.prefetch(url: url, pages: pages, scale: scale)
+        }
+
         func setupNotifications(for pdfView: PDFView) {
             let nc = NotificationCenter.default
 
@@ -435,6 +461,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                     self.parent.currentPageIndex = idx
                 }
                 (pdfView as? ThemedPDFView)?.applyThemeLayers()
+                self.prefetchAdjacentPages(in: pdfView)
             }
 
             let scaleObs = nc.addObserver(forName: .PDFViewScaleChanged, object: pdfView, queue: .main) { [weak self, weak pdfView] _ in
@@ -444,6 +471,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                 }
                 self.parent.onAutoScalesChange?(pdfView.autoScales)
                 (pdfView as? ThemedPDFView)?.applyThemeLayers()
+                self.prefetchAdjacentPages(in: pdfView)
                 if let spot = self.pendingReadingSpot {
                     Self.scroll(pdfView, toTop: spot)
                 } else if let pending = self.pendingDestination {
@@ -468,6 +496,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                     }
                     self.parent.onAutoScalesChange?(pdfView.autoScales)
                     self.reportReadingLocation(of: pdfView)
+                    self.prefetchAdjacentPages(in: pdfView)
                     (pdfView as? ThemedPDFView)?.applyThemeLayers()
                 }
             }
@@ -593,7 +622,8 @@ final class ThemedPDFView: PDFView {
 
     override func copy(_ sender: Any?) {
         if let selection = currentSelection, selection.pages.count == 1,
-           let page = selection.pages.first, page.rotation == 0, page.hasFullPageScanImage,
+           let page = selection.pages.first, page.rotation == 0,
+           (page.hasFullPageScanImage || PDFSelectionVisibility.hasOverlappingText(selection, on: page)),
            document?.allowsCopying == true {
             recognizeText(on: page, selectionBounds: selection.bounds(for: page))
             return

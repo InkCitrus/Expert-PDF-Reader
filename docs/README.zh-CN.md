@@ -50,6 +50,8 @@
 
 从 [Releases](https://github.com/InkCitrus/Expert-PDF-Reader/releases) 下载 `Expert-PDF-Reader-<version>.dmg`，打开后将 **Expert PDF Reader** 拖到**应用程序**文件夹。需要 macOS 14 或更高版本（Apple 芯片或 Intel 均可）。
 
+在应用菜单选择 **Expert PDF Reader → 检查更新…**，手动检查最新稳定版。有更新时点击“查看更新”前往发布页查看说明、下载安装。
+
 发布版本尚未经过 Apple 公证，因此 macOS 会阻止首次启动。请打开**系统设置 › 隐私与安全性**，点按**仍要打开**；或者运行：
 
 ```zsh

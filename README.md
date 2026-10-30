@@ -50,6 +50,8 @@ A native macOS PDF reader built for reading: tabs, Split View, and Day / Sepia /
 
 Download `Expert-PDF-Reader-<version>.dmg` from [Releases](https://github.com/InkCitrus/Expert-PDF-Reader/releases), open it and drag **Expert PDF Reader** into **Applications**. Requires macOS 14 or later (Apple Silicon or Intel).
 
+Choose **Expert PDF Reader → Check for Updates…** to check the latest stable release. When an update is available, **View Update** opens its release page for details and the download. Checks run only when requested.
+
 Release builds are not notarized by Apple yet, so macOS blocks the first launch. Open **System Settings › Privacy & Security** and click **Open Anyway**, or run:
 
 ```zsh

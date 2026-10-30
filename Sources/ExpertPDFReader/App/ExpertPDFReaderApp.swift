@@ -229,6 +229,7 @@ public final class ExpertPDFReaderAppDelegate: NSObject, NSApplicationDelegate {
 public struct ExpertPDFReaderApp: App {
     @NSApplicationDelegateAdaptor(ExpertPDFReaderAppDelegate.self) private var appDelegate
     @StateObject private var store = AppStore()
+    @StateObject private var updateChecker = ReaderUpdateChecker()
 
     public init() {}
 
@@ -244,6 +245,7 @@ public struct ExpertPDFReaderApp: App {
         .defaultSize(width: 1180, height: 780)
         .commands {
             ReaderMenuCommands(store: store)
+            ReaderUpdateCommands(checker: updateChecker)
         }
 
         Settings {
@@ -531,14 +533,14 @@ struct ReaderMenuCommands: Commands {
             // ←/→ also turn pages (handled by the reader so text fields keep the arrow keys); the menu shows ⌥↑ / ⌥↓
             Button(L10n.tr("上一页", "Previous Page")) {
                 guard let tab = store.activeDocumentTab else { return }
-                tab.navigateToPage(tab.currentPageIndex - 1)
+                tab.stepPage(by: -1)
             }
             .keyboardShortcut(.upArrow, modifiers: [.option])
             .disabled(store.activeDocumentTab == nil)
 
             Button(L10n.tr("下一页", "Next Page")) {
                 guard let tab = store.activeDocumentTab else { return }
-                tab.navigateToPage(tab.currentPageIndex + 1)
+                tab.stepPage(by: 1)
             }
             .keyboardShortcut(.downArrow, modifiers: [.option])
             .disabled(store.activeDocumentTab == nil)

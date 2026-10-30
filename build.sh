@@ -72,6 +72,8 @@ cp -R Sources/ExpertPDFReader/Resources/*.lproj "$APP_BUNDLE/Contents/Resources/
 # Original app icon (regenerate with: swift scripts/make_app_icon.swift)
 cp Assets/AppIcon.icns "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 
+SDK_PATH="$SDK_PATH" ARCHS="${TARGET_ARCHS[*]}" CODESIGN_IDENTITY="$CODESIGN_IDENTITY" zsh scripts/build_ocr.sh
+
 BINARIES=()
 for arch in $TARGET_ARCHS; do
     echo "Compiling $APP_NAME for $arch using SDK: $SDK_PATH ..."

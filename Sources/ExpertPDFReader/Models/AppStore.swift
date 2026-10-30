@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import CryptoKit
+import Darwin
 import Foundation
 import PDFKit
 import SwiftUI
@@ -73,6 +74,7 @@ public struct ReadingPosition: Codable, Equatable {
     public var pageDirection: PageDirection?
     /// The result of reading the book's printed page numbers, so it is done once per book
     public var bookPageScan: BookPageScan?
+    public var readingSpot: DocumentTabState.ReadingSpot?
     public var updatedAt: Date
 }
 
@@ -134,6 +136,8 @@ public enum HomeTabPage: String, CaseIterable, Identifiable {
         case .favorites: return "star"
         }
     }
+
+
 }
 
 public enum ReaderLayoutMode: String, CaseIterable, Identifiable, Codable {
@@ -165,6 +169,22 @@ public enum ReaderLayoutMode: String, CaseIterable, Identifiable, Codable {
         case .twoPages:      return "book"
         case .twoPagesCover: return "book.closed"
         }
+    }
+}
+
+extension ReaderLayoutMode {
+    /// Step between complete visible spreads, regardless of which page PDFKit reports as current.
+    public func pageIndex(afterStepping direction: Int, from index: Int, pageCount: Int) -> Int {
+        guard pageCount > 0 else { return 0 }
+        let index = max(0, min(index, pageCount - 1))
+        guard direction != 0 else { return index }
+        if self == .singlePage { return max(0, min(pageCount - 1, index + (direction > 0 ? 1 : -1))) }
+        let start = self == .twoPages ? index - index % 2 : (index == 0 ? 0 : 1 + (index - 1) / 2 * 2)
+        let target: Int
+        if self == .twoPagesCover && start == 0 { target = direction > 0 ? 1 : -1 }
+        else if self == .twoPagesCover && start == 1 && direction < 0 { target = 0 }
+        else { target = start + (direction > 0 ? 2 : -2) }
+        return (0..<pageCount).contains(target) ? target : index
     }
 }
 
@@ -201,12 +221,12 @@ public enum ReaderSplitMode: String, CaseIterable, Identifiable, Codable {
 }
 
 /// Content of the left dock: PDF Expert 3 swaps "Document Summary" and "Layout options" in the same panel.
-public enum ReaderLeftPanel: String {
+public enum ReaderLeftPanel: String, Codable {
     case documentSummary = "documentSummary"
     case viewSettings = "viewSettings"
 }
 
-public enum ReaderSidebarTab: String, CaseIterable, Identifiable {
+public enum ReaderSidebarTab: String, CaseIterable, Identifiable, Codable {
     case thumbnails = "thumbnails"
     case outline = "outline"
     case bookmarks = "bookmarks"
@@ -327,6 +347,7 @@ public enum PDFDocumentLoader {
             }
             return nil
         }
+        ScannedPageCache.install(on: document)
         guard document.isLocked else {
             return Loaded(document: document, password: nil)
         }
@@ -483,16 +504,26 @@ extension PDFPage {
     /// front matter an empty label, which counts as none
     public var printedNumber: String? {
         guard let label = label?.trimmingCharacters(in: .whitespaces), !label.isEmpty else { return nil }
-        return label
+        return PageNumberLabel.canonical(label)
     }
 }
 
 /// Clear Margins for one document: the crop boxes it came with, the content boxes found for it, and the work
 /// finding them on a private copy of the document off the main thread
+/// Restoring several scanned tabs must not run a Vision scan for each of them at the same time.
+private actor BookPageScanQueue {
+    static let shared = BookPageScanQueue()
+    func scan(url: URL, password: String?) -> BookPageScan? {
+        guard !Task.isCancelled, let document = PDFDocumentLoader.openCopy(of: url, password: password) else { return nil }
+        let scan = BookPageScanner.scan(document)
+        return Task.isCancelled ? nil : scan
+    }
+}
+
 @MainActor
 final class ClearMarginsCropper {
     let document: PDFDocument
-    private let url: URL
+    var url: URL
     private let password: String?
     private var originalCropBoxes: [Int: CGRect] = [:]
     private var tightCropBoxes: [Int: CGRect] = [:]
@@ -506,10 +537,9 @@ final class ClearMarginsCropper {
         self.document = document
         self.url = url
         self.password = password
-        for index in 0..<document.pageCount {
-            originalCropBoxes[index] = document.page(at: index)?.bounds(for: .cropBox)
-        }
     }
+
+    deinit { task?.cancel() }
 
     /// Sets the content boxes known so far (or puts the original ones back) and finds the others, pages around
     /// `focus` first
@@ -517,18 +547,16 @@ final class ClearMarginsCropper {
         task?.cancel()
         task = nil
         isEnabled = enabled
-        var missing: [Int] = []
-        for index in 0..<document.pageCount {
+        // Opening a document must not instantiate every PDFPage. Remember a page's original box only
+        // when we are about to crop it; spread padding is removed by the alignment record.
+        let missing = enabled ? (0..<document.pageCount).filter { tightCropBoxes[$0] == nil } : []
+        let boxes = enabled ? tightCropBoxes : originalCropBoxes
+        for (index, box) in boxes {
             guard let page = document.page(at: index) else { continue }
-            if enabled {
-                if let tight = tightCropBoxes[index] {
-                    page.setBounds(tight, for: .cropBox)
-                } else {
-                    missing.append(index)
-                }
-            } else if let original = originalCropBoxes[index] {
-                page.setBounds(original, for: .cropBox)
+            if enabled, originalCropBoxes[index] == nil {
+                originalCropBoxes[index] = SpreadAlignment.unalignedCropBox(for: page, at: index, in: document)
             }
+            page.setBounds(box, for: .cropBox)
         }
         didChange()
         guard enabled, !missing.isEmpty else { return }
@@ -536,7 +564,7 @@ final class ClearMarginsCropper {
         let order = missing.sorted { abs($0 - focus) < abs($1 - focus) }
         let url = self.url
         let password = self.password
-        task = Task.detached(priority: .userInitiated) { [weak self] in
+        task = Task.detached(priority: .utility) { [weak self] in
             guard let copy = PDFDocumentLoader.openCopy(of: url, password: password) else {
                 await self?.computeOnMainThread(order)
                 return
@@ -545,8 +573,9 @@ final class ClearMarginsCropper {
             var lastFlush = Date()
             for index in order {
                 if Task.isCancelled { return }
-                guard let page = copy.page(at: index) else { continue }
-                batch.append((index, DocumentTabState.computeTightCropBox(for: page)))
+                let box = autoreleasepool { copy.page(at: index).map { DocumentTabState.computeTightCropBox(for: $0) } }
+                guard let box else { continue }
+                batch.append((index, box))
                 if batch.count >= 24 || Date().timeIntervalSince(lastFlush) > 0.25 {
                     await self?.receive(batch)
                     batch.removeAll()
@@ -566,7 +595,11 @@ final class ClearMarginsCropper {
         guard isEnabled else { return }
         willChange()
         for (index, box) in boxes {
-            document.page(at: index)?.setBounds(box, for: .cropBox)
+            guard let page = document.page(at: index) else { continue }
+            if originalCropBoxes[index] == nil {
+                originalCropBoxes[index] = SpreadAlignment.unalignedCropBox(for: page, at: index, in: document)
+            }
+            page.setBounds(box, for: .cropBox)
         }
         didChange()
     }
@@ -582,9 +615,9 @@ final class ClearMarginsCropper {
 @MainActor
 public final class DocumentTabState: ObservableObject, Identifiable {
     public let id: UUID = UUID()
-    public let documentID: DocumentID
+    @Published public private(set) var documentID: DocumentID
     public let pdfDocument: PDFDocument
-    public let title: String
+    @Published public private(set) var title: String
     /// Password that unlocked an encrypted document; needed to read the file again off the main thread
     let password: String?
     var cancellables = Set<AnyCancellable>()
@@ -619,6 +652,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     @Published public var secondaryPDFDocument: PDFDocument?
     @Published public var secondaryPageIndex: Int = 0
     @Published public var secondaryZoomScale: CGFloat = 1.0
+    @Published public var secondaryIsAutoScaling: Bool = true
     @Published public var showSplitDocumentPicker: Bool = false
 
     // Navigation History (Go Back / Go Forward)
@@ -667,6 +701,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     private let declaresRightToLeft: Bool
 
     public init(url: URL, pdfDocument: PDFDocument, password: String? = nil) {
+        ScannedPageCache.install(on: pdfDocument)
         self.documentID = DocumentID(url: url)
         self.pdfDocument = pdfDocument
         self.password = password
@@ -677,6 +712,26 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         self.declaresRightToLeft = pdfDocument.declaresRightToLeft
         // Takes the crop boxes before anything (two-page layouts, Clear Margins) changes them
         self.primaryCropper = makeCropper(for: pdfDocument, url: url, password: password)
+    }
+
+    deinit {
+        searchTask?.cancel()
+        pageScanTask?.cancel()
+    }
+
+    /// Follow a Finder rename without replacing the loaded document or losing its crop boxes and reading state.
+    func relocate(to url: URL) {
+        let previousID = documentID
+        documentID = DocumentID(url: url)
+        title = url.deletingPathExtension().lastPathComponent
+        primaryCropper.url = url
+        if secondaryDocumentURL.map(DocumentID.init(url:)) == previousID {
+            secondaryDocumentURL = url
+        }
+        pageScanTask?.cancel()
+        pageScanTask = nil
+        scanPagesIfNeeded()
+        if isSearching { performSearch() }
     }
 
     /// The direction the PDF declares, else the one read from its pages, unless chosen for this book
@@ -698,10 +753,10 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         let url = documentID.url
         let password = self.password
         pageScanTask = Task.detached(priority: .utility) { [weak self] in
-            // Let the pages being read render first
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
-            guard !Task.isCancelled, let document = PDFDocumentLoader.openCopy(of: url, password: password) else { return }
-            let scan = BookPageScanner.scan(document)
+            // Let the visible page render first. Even text-layer detection belongs on this private copy;
+            // querying sample pages in the live document used to stall opening image-heavy books.
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard !Task.isCancelled, let scan = await BookPageScanQueue.shared.scan(url: url, password: password) else { return }
             await self?.finishPageScan(scan)
         }
     }
@@ -715,7 +770,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     /// else the PDF's page label
     public func printedNumber(at index: Int) -> String? {
         if let numbers = pageScan?.printedNumbers, numbers.replacesPageLabels {
-            return numbers.number(at: index).map(String.init)
+            return numbers.label(at: index)
         }
         return pdfDocument.page(at: index)?.printedNumber
     }
@@ -745,6 +800,13 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     /// label → page indices; empty when every label is just the page's position
     public var pageIndicesByLabel: [String: [Int]] {
         if let cached = cachedPageIndicesByLabel { return cached }
+        var labels: CGPDFDictionaryRef?
+        if pageScan?.printedNumbers?.replacesPageLabels != true,
+           let catalog = pdfDocument.documentRef?.catalog,
+           !CGPDFDictionaryGetDictionary(catalog, "PageLabels", &labels) {
+            cachedPageIndicesByLabel = [:]
+            return [:]
+        }
         var map: [String: [Int]] = [:]
         var hasPrintedNumbers = false
         for idx in 0..<pdfDocument.pageCount {
@@ -783,6 +845,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
             layoutMode: layoutMode,
             pageDirection: pageDirection,
             bookPageScan: pageScan,
+            readingSpot: readingSpot,
             updatedAt: Date()
         )
     }
@@ -793,17 +856,34 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         zoomScale = CGFloat(position.zoomScale)
         isAutoScaling = position.isAutoScaling
         layoutMode = position.layoutMode
+        readingSpot = position.readingSpot
         if let pageDirection = position.pageDirection {
             self.pageDirection = pageDirection
         }
-        if let pageScan = position.bookPageScan {
+        if let pageScan = position.bookPageScan, pageScan.version == BookPageScan.currentVersion {
             self.pageScan = pageScan
         }
+    }
+
+    /// Keeps `isAutoScaling` in sync with `PDFView.autoScales` (including native context-menu "Automatically Resize")
+    /// and clears any stale `pendingZoomAction` when auto-scaling is active so switching tabs never replays an old zoom.
+    public func updateAutoScalingFromView(_ autoScales: Bool) {
+        if isAutoScaling != autoScales {
+            isAutoScaling = autoScales
+        }
+        if autoScales {
+            pendingZoomAction = nil
+        }
+    }
+
+    public func stepPage(by direction: Int) {
+        navigateToPage(layoutMode.pageIndex(afterStepping: direction, from: currentPageIndex, pageCount: pageCount))
     }
 
     public func navigateToPage(_ index: Int, recordHistory: Bool = true) {
         let clamped = max(0, min(max(0, pageCount - 1), index))
         guard clamped != currentPageIndex else { return }
+        readingSpot = nil
         if recordHistory && !isNavigatingHistory {
             backStack.append(currentPageIndex)
             if backStack.count > 50 { backStack.removeFirst() }
@@ -821,6 +901,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
 
     public func goBack() {
         guard let prev = backStack.popLast() else { return }
+        readingSpot = nil
         isNavigatingHistory = true
         forwardStack.append(currentPageIndex)
         currentPageIndex = prev
@@ -830,6 +911,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
 
     public func goForward() {
         guard let next = forwardStack.popLast() else { return }
+        readingSpot = nil
         isNavigatingHistory = true
         backStack.append(currentPageIndex)
         currentPageIndex = next
@@ -891,6 +973,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
             self.secondaryDocumentURL = url
             self.secondaryPDFDocument = loaded.document
             self.secondaryPageIndex = 0
+            self.secondaryIsAutoScaling = true
             self.showSplitDocumentPicker = false
             secondaryCropper = makeCropper(for: loaded.document, url: url, password: loaded.password)
             if isClearMarginsEnabled {
@@ -919,7 +1002,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     }
 
     /// The point of the page at the top of a pane
-    public struct ReadingSpot: Equatable {
+    public struct ReadingSpot: Codable, Equatable {
         public let pageIndex: Int
         public let point: CGPoint
 
@@ -1138,7 +1221,7 @@ public enum AppTab: Identifiable, Equatable {
         }
     }
 
-    public var title: String {
+    @MainActor public var title: String {
         switch self {
         case .home:                return L10n.tr("主页", "Home")
         case .document(let state): return state.title
@@ -1155,6 +1238,50 @@ public enum AppTab: Identifiable, Equatable {
     }
 }
 
+public struct ClosedTabRecord: Codable, Equatable {
+    public let documentID: DocumentID
+    public let tabIndex: Int
+    public let isClearMarginsEnabled: Bool
+    public let isLeftSidebarVisible: Bool
+    public let leftPanel: ReaderLeftPanel
+    public let activeSidebarTab: ReaderSidebarTab
+}
+
+@MainActor
+public final class ReaderWindowSession: ObservableObject, Identifiable {
+    public let id: UUID
+    public let isPrimary: Bool
+    @Published public var tabs: [AppTab] {
+        didSet { onTabsChanged?() }
+    }
+    @Published public var selectedTabID: UUID {
+        didSet { onTabsChanged?() }
+    }
+    var onTabsChanged: (() -> Void)?
+    weak var tabStripView: NSView?
+    let tabViews = NSMapTable<NSUUID, NSView>.strongToWeakObjects()
+    @Published public var homeCurrentPage: HomeTabPage = .home
+    @Published public var isShortcutsSheetPresented: Bool = false
+    @Published public var shortcutsInitialCategory: ShortcutGuideCategory = .all
+    public weak var nsWindow: NSWindow?
+    var cancellables = Set<AnyCancellable>()
+
+    public init(id: UUID = UUID(), isPrimary: Bool, tabs: [AppTab], selectedTabID: UUID) {
+        self.id = id
+        self.isPrimary = isPrimary
+        self.tabs = tabs
+        self.selectedTabID = selectedTabID
+    }
+
+    public var activeDocumentTab: DocumentTabState? {
+        guard let tab = tabs.first(where: { $0.id == selectedTabID }),
+              case .document(let state) = tab else {
+            return nil
+        }
+        return state
+    }
+}
+
 // MARK: - Thumbnail Cache
 
 @MainActor
@@ -1168,7 +1295,7 @@ public final class PDFThumbnailCache: ObservableObject {
         return cache
     }()
 
-    public struct ThumbnailRequest: Hashable {
+    public struct ThumbnailRequest: Hashable, Sendable {
         public let documentID: String
         public let documentURL: URL
         public let password: String?
@@ -1229,7 +1356,12 @@ public final class PDFThumbnailCache: ObservableObject {
     }
 
     private final class RenderCancellation: @unchecked Sendable {
-        var isCancelled = false
+        private let lock = NSLock()
+        private var cancelled = false
+        var isCancelled: Bool {
+            get { lock.withLock { cancelled } }
+            set { lock.withLock { cancelled = newValue } }
+        }
     }
 
     private nonisolated static let renderQueue = DispatchQueue(label: "io.github.inkcitrus.expertpdfreader.thumbnails", qos: .userInitiated)
@@ -1397,8 +1529,64 @@ public final class AppStore: ObservableObject {
         }
     }
 
-    // Home tab navigation state
-    @Published public var homeCurrentPage: HomeTabPage = .home
+    // Multi-Window Sessions (Primary window + browser-style detached windows)
+    public let primarySession: ReaderWindowSession
+    @Published public private(set) var detachedSessions: [ReaderWindowSession] = []
+    @Published public var activeWindowSessionID: UUID {
+        didSet { saveOpenTabs() }
+    }
+    private var detachedWindowControllers: [UUID: DetachedReaderWindowController] = [:]
+    private var isTerminating = false
+
+    public var allWindowSessions: [ReaderWindowSession] {
+        [primarySession] + detachedSessions
+    }
+
+    public var activeSession: ReaderWindowSession {
+        allWindowSessions.first(where: { $0.id == activeWindowSessionID }) ?? primarySession
+    }
+
+    public func session(withID id: UUID?) -> ReaderWindowSession {
+        guard let id else { return activeSession }
+        return allWindowSessions.first(where: { $0.id == id }) ?? activeSession
+    }
+
+    public func windowSession(for window: NSWindow?) -> ReaderWindowSession? {
+        guard let window else { return nil }
+        return allWindowSessions.first {
+            $0.nsWindow === window || $0.nsWindow === window.sheetParent
+        }
+    }
+
+    public func activateWindowSession(_ sessionID: UUID) {
+        if activeWindowSessionID != sessionID,
+           allWindowSessions.contains(where: { $0.id == sessionID }) {
+            activeWindowSessionID = sessionID
+        }
+    }
+
+    /// SwiftUI hook injected from `ExpertPDFReaderApp` so the primary `"main"` window scene can be reopened if closed.
+    public var openPrimaryWindowHandler: (() -> Void)?
+
+    public func ensureSessionWindowVisible(_ targetSession: ReaderWindowSession) {
+        if let win = targetSession.nsWindow {
+            if win.isMiniaturized {
+                win.deminiaturize(nil)
+            }
+            if !win.isVisible && targetSession.isPrimary {
+                openPrimaryWindowHandler?()
+            }
+            win.makeKeyAndOrderFront(nil)
+        } else if targetSession.isPrimary {
+            openPrimaryWindowHandler?()
+        }
+    }
+
+    // Active window convenience bindings
+    public var homeCurrentPage: HomeTabPage {
+        get { activeSession.homeCurrentPage }
+        set { activeSession.homeCurrentPage = newValue }
+    }
 
     // DocumentsStore (Recents + Favorites + Bookmarks)
     @Published public private(set) var documents: [DocumentItem] = []
@@ -1406,16 +1594,53 @@ public final class AppStore: ObservableObject {
     @Published public private(set) var favoriteDocumentIDs: Set<DocumentID> = []
     @Published public private(set) var bookmarksByDocument: [String: [BookmarkItem]] = [:]
 
-    // Window tabs
-    @Published public var tabs: [AppTab] = [] {
-        didSet { saveOpenTabs() }
+    // Active window tabs
+    public var tabs: [AppTab] {
+        get { activeSession.tabs }
+        set { activeSession.tabs = newValue }
     }
-    @Published public var selectedTabID: UUID {
-        didSet { saveOpenTabs() }
+    public var selectedTabID: UUID {
+        get { activeSession.selectedTabID }
+        set { activeSession.selectedTabID = newValue }
+    }
+    /// Closed document tabs (most recent last) with their original tab bar slot and panel state
+    @Published public private(set) var closedTabs: [ClosedTabRecord] = []
+
+    /// Interactive Keyboard Shortcuts & Tips cheat sheet (⌘/) on the active window
+    public var isShortcutsSheetPresented: Bool {
+        get { activeSession.isShortcutsSheetPresented }
+        set { activeSession.isShortcutsSheetPresented = newValue }
+    }
+    public var shortcutsInitialCategory: ShortcutGuideCategory {
+        get { activeSession.shortcutsInitialCategory }
+        set { activeSession.shortcutsInitialCategory = newValue }
+    }
+
+    public func presentShortcutsSheet(category: ShortcutGuideCategory = .all, in sessionID: UUID? = nil) {
+        let target = session(withID: sessionID)
+        target.shortcutsInitialCategory = category
+        target.isShortcutsSheetPresented = true
+    }
+
+    public func toggleShortcutsSheet(in sessionID: UUID? = nil) {
+        let target = session(withID: sessionID)
+        if target.isShortcutsSheetPresented {
+            target.isShortcutsSheetPresented = false
+        } else {
+            target.shortcutsInitialCategory = .all
+            target.isShortcutsSheetPresented = true
+        }
+    }
+
+    public var closedDocumentURLs: [URL] {
+        closedTabs.map(\.documentID.url)
     }
 
     private var dateFormatter: DateFormatter
-    private var localeObserver: NSObjectProtocol?
+    nonisolated(unsafe) private var localeObserver: NSObjectProtocol?
+    nonisolated(unsafe) private var appDidBecomeActiveObserver: NSObjectProtocol?
+    nonisolated(unsafe) private var fileWatchers: [String: DispatchSourceFileSystemObject] = [:]
+    private var pruneDebounceTask: Task<Void, Never>?
 
     /// Keyed by `DocumentID.normalizedPath`
     private var readingPositions: [String: ReadingPosition] = [:]
@@ -1426,6 +1651,7 @@ public final class AppStore: ObservableObject {
 
     private static let maxRecentDocuments = 50
     private static let maxReadingPositions = 300
+    private static let maxClosedTabs = 25
 
     private enum Keys {
         static let recents = "expertPDFReader.Recents"
@@ -1435,6 +1661,7 @@ public final class AppStore: ObservableObject {
         static let fileBookmarks = "expertPDFReader.FileBookmarks"
         static let openTabs = "expertPDFReader.OpenTabs"
         static let selectedTab = "expertPDFReader.SelectedTab"
+        static let closedTabs = "expertPDFReader.ClosedTabs"
     }
 
     private struct PersistedRecentEntry: Codable {
@@ -1481,13 +1708,20 @@ public final class AppStore: ObservableObject {
         self.dateFormatter = formatter
 
         let homeTabID = UUID()
-        self.tabs = [.home(homeTabID)]
-        self.selectedTabID = homeTabID
+        let initialPrimary = ReaderWindowSession(
+            isPrimary: true,
+            tabs: [.home(homeTabID)],
+            selectedTabID: homeTabID
+        )
+        self.primarySession = initialPrimary
+        self.activeWindowSessionID = initialPrimary.id
+        observeWindowSession(initialPrimary)
 
         loadPersistedState()
         restoreOpenTabs()
         ensureSampleDocumentInRecents()
         applyAppAppearance()
+        rebuildFileWatchers()
 
         // Observe locale changes to re-format DocumentItem.dateOpenedText
         localeObserver = NotificationCenter.default.addObserver(
@@ -1499,6 +1733,24 @@ public final class AppStore: ObservableObject {
                 self?.handleLocaleChange()
             }
         }
+
+        // Re-check remembered files whenever the user switches back from Finder / Terminal
+        appDidBecomeActiveObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.pruneMissingDocuments()
+            }
+        }
+    }
+
+    deinit {
+        if let localeObserver { NotificationCenter.default.removeObserver(localeObserver) }
+        if let appDidBecomeActiveObserver { NotificationCenter.default.removeObserver(appDidBecomeActiveObserver) }
+        for source in fileWatchers.values { source.cancel() }
+        pruneDebounceTask?.cancel()
     }
 
     public func applyAppAppearance() {
@@ -1537,174 +1789,671 @@ public final class AppStore: ObservableObject {
         documents.filter { favoriteDocumentIDs.contains($0.documentID) }
     }
 
+    public var allOpenDocumentTabs: [DocumentTabState] {
+        allWindowSessions.flatMap { session in
+            session.tabs.compactMap { tab -> DocumentTabState? in
+                guard case .document(let state) = tab else { return nil }
+                return state
+            }
+        }
+    }
+
     public var openedDocumentItems: [DocumentItem] {
-        tabs.compactMap { tab in
-            guard case .document(let state) = tab else { return nil }
-            return documents.first(where: { $0.documentID == state.documentID })
+        allOpenDocumentTabs.compactMap { state in
+            documents.first(where: { $0.documentID == state.documentID })
         }
     }
 
     public var activeDocumentTab: DocumentTabState? {
-        guard let tab = tabs.first(where: { $0.id == selectedTabID }),
-              case .document(let state) = tab else {
-            return nil
+        activeSession.activeDocumentTab
+    }
+
+    /// Window title surfaced to macOS Mission Control, App Exposé, Stage Manager, Dock and Accessibility.
+    /// Displays the currently viewed PDF file name (disambiguated by parent folder when needed),
+    /// or the app name when on a Home tab.
+    public var activeWindowTitle: String {
+        windowTitle(for: activeSession)
+    }
+
+    public var activeWindowRepresentedURL: URL? {
+        windowRepresentedURL(for: activeSession)
+    }
+
+    public func windowTitle(for session: ReaderWindowSession) -> String {
+        guard let docTab = session.activeDocumentTab else {
+            return "Expert PDF Reader"
         }
-        return state
+        return windowTitle(for: docTab)
+    }
+
+    public func windowRepresentedURL(for session: ReaderWindowSession) -> URL? {
+        guard let docTab = session.activeDocumentTab else { return nil }
+        if docTab.splitMode != .disabled,
+           docTab.isSplitSwapped,
+           let secondaryURL = docTab.secondaryDocumentURL {
+            return secondaryURL
+        }
+        return docTab.documentID.url
+    }
+
+    public func windowTitle(for state: DocumentTabState) -> String {
+        let rawFileName = state.documentID.url.lastPathComponent
+        let baseName = rawFileName.isEmpty ? state.title : rawFileName
+        let primaryTitle: String
+        if let folder = disambiguatedFolder(for: state) {
+            primaryTitle = "\(baseName) — \(folder)"
+        } else {
+            primaryTitle = baseName
+        }
+
+        if state.splitMode != .disabled,
+           let secondaryURL = state.secondaryDocumentURL,
+           secondaryURL.standardizedFileURL != state.documentID.url.standardizedFileURL {
+            let secondaryName = secondaryURL.lastPathComponent
+            if !secondaryName.isEmpty {
+                return state.isSplitSwapped
+                    ? "\(secondaryName) · \(primaryTitle)"
+                    : "\(primaryTitle) · \(secondaryName)"
+            }
+        }
+        return primaryTitle
     }
 
     // MARK: - Tab & Document Actions
 
-    public func selectHomeTab() {
-        if let existing = tabs.first(where: { $0.isHome }) {
-            selectedTabID = existing.id
+    private func observeWindowSession(_ session: ReaderWindowSession) {
+        session.objectWillChange
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.objectWillChange.send()
+                }
+            }
+            .store(in: &session.cancellables)
+
+        // @Published sends in willSet; persist in didSet so a close/reorder/selection saves the new state.
+        session.onTabsChanged = { [weak self] in self?.saveOpenTabs() }
+    }
+
+    private func performAnimated(_ animation: Animation, _ body: () -> Void) {
+        if isRestoringSession {
+            body()
         } else {
-            let newID = UUID()
-            tabs.insert(.home(newID), at: 0)
-            selectedTabID = newID
+            withAnimation(animation, body)
         }
     }
 
-    public func openNewHomeTab() {
-        selectHomeTab()
-        homeCurrentPage = .home
+    public func selectHomeTab(in sessionID: UUID? = nil) {
+        pruneMissingDocuments()
+        let targetSession = session(withID: sessionID)
+        performAnimated(AppAnimation.tab) {
+            if let existing = targetSession.tabs.first(where: { $0.isHome }) {
+                targetSession.selectedTabID = existing.id
+            } else {
+                let newID = UUID()
+                targetSession.tabs.insert(.home(newID), at: 0)
+                targetSession.selectedTabID = newID
+            }
+        }
     }
 
-    public func openFilePicker() {
+    public func openNewHomeTab(in sessionID: UUID? = nil) {
+        let targetSession = session(withID: sessionID)
+        selectHomeTab(in: targetSession.id)
+        targetSession.homeCurrentPage = .home
+    }
+
+    public func openFilePicker(in sessionID: UUID? = nil) {
         let panel = NSOpenPanel()
         panel.title = L10n.tr("打开 PDF 文档", "Open PDF Document")
         panel.allowedContentTypes = [.pdf]
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
         if panel.runModal() == .OK {
-            openDocuments(at: panel.urls)
+            openDocuments(at: panel.urls, in: sessionID)
         }
     }
 
-    public func openDocuments(at urls: [URL]) {
+    public func openDocuments(at urls: [URL], in sessionID: UUID? = nil) {
         for url in urls {
-            openDocument(at: url)
+            openDocument(at: url, in: sessionID)
         }
     }
 
-    /// Opens `url` in a new tab (or switches to the tab already showing it) at the page, zoom and layout
+    /// Opens `url` in a new tab (or switches to the window & tab already showing it) at the page, zoom and layout
     /// it was last read with. `interactive: false` skips password prompts and error alerts.
     @discardableResult
-    public func openDocument(at url: URL, recordInRecents: Bool = true, interactive: Bool = true) -> DocumentTabState? {
-        let docID = DocumentID(url: url)
+    public func openDocument(
+        at url: URL,
+        recordInRecents: Bool = true,
+        interactive: Bool = true,
+        insertAt insertionIndex: Int? = nil,
+        in targetSessionID: UUID? = nil
+    ) -> DocumentTabState? {
+        var targetURL = url
+        let initialID = DocumentID(url: url)
 
-        // If already open in a tab, switch to it
-        if let existingTab = tabs.first(where: {
-            if case .document(let state) = $0 {
-                return state.documentID == docID
+        if !Self.isUsableDocumentFile(at: targetURL) {
+            if let movedURL = resolveFileURL(path: initialID.normalizedPath) {
+                targetURL = movedURL
+                pruneMissingDocuments()
+            } else {
+                pruneMissingDocuments()
+                if Self.isFileInTrash(targetURL) {
+                    if interactive { NSSound.beep() }
+                    return nil
+                }
             }
-            return false
-        }), case .document(let existingState) = existingTab {
-            selectedTabID = existingTab.id
-            if recordInRecents {
-                recordDocumentOpen(url: url, pdfDocument: existingState.pdfDocument)
-            }
-            return existingState
         }
 
-        guard let loaded = PDFDocumentLoader.load(url: url, interactive: interactive) else {
+        let docID = DocumentID(url: targetURL)
+
+        // If already open in any reader window, focus that window and switch to its tab
+        for existingSession in allWindowSessions {
+            if let existingTab = existingSession.tabs.first(where: {
+                if case .document(let state) = $0 {
+                    return state.documentID == docID
+                }
+                return false
+            }), case .document(let existingState) = existingTab {
+                performAnimated(AppAnimation.tab) {
+                    existingSession.selectedTabID = existingTab.id
+                    activeWindowSessionID = existingSession.id
+                }
+                if !isRestoringSession {
+                    ensureSessionWindowVisible(existingSession)
+                }
+                removeClosedTabEntries(for: docID)
+                if recordInRecents {
+                    recordDocumentOpen(url: targetURL, pdfDocument: existingState.pdfDocument)
+                }
+                return existingState
+            }
+        }
+
+        guard let loaded = PDFDocumentLoader.load(url: targetURL, interactive: interactive) else {
             return nil
         }
 
+        let destinationSession = session(withID: targetSessionID)
+        removeClosedTabEntries(for: docID)
         if recordInRecents {
-            recordDocumentOpen(url: url, pdfDocument: loaded.document)
+            recordDocumentOpen(url: targetURL, pdfDocument: loaded.document)
         }
-        let tabState = DocumentTabState(url: url, pdfDocument: loaded.document, password: loaded.password)
+        let tabState = DocumentTabState(url: targetURL, pdfDocument: loaded.document, password: loaded.password)
         if let position = readingPositions[docID.normalizedPath] {
             tabState.restore(position)
         }
         observeReadingPosition(of: tabState)
-        tabState.scanPagesIfNeeded()
         let newTab = AppTab.document(tabState)
-        tabs.append(newTab)
-        selectedTabID = newTab.id
+        performAnimated(AppAnimation.tab) {
+            if let insertionIndex {
+                let homeCount = destinationSession.tabs.prefix(while: \.isHome).count
+                let clamped = max(homeCount, min(insertionIndex, destinationSession.tabs.count))
+                destinationSession.tabs.insert(newTab, at: clamped)
+            } else {
+                destinationSession.tabs.append(newTab)
+            }
+            destinationSession.selectedTabID = newTab.id
+            activeWindowSessionID = destinationSession.id
+        }
+        if !isRestoringSession {
+            ensureSessionWindowVisible(destinationSession)
+        }
         return tabState
     }
 
-    public func closeTab(id: UUID) {
-        guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
-        if tabs[idx].isHome && tabs.count == 1 {
+    public func closeTab(id: UUID, in sessionID: UUID? = nil) {
+        let candidateSessions = sessionID.map { [session(withID: $0)] + allWindowSessions } ?? allWindowSessions
+        guard let targetSession = candidateSessions.first(where: { s in s.tabs.contains(where: { $0.id == id }) }),
+              let idx = targetSession.tabs.firstIndex(where: { $0.id == id }) else {
             return
         }
-        if case .document(let state) = tabs[idx] {
-            rememberReadingPositions(of: [state])
-            rememberClosedDocuments([state])
+
+        if !targetSession.isPrimary && targetSession.tabs.count <= 1 {
+            closeDetachedWindow(sessionID: targetSession.id, recordClosedTabs: true)
+            return
         }
-        let wasSelected = (selectedTabID == id)
-        tabs.remove(at: idx)
-        if tabs.isEmpty {
-            let homeID = UUID()
-            tabs = [.home(homeID)]
-            selectedTabID = homeID
-        } else if wasSelected {
-            let nextIdx = max(0, min(idx, tabs.count - 1))
-            selectedTabID = tabs[nextIdx].id
+
+        if targetSession.tabs[idx].isHome && targetSession.tabs.count == 1 {
+            return
+        }
+
+        if case .document(let state) = targetSession.tabs[idx] {
+            rememberReadingPositions(of: [state])
+            rememberClosedTabs([(index: idx, state: state)])
+        }
+        let wasSelected = (targetSession.selectedTabID == id)
+        performAnimated(AppAnimation.tab) {
+            targetSession.tabs.remove(at: idx)
+            if targetSession.tabs.isEmpty {
+                let homeID = UUID()
+                targetSession.tabs = [.home(homeID)]
+                targetSession.selectedTabID = homeID
+            } else if wasSelected {
+                let nextIdx = max(0, min(idx, targetSession.tabs.count - 1))
+                targetSession.selectedTabID = targetSession.tabs[nextIdx].id
+            }
         }
     }
 
     public func closeCurrentTab() {
-        closeTab(id: selectedTabID)
+        closeTab(id: activeSession.selectedTabID, in: activeSession.id)
     }
 
-    public func closeOtherTabs(keeping id: UUID) {
-        let closing: [DocumentTabState] = tabs.compactMap { tab in
+    public func closeCurrentTabOrWindow(for window: NSWindow) {
+        guard let targetSession = windowSession(for: window) else {
+            window.performClose(nil)
+            return
+        }
+        if targetSession.activeDocumentTab != nil {
+            if !targetSession.isPrimary && targetSession.tabs.count <= 1 {
+                window.performClose(nil)
+            } else {
+                closeTab(id: targetSession.selectedTabID, in: targetSession.id)
+            }
+        } else {
+            window.performClose(nil)
+        }
+    }
+
+    public func closeOtherTabs(keeping id: UUID, in sessionID: UUID? = nil) {
+        let targetSession = session(withID: sessionID)
+        let closingPairs: [(index: Int, state: DocumentTabState)] = targetSession.tabs.enumerated().compactMap { idx, tab in
             guard case .document(let state) = tab, state.id != id else { return nil }
-            return state
+            return (index: idx, state: state)
         }
-        rememberReadingPositions(of: closing)
-        rememberClosedDocuments(closing)
-        tabs.removeAll(where: { !$0.isHome && $0.id != id })
-        if !tabs.contains(where: { $0.id == selectedTabID }) {
-            selectedTabID = id
-        }
-    }
-
-    /// Documents of closed tabs, the most recent last, for File › Reopen Closed Tab
-    @Published public private(set) var closedDocumentURLs: [URL] = []
-
-    private func rememberClosedDocuments(_ states: [DocumentTabState]) {
-        closedDocumentURLs.append(contentsOf: states.map(\.documentID.url))
-        if closedDocumentURLs.count > 20 {
-            closedDocumentURLs.removeFirst(closedDocumentURLs.count - 20)
+        rememberReadingPositions(of: closingPairs.map(\.state))
+        rememberClosedTabs(closingPairs)
+        performAnimated(AppAnimation.tab) {
+            targetSession.tabs.removeAll(where: { !$0.isHome && $0.id != id })
+            if !targetSession.tabs.contains(where: { $0.id == targetSession.selectedTabID }) {
+                targetSession.selectedTabID = id
+            }
         }
     }
 
-    /// Opens the most recently closed document again, at the page it was left on
-    public func reopenClosedTab() {
-        while let url = closedDocumentURLs.popLast() {
-            if FileManager.default.fileExists(atPath: url.path), openDocument(at: url) != nil {
+    // MARK: - Browser-Style Tab Detaching, New Windows & Cross-Window Merging
+
+    /// Opens a brand-new independent reader window on the Home tab (or reopens the primary window when no
+    /// reader window is currently open/miniaturized and the primary session has no open documents).
+    @discardableResult
+    public func openNewWindow() -> ReaderWindowSession {
+        pruneMissingDocuments()
+
+        let isPrimaryPresent = primarySession.nsWindow.map { $0.isVisible || $0.isMiniaturized } ?? false
+        let primaryHasDocs = primarySession.tabs.contains { !$0.isHome }
+        if !isPrimaryPresent && detachedSessions.isEmpty && !primaryHasDocs, openPrimaryWindowHandler != nil {
+            openNewHomeTab(in: primarySession.id)
+            activeWindowSessionID = primarySession.id
+            ensureSessionWindowVisible(primarySession)
+            return primarySession
+        }
+
+        let anchorWindow = activeSession.nsWindow
+            ?? allWindowSessions.compactMap(\.nsWindow).first(where: \.isVisible)
+            ?? primarySession.nsWindow
+
+        let homeID = UUID()
+        let newSession = ReaderWindowSession(
+            isPrimary: false,
+            tabs: [.home(homeID)],
+            selectedTabID: homeID
+        )
+        observeWindowSession(newSession)
+        detachedSessions.append(newSession)
+        activeWindowSessionID = newSession.id
+
+        let controller = DetachedReaderWindowController(
+            store: self,
+            session: newSession,
+            sourceWindow: anchorWindow,
+            screenDropPoint: nil
+        )
+        detachedWindowControllers[newSession.id] = controller
+        controller.showWindow()
+        return newSession
+    }
+
+    public func canDetachTab(id: UUID, in sessionID: UUID) -> Bool {
+        let targetSession = session(withID: sessionID)
+        guard targetSession.tabs.count > 1,
+              let tab = targetSession.tabs.first(where: { $0.id == id }),
+              case .document = tab else {
+            return false
+        }
+        return true
+    }
+
+    @discardableResult
+    public func detachTabToNewWindow(
+        id: UUID,
+        from sourceSessionID: UUID,
+        screenDropPoint: NSPoint? = nil,
+        tabGrabOffset: NSPoint? = nil
+    ) -> ReaderWindowSession? {
+        let sourceSession = session(withID: sourceSessionID)
+        guard sourceSession.tabs.count > 1,
+              let idx = sourceSession.tabs.firstIndex(where: { $0.id == id }),
+              case .document(let docState) = sourceSession.tabs[idx] else {
+            return nil
+        }
+
+        let wasSelected = (sourceSession.selectedTabID == id)
+        performAnimated(AppAnimation.tab) {
+            sourceSession.tabs.remove(at: idx)
+            if sourceSession.tabs.isEmpty {
+                let homeID = UUID()
+                sourceSession.tabs = [.home(homeID)]
+                sourceSession.selectedTabID = homeID
+            } else if wasSelected {
+                let nextIdx = max(0, min(idx, sourceSession.tabs.count - 1))
+                sourceSession.selectedTabID = sourceSession.tabs[nextIdx].id
+            }
+        }
+
+        let newSession = ReaderWindowSession(
+            isPrimary: false,
+            tabs: [.document(docState)],
+            selectedTabID: docState.id
+        )
+        observeWindowSession(newSession)
+        detachedSessions.append(newSession)
+        activeWindowSessionID = newSession.id
+
+        let controller = DetachedReaderWindowController(
+            store: self,
+            session: newSession,
+            sourceWindow: sourceSession.nsWindow,
+            screenDropPoint: screenDropPoint,
+            tabGrabOffset: tabGrabOffset
+        )
+        detachedWindowControllers[newSession.id] = controller
+        controller.showWindow()
+        saveOpenTabs()
+        return newSession
+    }
+
+    public func moveTab(
+        id: UUID,
+        from sourceSessionID: UUID,
+        to targetSessionID: UUID,
+        atDocumentIndex: Int? = nil
+    ) {
+        guard sourceSessionID != targetSessionID else { return }
+        let sourceSession = session(withID: sourceSessionID)
+        let targetSession = session(withID: targetSessionID)
+        guard let idx = sourceSession.tabs.firstIndex(where: { $0.id == id }),
+              case .document(let docState) = sourceSession.tabs[idx] else {
+            return
+        }
+
+        let wasSelected = (sourceSession.selectedTabID == id)
+        let shouldCloseSourceDetached: Bool
+        if !sourceSession.isPrimary && sourceSession.tabs.count <= 1 {
+            shouldCloseSourceDetached = true
+        } else {
+            shouldCloseSourceDetached = false
+            performAnimated(AppAnimation.tab) {
+                sourceSession.tabs.remove(at: idx)
+                if sourceSession.tabs.isEmpty {
+                    let homeID = UUID()
+                    sourceSession.tabs = [.home(homeID)]
+                    sourceSession.selectedTabID = homeID
+                } else if wasSelected {
+                    let nextIdx = max(0, min(idx, sourceSession.tabs.count - 1))
+                    sourceSession.selectedTabID = sourceSession.tabs[nextIdx].id
+                }
+            }
+        }
+
+        let newTab = AppTab.document(docState)
+        performAnimated(AppAnimation.tab) {
+            let homeCount = targetSession.tabs.prefix(while: \.isHome).count
+            if let atDocumentIndex {
+                let clamped = max(homeCount, min(homeCount + max(0, atDocumentIndex), targetSession.tabs.count))
+                targetSession.tabs.insert(newTab, at: clamped)
+            } else {
+                targetSession.tabs.append(newTab)
+            }
+            targetSession.selectedTabID = newTab.id
+            activeWindowSessionID = targetSession.id
+        }
+
+        if shouldCloseSourceDetached {
+            sourceSession.tabs.removeAll { $0.id == id }
+            closeDetachedWindow(sessionID: sourceSession.id, recordClosedTabs: false)
+        }
+
+        ensureSessionWindowVisible(targetSession)
+        saveOpenTabs()
+    }
+
+    public func mergeAllWindows() {
+        guard !detachedSessions.isEmpty else { return }
+        let previouslyActiveDocID = activeDocumentTab?.id
+        let sessionsToMerge = detachedSessions
+
+        performAnimated(AppAnimation.tab) {
+            for detached in sessionsToMerge {
+                for tab in detached.tabs {
+                    if case .document(let docState) = tab {
+                        primarySession.tabs.append(.document(docState))
+                    }
+                }
+                detached.tabs.removeAll()
+            }
+            if let previouslyActiveDocID,
+               primarySession.tabs.contains(where: { $0.id == previouslyActiveDocID }) {
+                primarySession.selectedTabID = previouslyActiveDocID
+            } else if let lastTab = primarySession.tabs.last {
+                primarySession.selectedTabID = lastTab.id
+            }
+            activeWindowSessionID = primarySession.id
+        }
+
+        for detached in sessionsToMerge {
+            closeDetachedWindow(sessionID: detached.id, recordClosedTabs: false)
+        }
+        ensureSessionWindowVisible(primarySession)
+        saveOpenTabs()
+    }
+
+    /// Finds another open reader window whose tab bar / top toolbar band contains `screenPoint`, in Z-order.
+    public func dropTargetWindowAndIndex(
+        atScreenPoint screenPoint: NSPoint,
+        excluding sourceSessionID: UUID
+    ) -> (session: ReaderWindowSession, documentIndex: Int)? {
+        let orderedWindows = NSApp?.orderedWindows ?? []
+        let candidateSessions = allWindowSessions.filter {
+            $0.id != sourceSessionID && ($0.nsWindow?.isVisible == true)
+        }
+        let sortedSessions = candidateSessions.sorted { a, b in
+            let ia = orderedWindows.firstIndex(where: { $0 === a.nsWindow }) ?? Int.max
+            let ib = orderedWindows.firstIndex(where: { $0 === b.nsWindow }) ?? Int.max
+            return ia < ib
+        }
+
+        for candidate in sortedSessions {
+            guard let win = candidate.nsWindow else { continue }
+            guard !win.isMiniaturized, candidate.containsTabStrip(screenPoint) else { continue }
+            return (candidate, candidate.documentInsertionIndex(at: screenPoint))
+        }
+        return nil
+    }
+
+    private func closeDetachedWindow(sessionID: UUID, recordClosedTabs: Bool) {
+        if let controller = detachedWindowControllers[sessionID] {
+            if recordClosedTabs {
+                controller.window.close()
+            } else {
+                controller.closeProgrammatically()
+            }
+        } else {
+            handleDetachedWindowWillClose(sessionID: sessionID, recordClosedTabs: recordClosedTabs)
+        }
+    }
+
+    func handleDetachedWindowWillClose(sessionID: UUID, recordClosedTabs: Bool) {
+        guard let idx = detachedSessions.firstIndex(where: { $0.id == sessionID }) else { return }
+        let closingSession = detachedSessions[idx]
+
+        let docPairs: [(index: Int, state: DocumentTabState)] = closingSession.tabs.enumerated().compactMap { i, tab in
+            guard case .document(let state) = tab else { return nil }
+            return (index: i, state: state)
+        }
+        rememberReadingPositions(of: docPairs.map(\.state))
+        if recordClosedTabs && !isTerminating {
+            rememberClosedTabs(docPairs)
+        }
+
+        detachedSessions.remove(at: idx)
+        detachedWindowControllers.removeValue(forKey: sessionID)
+
+        if activeWindowSessionID == sessionID {
+            activeWindowSessionID = detachedSessions.last?.id ?? primarySession.id
+        }
+        if !isTerminating {
+            saveOpenTabs()
+        }
+    }
+
+    public func beginTermination() {
+        isTerminating = true
+    }
+
+    private func rememberClosedTabs(_ items: [(index: Int, state: DocumentTabState)]) {
+        guard !items.isEmpty else { return }
+        for item in items {
+            let state = item.state
+            closedTabs.removeAll { $0.documentID == state.documentID }
+            closedTabs.append(
+                ClosedTabRecord(
+                    documentID: state.documentID,
+                    tabIndex: item.index,
+                    isClearMarginsEnabled: state.isClearMarginsEnabled,
+                    isLeftSidebarVisible: state.isLeftSidebarVisible,
+                    leftPanel: state.leftPanel,
+                    activeSidebarTab: state.activeSidebarTab
+                )
+            )
+        }
+        if closedTabs.count > Self.maxClosedTabs {
+            closedTabs.removeFirst(closedTabs.count - Self.maxClosedTabs)
+        }
+        saveClosedTabs()
+        savePersistedState()
+    }
+
+    private func removeClosedTabEntries(for docID: DocumentID) {
+        let before = closedTabs.count
+        closedTabs.removeAll { $0.documentID == docID }
+        if closedTabs.count != before {
+            saveClosedTabs()
+        }
+    }
+
+    private func saveClosedTabs() {
+        if let data = try? JSONEncoder().encode(closedTabs) {
+            UserDefaults.standard.set(data, forKey: Keys.closedTabs)
+        }
+    }
+
+    /// Opens the most recently closed document again at its original tab slot, reading position and panel state
+    public func reopenClosedTab(in sessionID: UUID? = nil) {
+        while let record = closedTabs.popLast() {
+            saveClosedTabs()
+            let alreadyOpen = allOpenDocumentTabs.contains { $0.documentID == record.documentID }
+            if alreadyOpen { continue }
+            guard let url = resolveFileURL(path: record.documentID.normalizedPath) else { continue }
+            guard let state = openDocument(at: url, insertAt: record.tabIndex, in: sessionID) else {
+                // Cancelling a password prompt must not discard this tab and open an unrelated older one.
+                closedTabs.append(record)
+                saveClosedTabs()
                 return
             }
+            state.isClearMarginsEnabled = record.isClearMarginsEnabled
+            state.isLeftSidebarVisible = record.isLeftSidebarVisible
+            state.leftPanel = record.leftPanel
+            state.activeSidebarTab = record.activeSidebarTab
+            if record.isClearMarginsEnabled {
+                state.applyClearMarginsIfNeeded()
+            }
+            return
         }
         NSSound.beep()
     }
 
-    public func selectNextTab() {
-        guard tabs.count > 1,
-              let idx = tabs.firstIndex(where: { $0.id == selectedTabID }) else { return }
-        selectedTabID = tabs[(idx + 1) % tabs.count].id
+    public var canSelectAdjacentDocumentTab: Bool {
+        let documents = activeSession.tabs.filter { !$0.isHome }
+        return documents.count > 1 || (!documents.isEmpty && activeSession.activeDocumentTab == nil)
     }
 
-    public func selectPreviousTab() {
-        guard tabs.count > 1,
-              let idx = tabs.firstIndex(where: { $0.id == selectedTabID }) else { return }
-        selectedTabID = tabs[(idx - 1 + tabs.count) % tabs.count].id
+    public func selectNextTab(in sessionID: UUID? = nil) { selectAdjacentDocumentTab(1, in: sessionID) }
+    public func selectPreviousTab(in sessionID: UUID? = nil) { selectAdjacentDocumentTab(-1, in: sessionID) }
+
+    /// Home is a launcher, so cycling while reading stays among PDFs.
+    private func selectAdjacentDocumentTab(_ step: Int, in sessionID: UUID?) {
+        let target = session(withID: sessionID)
+        let documents = target.tabs.filter { !$0.isHome }
+        guard !documents.isEmpty else { return }
+        let index = documents.firstIndex { $0.id == target.selectedTabID }
+        let next = index.map { ($0 + step + documents.count) % documents.count } ?? (step > 0 ? 0 : documents.count - 1)
+        target.selectedTabID = documents[next].id
+    }
+
+    /// Moves a document tab to `toDocumentIndex` among the open document tabs (keeping Home pinned at the start).
+    public func moveDocumentTab(id: UUID, toDocumentIndex: Int, in sessionID: UUID? = nil) {
+        let targetSession = session(withID: sessionID)
+        let homeCount = targetSession.tabs.prefix(while: \.isHome).count
+        let docCount = targetSession.tabs.count - homeCount
+        guard docCount > 1,
+              let fromTabIndex = targetSession.tabs.firstIndex(where: { $0.id == id }),
+              fromTabIndex >= homeCount else { return }
+        let targetDocIndex = max(0, min(docCount - 1, toDocumentIndex))
+        let toTabIndex = homeCount + targetDocIndex
+        guard fromTabIndex != toTabIndex else { return }
+        let moved = targetSession.tabs.remove(at: fromTabIndex)
+        targetSession.tabs.insert(moved, at: toTabIndex)
+    }
+
+    /// When two or more open document tabs (across any reader window) have the same title, returns the nearest
+    /// differing ancestor folder so duplicate filenames across directories are immediately distinguishable.
+    public func disambiguatedFolder(for state: DocumentTabState) -> String? {
+        let sameTitleStates: [DocumentTabState] = allOpenDocumentTabs.filter { other in
+            other.id != state.id && other.title.caseInsensitiveCompare(state.title) == .orderedSame
+        }
+        guard !sameTitleStates.isEmpty else { return nil }
+
+        let myAncestors = Array(state.documentID.url.deletingLastPathComponent().pathComponents.reversed())
+        let otherAncestorsList = sameTitleStates.map {
+            Array($0.documentID.url.deletingLastPathComponent().pathComponents.reversed())
+        }
+
+        for depth in 0..<myAncestors.count {
+            let candidate = myAncestors[depth]
+            guard candidate != "/" && !candidate.isEmpty else { continue }
+            let differsFromAll = otherAncestorsList.allSatisfy { others in
+                depth >= others.count || others[depth] != candidate
+            }
+            if differsFromAll {
+                return depth == 0 ? candidate : "\(candidate)/…"
+            }
+        }
+        return myAncestors.first { $0 != "/" && !$0.isEmpty }
     }
 
     // MARK: - Recents & Favorites Management
 
     public func setFavorite(id: DocumentID, isFavorite: Bool) {
-        if isFavorite {
-            favoriteDocumentIDs.insert(id)
-        } else {
-            favoriteDocumentIDs.remove(id)
-        }
-        if let idx = documents.firstIndex(where: { $0.documentID == id }) {
-            documents[idx].isFavorite = isFavorite
+        performAnimated(AppAnimation.snappy) {
+            if isFavorite {
+                favoriteDocumentIDs.insert(id)
+            } else {
+                favoriteDocumentIDs.remove(id)
+            }
+            if let idx = documents.firstIndex(where: { $0.documentID == id }) {
+                documents[idx].isFavorite = isFavorite
+            }
         }
         savePersistedState()
     }
@@ -1715,25 +2464,118 @@ public final class AppStore: ObservableObject {
     }
 
     public func removeFromRecents(id: DocumentID) {
-        recentDocumentIDs.removeAll(where: { $0 == id })
-        if !favoriteDocumentIDs.contains(id) {
-            documents.removeAll(where: { $0.documentID == id })
+        performAnimated(AppAnimation.snappy) {
+            recentDocumentIDs.removeAll(where: { $0 == id })
+            if !favoriteDocumentIDs.contains(id) {
+                documents.removeAll(where: { $0.documentID == id })
+            }
         }
         savePersistedState()
+        rebuildFileWatchers()
     }
 
     public func clearAllRecents() {
-        recentDocumentIDs.removeAll()
-        documents.removeAll(where: { !favoriteDocumentIDs.contains($0.documentID) })
+        performAnimated(AppAnimation.snappy) {
+            recentDocumentIDs.removeAll()
+            documents.removeAll(where: { !favoriteDocumentIDs.contains($0.documentID) })
+        }
         savePersistedState()
+        rebuildFileWatchers()
     }
 
     public func clearAllFavorites() {
-        favoriteDocumentIDs.removeAll()
-        for idx in documents.indices {
-            documents[idx].isFavorite = false
+        performAnimated(AppAnimation.snappy) {
+            favoriteDocumentIDs.removeAll()
+            for idx in documents.indices {
+                documents[idx].isFavorite = false
+            }
+            documents.removeAll(where: { !recentDocumentIDs.contains($0.documentID) })
         }
         savePersistedState()
+        rebuildFileWatchers()
+    }
+
+    /// Removes remembered documents whose original files were deleted or moved to Trash, and updates
+    /// paths/titles in-place when files were moved or renamed in Finder.
+    public func pruneMissingDocuments() {
+        var idMapping: [DocumentID: DocumentID] = [:]
+        var removedIDs = Set<DocumentID>()
+
+        // Resolve each remembered identity once. Resolving a bookmark migrates saved state, so resolving
+        // the old path again for a closed tab could otherwise erase that tab immediately after a rename.
+        let knownIDs = Set(documents.map(\.documentID)
+            + closedTabs.map(\.documentID) + allOpenDocumentTabs.map(\.documentID))
+        for oldID in knownIDs {
+            if let resolvedURL = resolveFileURL(path: oldID.normalizedPath) {
+                let newID = DocumentID(url: resolvedURL)
+                if newID != oldID {
+                    idMapping[oldID] = newID
+                }
+            } else {
+                removedIDs.insert(oldID)
+            }
+        }
+
+        guard !removedIDs.isEmpty || !idMapping.isEmpty else { return }
+
+        performAnimated(AppAnimation.snappy) {
+            closedTabs = closedTabs.compactMap { record in
+                guard !removedIDs.contains(record.documentID) else { return nil }
+                return ClosedTabRecord(
+                    documentID: idMapping[record.documentID] ?? record.documentID,
+                    tabIndex: record.tabIndex,
+                    isClearMarginsEnabled: record.isClearMarginsEnabled,
+                    isLeftSidebarVisible: record.isLeftSidebarVisible,
+                    leftPanel: record.leftPanel,
+                    activeSidebarTab: record.activeSidebarTab
+                )
+            }
+            for tab in allOpenDocumentTabs {
+                if let newID = idMapping[tab.documentID] {
+                    tab.relocate(to: newID.url)
+                }
+            }
+            // Update Recent IDs (preserving order and deduplicating)
+            var seenRecent = Set<DocumentID>()
+            var updatedRecents: [DocumentID] = []
+            for id in recentDocumentIDs where !removedIDs.contains(id) {
+                let mapped = idMapping[id] ?? id
+                if seenRecent.insert(mapped).inserted {
+                    updatedRecents.append(mapped)
+                }
+            }
+            recentDocumentIDs = updatedRecents
+
+            // Update Favorite IDs
+            var updatedFavorites = Set<DocumentID>()
+            for id in favoriteDocumentIDs where !removedIDs.contains(id) {
+                updatedFavorites.insert(idMapping[id] ?? id)
+            }
+            favoriteDocumentIDs = updatedFavorites
+
+            // Update DocumentItems
+            var seenDocs = Set<DocumentID>()
+            var updatedDocs: [DocumentItem] = []
+            for var item in documents where !removedIDs.contains(item.documentID) {
+                if let newID = idMapping[item.documentID] {
+                    var renamed = makeDocumentItem(for: newID, dateOpened: item.dateOpened, pageCount: item.pageCount)
+                    renamed.thumbnail = item.thumbnail
+                    item = renamed
+                } else {
+                    item.isFavorite = updatedFavorites.contains(item.documentID)
+                }
+                if seenDocs.insert(item.documentID).inserted {
+                    updatedDocs.append(item)
+                }
+            }
+            documents = updatedDocs
+        }
+
+        saveClosedTabs()
+        saveOpenTabs()
+        savePersistedState()
+        saveReadingPositions()
+        rebuildFileWatchers()
     }
 
     public func showInFinder(id: DocumentID) {
@@ -1816,37 +2658,39 @@ public final class AppStore: ObservableObject {
         }
 
         // Also update any currently open Reading Guide tab in-place so switching language immediately updates the open guide
-        for idx in tabs.indices {
-            guard case .document(let oldState) = tabs[idx],
-                  SamplePDFGenerator.isSampleGuideURL(oldState.documentID.url),
-                  oldState.documentID != sampleID else {
-                continue
-            }
-            let wasSelected = (selectedTabID == oldState.id)
-            let newState = DocumentTabState(url: sampleURL, pdfDocument: pdfDoc)
-            newState.currentPageIndex = min(oldState.currentPageIndex, max(0, pdfDoc.pageCount - 1))
-            newState.zoomScale = oldState.zoomScale
-            newState.isAutoScaling = oldState.isAutoScaling
-            newState.layoutMode = oldState.layoutMode
-            newState.isClearMarginsEnabled = oldState.isClearMarginsEnabled
-            newState.isLeftSidebarVisible = oldState.isLeftSidebarVisible
-            newState.leftPanel = oldState.leftPanel
-            newState.activeSidebarTab = oldState.activeSidebarTab
-            if newState.isClearMarginsEnabled {
-                newState.applyClearMarginsIfNeeded()
-            }
-            observeReadingPosition(of: newState)
-            let newTab = AppTab.document(newState)
-            tabs[idx] = newTab
-            if wasSelected {
-                selectedTabID = newTab.id
+        for windowSession in allWindowSessions {
+            for idx in windowSession.tabs.indices {
+                guard case .document(let oldState) = windowSession.tabs[idx],
+                      SamplePDFGenerator.isSampleGuideURL(oldState.documentID.url),
+                      oldState.documentID != sampleID else {
+                    continue
+                }
+                let wasSelected = (windowSession.selectedTabID == oldState.id)
+                let newState = DocumentTabState(url: sampleURL, pdfDocument: pdfDoc)
+                newState.currentPageIndex = min(oldState.currentPageIndex, max(0, pdfDoc.pageCount - 1))
+                newState.zoomScale = oldState.zoomScale
+                newState.isAutoScaling = oldState.isAutoScaling
+                newState.layoutMode = oldState.layoutMode
+                newState.isClearMarginsEnabled = oldState.isClearMarginsEnabled
+                newState.isLeftSidebarVisible = oldState.isLeftSidebarVisible
+                newState.leftPanel = oldState.leftPanel
+                newState.activeSidebarTab = oldState.activeSidebarTab
+                if newState.isClearMarginsEnabled {
+                    newState.applyClearMarginsIfNeeded()
+                }
+                observeReadingPosition(of: newState)
+                let newTab = AppTab.document(newState)
+                windowSession.tabs[idx] = newTab
+                if wasSelected {
+                    windowSession.selectedTabID = newTab.id
+                }
             }
         }
     }
 
-    public func openGettingStartedGuide() {
+    public func openGettingStartedGuide(in sessionID: UUID? = nil) {
         let sampleURL = SamplePDFGenerator.ensureSamplePDFExists(for: appLanguage)
-        openDocument(at: sampleURL)
+        openDocument(at: sampleURL, in: sessionID)
     }
 
     private func recordDocumentOpen(url: URL, pdfDocument: PDFDocument) {
@@ -1865,6 +2709,7 @@ public final class AppStore: ObservableObject {
         trimRecents()
         rememberFileBookmark(for: url)
         savePersistedState()
+        rebuildFileWatchers()
         loadDocumentDetailsInBackground([(id: docID, needsPageCount: false)])
     }
 
@@ -1941,6 +2786,20 @@ public final class AppStore: ObservableObject {
            let decoded = try? decoder.decode([String: [BookmarkItem]].self, from: data) {
             bookmarksByDocument = decoded
         }
+        if let data = defaults.data(forKey: Keys.closedTabs),
+           let decoded = try? decoder.decode([ClosedTabRecord].self, from: data) {
+            closedTabs = decoded.compactMap { record in
+                guard let url = resolveFileURL(path: record.documentID.normalizedPath) else { return nil }
+                return ClosedTabRecord(
+                    documentID: DocumentID(url: url),
+                    tabIndex: record.tabIndex,
+                    isClearMarginsEnabled: record.isClearMarginsEnabled,
+                    isLeftSidebarVisible: record.isLeftSidebarVisible,
+                    leftPanel: record.leftPanel,
+                    activeSidebarTab: record.activeSidebarTab
+                )
+            }
+        }
 
         if let favPaths = defaults.stringArray(forKey: Keys.favorites) {
             for path in favPaths {
@@ -2000,6 +2859,7 @@ public final class AppStore: ObservableObject {
         // Only keep file bookmarks of documents that are still remembered somewhere
         var remembered = Set(favPaths)
         remembered.formUnion(recentDocumentIDs.map(\.normalizedPath))
+        remembered.formUnion(closedTabs.map(\.documentID.normalizedPath))
         remembered.formUnion(defaults.stringArray(forKey: Keys.openTabs) ?? [])
         fileBookmarks = fileBookmarks.filter { remembered.contains($0.key) }
         if let data = try? JSONEncoder().encode(fileBookmarks) {
@@ -2011,10 +2871,7 @@ public final class AppStore: ObservableObject {
 
     /// Saves where each open document is being read and which tabs are open; called when the app quits.
     public func saveSession() {
-        rememberReadingPositions(of: tabs.compactMap { tab in
-            guard case .document(let state) = tab else { return nil }
-            return state
-        })
+        rememberReadingPositions(of: allOpenDocumentTabs)
         saveOpenTabs()
     }
 
@@ -2028,6 +2885,18 @@ public final class AppStore: ObservableObject {
                 MainActor.assumeIsolated {
                     guard let self, let tab else { return }
                     self.rememberReadingPositions(of: [tab])
+                }
+            }
+            .store(in: &tab.cancellables)
+
+        // Menus observe the store, while search results, history and panel state live on the tab.
+        // Forward active-document changes so enabled states and checkmarks update immediately.
+        tab.objectWillChange
+            .sink { [weak self, weak tab] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let tab,
+                          self.allWindowSessions.contains(where: { $0.selectedTabID == tab.id }) else { return }
+                    self.objectWillChange.send()
                 }
             }
             .store(in: &tab.cancellables)
@@ -2057,10 +2926,7 @@ public final class AppStore: ObservableObject {
 
     private func saveOpenTabs() {
         guard !isRestoringSession else { return }
-        let paths = tabs.compactMap { tab -> String? in
-            guard case .document(let state) = tab else { return nil }
-            return state.documentID.normalizedPath
-        }
+        let paths = allOpenDocumentTabs.map(\.documentID.normalizedPath)
         let defaults = UserDefaults.standard
         defaults.set(paths, forKey: Keys.openTabs)
         defaults.set(activeDocumentTab?.documentID.normalizedPath, forKey: Keys.selectedTab)
@@ -2093,15 +2959,38 @@ public final class AppStore: ObservableObject {
         saveOpenTabs()
     }
 
-    // MARK: - Moved / Renamed Files
+    // MARK: - Moved / Renamed / Deleted Files
+
+    nonisolated static func isFileInTrash(_ url: URL) -> Bool {
+        let normalized = url.symlinkNormalizedURL.path
+        if normalized.contains("/.Trash/") || normalized.hasSuffix("/.Trash")
+            || normalized.contains("/.Trashes/") || normalized.hasSuffix("/.Trashes") {
+            return true
+        }
+        var relationship: FileManager.URLRelationship = .other
+        if (try? FileManager.default.getRelationship(&relationship, of: .trashDirectory, in: [], toItemAt: url)) != nil,
+           relationship == .contains || relationship == .same {
+            return true
+        }
+        return false
+    }
+
+    nonisolated static func isUsableDocumentFile(at url: URL) -> Bool {
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), !isDir.boolValue else {
+            return false
+        }
+        return !isFileInTrash(url)
+    }
 
     /// Where a remembered file is now: its saved path, or wherever its bookmark points after a move or
     /// rename (not the Trash). Bookmarks and the reading position saved for the old path move with it.
     private func resolveFileURL(path: String) -> URL? {
-        if FileManager.default.fileExists(atPath: path) {
-            return URL(fileURLWithPath: path)
+        let directURL = URL(fileURLWithPath: path)
+        if Self.isUsableDocumentFile(at: directURL) {
+            return directURL
         }
-        let oldKey = DocumentID(url: URL(fileURLWithPath: path)).normalizedPath
+        let oldKey = DocumentID(url: directURL).normalizedPath
         guard let data = fileBookmarks[oldKey] ?? fileBookmarks[path] else { return nil }
 
         var isStale = false
@@ -2111,8 +3000,7 @@ public final class AppStore: ObservableObject {
             relativeTo: nil,
             bookmarkDataIsStale: &isStale
         ),
-            !url.path.contains("/.Trash/"),
-            FileManager.default.fileExists(atPath: url.path) else {
+            Self.isUsableDocumentFile(at: url) else {
             return nil
         }
 
@@ -2126,6 +3014,41 @@ public final class AppStore: ObservableObject {
         return url
     }
 
+    /// Watch the remembered PDF vnodes, not entire folders or the protected system Trash. Opening the
+    /// Trash with O_EVTONLY can wait for macOS privacy authorization before the first window even appears.
+    /// A file's rename/delete events already cover moving it to the Trash or another folder.
+    private func rebuildFileWatchers() {
+        let wanted = Set(documents.prefix(64).map { $0.documentID.normalizedPath })
+        for (path, source) in fileWatchers where !wanted.contains(path) {
+            source.cancel()
+            fileWatchers.removeValue(forKey: path)
+        }
+        for path in wanted where fileWatchers[path] == nil {
+            let fd = Darwin.open(path, O_EVTONLY | O_CLOEXEC)
+            guard fd >= 0 else { continue }
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: fd,
+                eventMask: [.write, .delete, .rename, .attrib],
+                queue: .main
+            )
+            source.setEventHandler { [weak self] in
+                MainActor.assumeIsolated { self?.schedulePruneMissingDocuments() }
+            }
+            source.setCancelHandler { Darwin.close(fd) }
+            source.resume()
+            fileWatchers[path] = source
+        }
+    }
+
+    private func schedulePruneMissingDocuments() {
+        pruneDebounceTask?.cancel()
+        pruneDebounceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard !Task.isCancelled else { return }
+            self?.pruneMissingDocuments()
+        }
+    }
+
     private func moveSavedState(from oldKey: String, to newKey: String) {
         if let bookmarks = bookmarksByDocument.removeValue(forKey: oldKey) {
             bookmarksByDocument[newKey] = bookmarks
@@ -2133,7 +3056,9 @@ public final class AppStore: ObservableObject {
         if let position = readingPositions.removeValue(forKey: oldKey) {
             readingPositions[newKey] = position
         }
-        if let data = fileBookmarks.removeValue(forKey: oldKey) {
+        // Keep the old bookmark until every saved consumer (closed tabs, favorites, recents, open tabs)
+        // has resolved the rename. savePersistedState removes aliases no longer referenced anywhere.
+        if let data = fileBookmarks[oldKey] {
             fileBookmarks[newKey] = data
         }
     }

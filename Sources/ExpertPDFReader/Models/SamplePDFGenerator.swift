@@ -21,7 +21,7 @@ public enum SamplePDFGenerator {
         public let pages: [(title: String, subtitle: String, sections: [(heading: String, body: String)])]
     }
 
-    public static let guideDirectoryName = "Guides_v6"
+    public static let guideDirectoryName = "Guides_v10"
 
     public static func supportDirectory() -> URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -607,15 +607,15 @@ public enum SamplePDFGenerator {
                 themeCardTitles: ["日间 Day", "纸质 Sepia", "夜间 Night"],
                 themeCardSubtitles: ["白纸 #FFFFFF", "暖黄 #F5EFDC", "护眼 #000000"],
                 diagramLabels: ["单页模式 ⌘1", "双页并排 ⌘2", "智能去白边 ⇧⌘M"],
-                shortcutsTitle: "常用键盘快捷键速查",
+                shortcutsTitle: "常用键盘快捷键速查（按 ⌘/ 查看完整面板）",
                 shortcuts: [
-                    ("上一页 / 下一页", "← / →"),
-                    ("打开 PDF 文件", "⌘O"),
-                    ("新建主页标签", "⌘T"),
-                    ("关闭当前标签", "⌘W"),
-                    ("切换左侧面板", "⌘B"),
-                    ("页面概览网格", "⌃⌘1"),
+                    ("快捷键与技巧面板", "⌘/"),
+                    ("切换上/下一标签页", "⌃⇥ / ⌃⇧⇥"),
+                    ("恢复刚关闭的标签页", "⇧⌘T"),
+                    ("前往页码（含印刷页码）", "⌥⌘G"),
+                    ("跳转后返回 / 前进", "⌘[ / ⌘]"),
                     ("清除页面空白边", "⇧⌘M"),
+                    ("适应宽度 / 适应页面", "⌘8 / ⌘9"),
                     ("放大 / 缩小 / 实际大小", "⌘+ / ⌘- / ⌘0")
                 ],
                 navGridTitle: "侧边栏与书签快捷导航",
@@ -675,15 +675,15 @@ public enum SamplePDFGenerator {
                 themeCardTitles: ["日間 Day", "紙質 Sepia", "夜間 Night"],
                 themeCardSubtitles: ["白紙 #FFFFFF", "暖黃 #F5EFDC", "護眼 #000000"],
                 diagramLabels: ["單頁模式 ⌘1", "雙頁並排 ⌘2", "智慧去留白 ⇧⌘M"],
-                shortcutsTitle: "常用鍵盤快捷鍵速查",
+                shortcutsTitle: "常用鍵盤快捷鍵速查（按 ⌘/ 查看完整面板）",
                 shortcuts: [
-                    ("上一頁 / 下一頁", "← / →"),
-                    ("打開 PDF 檔案", "⌘O"),
-                    ("新增首頁分頁", "⌘T"),
-                    ("關閉目前分頁", "⌘W"),
-                    ("切換左側面板", "⌘B"),
-                    ("頁面概覽網格", "⌃⌘1"),
+                    ("快捷鍵與技巧面板", "⌘/"),
+                    ("切換上/下一分頁", "⌃⇥ / ⌃⇧⇥"),
+                    ("重新打開關閉的分頁", "⇧⌘T"),
+                    ("前往頁碼（含印刷頁碼）", "⌥⌘G"),
+                    ("跳轉後返回 / 前進", "⌘[ / ⌘]"),
                     ("清除頁面留白", "⇧⌘M"),
+                    ("縮放至適應寬度 / 頁面", "⌘8 / ⌘9"),
                     ("放大 / 縮小 / 實際大小", "⌘+ / ⌘- / ⌘0")
                 ],
                 navGridTitle: "側邊欄與書籤快捷導覽",
@@ -1355,15 +1355,15 @@ public enum SamplePDFGenerator {
                 themeCardTitles: ["Day Mode", "Sepia Mode", "Night Mode"],
                 themeCardSubtitles: ["Paper #FFFFFF", "Cream #F5EFDC", "Dark #000000"],
                 diagramLabels: ["Single Page ⌘1", "Two Pages ⌘2", "Clear Margins ⇧⌘M"],
-                shortcutsTitle: "Essential Keyboard Shortcuts",
+                shortcutsTitle: "Essential Keyboard Shortcuts (Press ⌘/ for All)",
                 shortcuts: [
-                    ("Previous / Next Page", "← / →"),
-                    ("Open PDF File", "⌘O"),
-                    ("New Home Tab", "⌘T"),
-                    ("Close Active Tab", "⌘W"),
-                    ("Toggle Left Sidebar", "⌘B"),
-                    ("Page Overview Grid", "⌃⌘1"),
+                    ("Shortcuts & Tips Sheet", "⌘/"),
+                    ("Switch Next / Prev Tab", "⌃⇥ / ⌃⇧⇥"),
+                    ("Reopen Closed Tab", "⇧⌘T"),
+                    ("Go to Page (Printed #)", "⌥⌘G"),
+                    ("Navigate Back / Forward", "⌘[ / ⌘]"),
                     ("Clear Page Margins", "⇧⌘M"),
+                    ("Fit Width / Fit Page", "⌘8 / ⌘9"),
                     ("Zoom In / Out / Actual", "⌘+ / ⌘- / ⌘0")
                 ],
                 navGridTitle: "Sidebar & Bookmark Shortcuts",

@@ -31,10 +31,11 @@ public struct PDFReaderView: View {
 
                 ZStack {
                     canvasArea
+                        .accessibilityHidden(tab.isPageOverviewVisible)
 
                     if tab.isPageOverviewVisible {
                         PageOverviewGridView(store: store, tab: tab, isDark: isDark)
-                            .transition(.opacity)
+                            .transition(.opacity.combined(with: .scale(scale: 0.97)))
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -45,8 +46,16 @@ public struct PDFReaderView: View {
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
+            .animation(AppAnimation.panel, value: tab.isLeftSidebarVisible)
+            .animation(AppAnimation.panel, value: tab.isSearchVisible)
+            .animation(AppAnimation.panel, value: tab.isPageOverviewVisible)
+            .animation(AppAnimation.panel, value: tab.splitMode)
         }
         .background(store.resolvedPDFTheme(isDark: isDark).documentBackgroundColor(isDarkUI: isDark))
+        .task(id: tab.documentID) {
+            // Restoring background tabs must not compete with the first visible scan for CPU and OCR.
+            tab.scanPagesIfNeeded()
+        }
     }
 
     // MARK: - Split or Single Canvas Area
@@ -107,13 +116,12 @@ public struct PDFReaderView: View {
             isAutoScaling: tab.isAutoScaling,
             layoutToken: tab.clearMarginsLayoutToken,
             readingSpot: tab.readingSpotBeforeCropChange,
+            initialReadingSpot: tab.readingSpot,
             onAutoScalesChange: { autoScales in
-                if tab.isAutoScaling != autoScales {
-                    tab.isAutoScaling = autoScales
-                }
+                tab.updateAutoScalingFromView(autoScales)
             },
             onStepPage: { delta in
-                tab.navigateToPage(tab.currentPageIndex + delta)
+                tab.stepPage(by: delta)
             },
             onReadingLocationChange: { pageIndex, readingLineY in
                 tab.readingLocation.update(pageIndex: pageIndex, readingLineY: readingLineY)
@@ -160,6 +168,8 @@ public struct PDFReaderView: View {
                     Text("\(tab.secondaryPageIndex + 1) / \(secDoc.pageCount)")
                         .font(.system(size: 11))
                         .monospacedDigit()
+                        .contentTransition(.numericText())
+                        .animation(AppAnimation.micro, value: tab.secondaryPageIndex)
                         .foregroundColor(AppPalette.labelTertiary(isDark))
                 }
 
@@ -177,15 +187,19 @@ public struct PDFReaderView: View {
                     isActive: tab.showSplitDocumentPicker,
                     isDark: isDark
                 ) {
-                    tab.showSplitDocumentPicker.toggle()
+                    withAnimation(AppAnimation.snappy) {
+                        tab.showSplitDocumentPicker.toggle()
+                    }
                 }
 
                 ToolbarIconButton(icon: "arrow.left.arrow.right", tooltip: L10n.tr("对调分屏位置", "Swap Split Position"), isDark: isDark) {
-                    tab.isSplitSwapped.toggle()
+                    withAnimation(AppAnimation.snappy) {
+                        tab.isSplitSwapped.toggle()
+                    }
                 }
 
                 ToolbarIconButton(icon: "xmark", tooltip: L10n.tr("关闭分屏视图", "Close Split View"), isDark: isDark) {
-                    withAnimation(.easeInOut(duration: 0.18)) {
+                    withAnimation(AppAnimation.panel) {
                         tab.splitMode = .disabled
                         tab.showSplitDocumentPicker = false
                     }
@@ -200,6 +214,8 @@ public struct PDFReaderView: View {
                     .fill(AppPalette.chromeHairline(isDark))
                     .frame(height: 1)
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(Text(L10n.tr("分屏视图", "Split View")))
 
             // Secondary Split Content: the Home tab as a document picker, or the secondary PDF view
             if tab.showSplitDocumentPicker {
@@ -233,11 +249,19 @@ public struct PDFReaderView: View {
                     isClearMarginsEnabled: tab.isClearMarginsEnabled,
                     pdfTheme: store.resolvedPDFTheme(isDark: isDark),
                     isDarkUI: isDark,
+                    isAutoScaling: tab.secondaryIsAutoScaling,
                     layoutToken: tab.clearMarginsLayoutToken,
                     readingSpot: tab.secondaryReadingSpotBeforeCropChange,
+                    initialReadingSpot: tab.secondaryReadingSpot,
                     handlesUnfocusedArrowKeys: false,
+                    onAutoScalesChange: { autoScales in
+                        if tab.secondaryIsAutoScaling != autoScales {
+                            tab.secondaryIsAutoScaling = autoScales
+                        }
+                    },
                     onStepPage: { delta in
-                        let clamped = max(0, min(max(0, secDoc.pageCount - 1), tab.secondaryPageIndex + delta))
+                        let clamped = tab.layoutMode.pageIndex(afterStepping: delta, from: tab.secondaryPageIndex,
+                                                              pageCount: secDoc.pageCount)
                         tab.secondaryPageIndex = clamped
                         if tab.syncScrollAndZoom && clamped < tab.pageCount {
                             tab.currentPageIndex = clamped

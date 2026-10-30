@@ -16,24 +16,32 @@ A native macOS PDF reader built for reading: tabs, Split View, and Day / Sepia /
   - Pages stay sharp at every zoom level: the color matrix is applied above `NSClipView`'s magnification, so PDFKit's tiles render at full Retina resolution.
 - **12 Languages**: **简体中文**, **繁體中文**, **English**, **日本語**, **한국어**, **Français**, **Deutsch**, **Español**, **Italiano**, **Português**, **Русский** and **Українська**, or Follow System; switchable live from Settings (`⌘,`) or the View menu. The built-in Reading Guide PDF is localized too.
 - **Interface**
-  - **Unified 40pt title bar**: traffic lights centered on the tab strip, icon-only Home tab, document tabs (close on hover, context menu) and `+` to open files.
+  - **Unified title bar**: native window controls alongside the tabs, icon-only Home tab, document tabs (close on hover, context menu) and `+` to open files.
   - **Toolbar**: Document Summary / Page Overview / View Settings toggles, zoom pop-up with presets and `−` / `+`, theme switcher, Clear Margins, Rotate, Share, Bookmark and a search field.
   - **Left dock (240pt)**: Thumbnails / Outline (highlights the section you are reading) / Bookmarks, or the View Settings panel (page layout, split view, reading theme, clear margins, rotation, appearance).
   - **Right search dock**, bottom-right **page counter** (click or `⌥⌘G` → Go to Page) and a **Page Overview** grid (`⌃⌘1`).
   - Tab strip, toolbar and panels follow the **System / Light / Dark** appearance.
-- **Home Tab**: sidebar with Home, Recents and Favorites (plus Open File…, Reading Guide and Settings; Help › Reading Guide, `⌘?`, opens the guide from anywhere), a drag-and-drop area, reading-theme cards and document grids with locale-aware dates.
-- **Tabs & Split View**: `⌃⇥` / `⌃⇧⇥` (or `⇧⌘]` / `⇧⌘[`) switch tabs and `⇧⌘T` reopens the last closed one; vertical (left / right) or horizontal (top / bottom) Split View with Swap Sides, Sync Scroll & Zoom, and the Home tab as a picker for the second document.
+- **Home Tab**: sidebar with Home, Recents and Favorites (plus Open File…, Shortcuts & Tips, Reading Guide and Settings; Help › Reading Guide, `⌘?`, opens the guide from anywhere), a drag-and-drop area, reading-theme cards, and document grids with locale-aware dates.
+- **Shortcuts & Tips Guide (`⌘/`)**: a dedicated, searchable keyboard cheat sheet with tactile keycap badges and category filters (*Tabs*, *Navigation*, *View & Zoom*, *Search & Bookmarks*, *Tips*). Open anytime with `⌘/`, the `?` button on the tab bar, or Help › Shortcuts & Tips.
+- **Tabs & Windows**:
+  - **Browser-style multi-window**: drag a tab out of the tab bar to detach it into a new window, drag tabs between windows to merge, or choose Window › Merge All Windows.
+  - **Dock & New Window (`⌘N`)**: right-click the Dock icon for New Window, Open… and recent files.
+  - **Tab management**: drag tabs to reorder, show the full file path in a standard tooltip, and open the All Tabs menu (`⌄`) when multiple documents are open. Duplicate filenames across folders are automatically disambiguated with parent folder names.
+  - **Navigation shortcuts**: `⌃⇥` / `⌃⇧⇥` cycle document tabs (Home is skipped); `⇧⌘T` reopens closed tabs in their original slot and reading position.
+  - **Mission Control**: window titles and represented file icons stay in sync with the active document across macOS Mission Control, App Exposé, Stage Manager and Dock.
+  - **Split View**: vertical (left / right) or horizontal (top / bottom) Split View with Swap Sides, Sync Scroll & Zoom, and the Home tab as a picker for the second document.
 - **Reading**
   - Single Page, Two Pages and Two Pages with Single Cover (`⌘1`, `⌘2`, `⌘3`); the pages of a spread meet at the spine. Books bound on the right are detected (from the PDF, or from where the page numbers sit on vertically set pages) and read right to left; View › Page Direction overrides it.
-  - **Printed page numbers**: the page counter and Go to Page use the numbers printed on the pages — read from the pages themselves when the PDF's own page labels are missing or wrong — and show both pages of a spread.
+  - **Printed page numbers**: the page counter and Go to Page use the numbers printed on the pages — read from the pages themselves when the PDF's own page labels are missing or wrong — and show both pages of a spread. Roman-numeral front matter followed by Arabic numbering is recognized, the outline and thumbnails show the same numbers, and Go to Page also takes `(n)` for the n-th page of the file.
   - **`←` / `→`** turn the page in the focused pane.
   - **Clear Margins (`⇧⌘M`)** detects the content bounds of each page and crops the margins, computed in the background.
   - **Left sidebar (`⌘B`)**: themed page thumbnails, the document outline and bookmarks (`⌘D`).
+  - **Local OCR**: bundled [RapidOCRLite](https://github.com/RapidAI/RapidOCRLite) models provide character positions for selecting scanned text, including traditional Chinese and vertical columns. Drag to select and use `⌘C`; the original PDF is not rewritten. Recognition runs on demand and copies join physical wraps while preserving paragraphs. No upload or Python runtime is needed.
   - **Full-text search (`⌘F`)** runs in the background and lists results per page as they are found, with highlighted context.
   - **Picks up where you left off**: every document reopens at its last page, zoom and layout, and the last session's tabs are restored on launch.
   - **Password-protected PDFs** ask for their password; files that can't be opened say why.
   - Drop PDFs anywhere on the window or on the Dock icon; `⌘=` zooms in as well as `⌘+`.
-- **Fast Home Tab**: Recents keep up to 50 documents (the latest 10 also under File › Open Recent), cover thumbnails load in the background and are cached on disk, and moved or renamed files stay in Recents / Favorites with their bookmarks and reading position.
+- **Fast Home Tab**: Recents keep up to 50 documents (the latest 10 also under File › Open Recent), cover thumbnails load in the background and are cached on disk, and moved or renamed files stay in Recents / Favorites with their bookmarks and reading position, while files that are deleted or moved to the Trash drop out of them automatically.
 - **Original App Icon**: a dog-eared page shifting diagonally through Day → Sepia → Night, drawn in code by `scripts/make_app_icon.swift`.
 
 ---
@@ -41,6 +49,8 @@ A native macOS PDF reader built for reading: tabs, Split View, and Day / Sepia /
 ## 📦 Install
 
 Download `Expert-PDF-Reader-<version>.dmg` from [Releases](https://github.com/InkCitrus/Expert-PDF-Reader/releases), open it and drag **Expert PDF Reader** into **Applications**. Requires macOS 14 or later (Apple Silicon or Intel).
+
+Choose **Expert PDF Reader → Check for Updates…** to check the latest stable release. When an update is available, **View Update** opens its release page for details and the download. Checks run only when requested.
 
 Release builds are not notarized by Apple yet, so macOS blocks the first launch. Open **System Settings › Privacy & Security** and click **Open Anyway**, or run:
 
@@ -52,7 +62,7 @@ xattr -dr com.apple.quarantine "/Applications/Expert PDF Reader.app"
 
 ## 🛠 Build & Run
 
-Requires the Xcode Command Line Tools (`xcode-select --install`).
+Requires the Xcode Command Line Tools (`xcode-select --install`). The first build downloads pinned OCR sources and models with SHA-256 verification (about 80 MB). CMake is used only for building; if missing, the script installs it into `build/OCRTools`. Model weights and native libraries are bundled in the app. Third-party notices are in `Contents/Resources/OCR`.
 
 ```zsh
 ./build.sh && open "build/Expert PDF Reader.app"

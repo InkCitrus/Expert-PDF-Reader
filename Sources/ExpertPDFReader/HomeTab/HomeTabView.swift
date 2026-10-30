@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 /// area and card sections (reading themes, Recents, Favorites).
 public struct HomeTabRootView: View {
     @ObservedObject var store: AppStore
+    @ObservedObject var session: ReaderWindowSession
     var isStandaloneSplitPane: Bool = false
     var onSelectDocumentInSplitPane: ((URL) -> Void)?
 
@@ -23,10 +24,12 @@ public struct HomeTabRootView: View {
 
     public init(
         store: AppStore,
+        session: ReaderWindowSession? = nil,
         isStandaloneSplitPane: Bool = false,
         onSelectDocumentInSplitPane: ((URL) -> Void)? = nil
     ) {
         self.store = store
+        self.session = session ?? store.primarySession
         self.isStandaloneSplitPane = isStandaloneSplitPane
         self.onSelectDocumentInSplitPane = onSelectDocumentInSplitPane
     }
@@ -34,7 +37,7 @@ public struct HomeTabRootView: View {
     public var body: some View {
         HStack(spacing: 0) {
             if !isStandaloneSplitPane {
-                HomeTabSidebarView(store: store)
+                HomeTabSidebarView(store: store, session: session)
                     .frame(width: Self.sidebarWidth)
                     .frame(maxHeight: .infinity)
             }
@@ -48,8 +51,15 @@ public struct HomeTabRootView: View {
             if isDropTargeted {
                 DropOverlayView(isDark: isDark)
                     .padding(14)
-                    .transition(.opacity)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
             }
+        }
+        .animation(AppAnimation.snappy, value: isDropTargeted)
+        .onAppear {
+            store.pruneMissingDocuments()
+        }
+        .onChange(of: session.homeCurrentPage) { _, _ in
+            store.pruneMissingDocuments()
         }
         .onDrop(of: [.fileURL, .pdf], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)
@@ -59,15 +69,19 @@ public struct HomeTabRootView: View {
     private var pageContent: some View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(alignment: .leading, spacing: 32) {
-                switch isStandaloneSplitPane ? .home : store.homeCurrentPage {
+                switch isStandaloneSplitPane ? .home : session.homeCurrentPage {
                 case .home:
                     homePageSections
+                        .transition(.opacity.combined(with: .offset(y: 6)))
                 case .recents:
                     recentsFullPage
+                        .transition(.opacity.combined(with: .offset(y: 6)))
                 case .favorites:
                     favoritesFullPage
+                        .transition(.opacity.combined(with: .offset(y: 6)))
                 }
             }
+            .animation(AppAnimation.panel, value: session.homeCurrentPage)
             .frame(maxWidth: Self.maxColumnWidth, alignment: .leading)
             .padding(.horizontal, isStandaloneSplitPane ? 24 : Self.minimumGutter)
             .padding(.top, isStandaloneSplitPane ? 22 : 34)
@@ -110,13 +124,15 @@ public struct HomeTabRootView: View {
                                 isSelected: store.readingThemeMode == mode,
                                 isDark: isDark
                             ) {
-                                withAnimation(.easeInOut(duration: 0.18)) {
+                                withAnimation(AppAnimation.snappy) {
                                     store.readingThemeMode = mode
                                 }
                             }
                         }
                     }
                 }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(Text(L10n.tr("阅读主题", "Reading Theme")))
             }
 
             // Recent Documents
@@ -125,7 +141,11 @@ public struct HomeTabRootView: View {
                 items: store.recentDocuments,
                 actions: isStandaloneSplitPane ? [] : [
                     HomeSectionAction(title: L10n.tr("清除全部", "Clear All")) { store.clearAllRecents() },
-                    HomeSectionAction(title: L10n.tr("查看全部", "See All")) { store.homeCurrentPage = .recents }
+                    HomeSectionAction(title: L10n.tr("查看全部", "See All")) {
+                        withAnimation(AppAnimation.panel) {
+                            session.homeCurrentPage = .recents
+                        }
+                    }
                 ],
                 allowsRemoval: true,
                 emptyText: L10n.tr("打开过的 PDF 会显示在这里，方便随时继续阅读。", "Recently opened PDFs will appear here so you can pick up where you left off.")
@@ -136,7 +156,11 @@ public struct HomeTabRootView: View {
                 title: L10n.tr("收藏夹", "Favorites"),
                 items: store.favoriteDocuments,
                 actions: isStandaloneSplitPane ? [] : [
-                    HomeSectionAction(title: L10n.tr("查看全部", "See All")) { store.homeCurrentPage = .favorites }
+                    HomeSectionAction(title: L10n.tr("查看全部", "See All")) {
+                        withAnimation(AppAnimation.panel) {
+                            session.homeCurrentPage = .favorites
+                        }
+                    }
                 ],
                 allowsRemoval: false,
                 emptyText: L10n.tr("将鼠标悬停在文档上并点按星标，即可加入收藏夹。", "Hover over a document and click the star to add it to Favorites.")
@@ -163,6 +187,8 @@ public struct HomeTabRootView: View {
                 documentsGrid(Array(items.prefix(Self.homeSectionItemLimit)), allowsRemoval: allowsRemoval)
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(title))
     }
 
     // MARK: - Recents Full Page
@@ -186,7 +212,7 @@ public struct HomeTabRootView: View {
                     subtitle: L10n.tr("打开过的文件会自动显示在这里，方便随时继续阅读。", "Opened files will appear here automatically so you can continue reading anytime."),
                     actionTitle: L10n.tr("打开文件", "Open File"),
                     isDark: isDark,
-                    action: { store.openFilePicker() }
+                    action: { store.openFilePicker(in: session.id) }
                 )
             } else {
                 documentsGrid(store.recentDocuments, allowsRemoval: true)
@@ -215,7 +241,11 @@ public struct HomeTabRootView: View {
                     subtitle: L10n.tr("将鼠标悬停在任意文档上并点按星标，即可将其加入收藏夹。", "Hover over any document and click the star to add it to Favorites."),
                     actionTitle: L10n.tr("返回主页", "Back to Home"),
                     isDark: isDark,
-                    action: { store.homeCurrentPage = .home }
+                    action: {
+                        withAnimation(AppAnimation.panel) {
+                            session.homeCurrentPage = .home
+                        }
+                    }
                 )
             } else {
                 documentsGrid(store.favoriteDocuments, allowsRemoval: false)
@@ -267,7 +297,7 @@ public struct HomeTabRootView: View {
                 splitHandler(url)
             }
         } else {
-            store.openFilePicker()
+            store.openFilePicker(in: session.id)
         }
     }
 
@@ -275,7 +305,7 @@ public struct HomeTabRootView: View {
         if let splitHandler = onSelectDocumentInSplitPane {
             splitHandler(url)
         } else {
-            store.openDocument(at: url)
+            store.openDocument(at: url, in: session.id)
         }
     }
 
@@ -313,7 +343,9 @@ enum PDFFileDrop {
 
 struct HomeTabSidebarView: View {
     @ObservedObject var store: AppStore
+    @ObservedObject var session: ReaderWindowSession
     @Environment(\.colorScheme) private var colorScheme
+    @Namespace private var sidebarNamespace
     private var isDark: Bool { colorScheme == .dark }
 
     var body: some View {
@@ -321,8 +353,8 @@ struct HomeTabSidebarView: View {
             // Navigation Pages (Home / Recents / Favorites)
             ForEach(HomeTabPage.allCases) { page in
                 Button {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        store.homeCurrentPage = page
+                    withAnimation(AppAnimation.snappy) {
+                        session.homeCurrentPage = page
                     }
                 } label: {
                     HomeSidebarRowLabel(
@@ -330,7 +362,8 @@ struct HomeTabSidebarView: View {
                         iconColor: page == .home ? AppPalette.systemRed : AppPalette.labelPrimary(isDark),
                         title: page.title,
                         badge: badge(for: page),
-                        isSelected: store.homeCurrentPage == page,
+                        isSelected: session.homeCurrentPage == page,
+                        selectionNamespace: sidebarNamespace,
                         isDark: isDark
                     )
                 }
@@ -341,16 +374,23 @@ struct HomeTabSidebarView: View {
 
             // Footer actions (PDF Expert: Account Details / Settings / Get Support)
             Button {
-                store.openFilePicker()
+                store.openFilePicker(in: session.id)
             } label: {
                 HomeSidebarRowLabel(icon: "folder", iconColor: AppPalette.labelSecondary(isDark), title: L10n.tr("打开文件…", "Open File…"), badge: "⌘O", isSecondary: true, isDark: isDark)
             }
             .buttonStyle(.plain)
 
             Button {
-                store.openGettingStartedGuide()
+                store.presentShortcutsSheet(in: session.id)
             } label: {
-                HomeSidebarRowLabel(icon: "questionmark.circle", iconColor: AppPalette.labelSecondary(isDark), title: L10n.tr("阅读指南", "Reading Guide"), isSecondary: true, isDark: isDark)
+                HomeSidebarRowLabel(icon: "keyboard", iconColor: AppPalette.labelSecondary(isDark), title: L10n.tr("快捷键与技巧", "Shortcuts & Tips"), badge: "⌘/", isSecondary: true, isDark: isDark)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                store.openGettingStartedGuide(in: session.id)
+            } label: {
+                HomeSidebarRowLabel(icon: "questionmark.circle", iconColor: AppPalette.labelSecondary(isDark), title: L10n.tr("阅读指南", "Reading Guide"), badge: "⌘?", isSecondary: true, isDark: isDark)
             }
             .buttonStyle(.plain)
 
@@ -363,6 +403,8 @@ struct HomeTabSidebarView: View {
         .padding(.top, 14)
         .padding(.bottom, 14)
         .background(AppPalette.homeSidebarBackground(isDark))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(L10n.tr("主页导航栏", "Home Sidebar")))
     }
 
     private func badge(for page: HomeTabPage) -> String? {
@@ -384,6 +426,7 @@ struct HomeSidebarRowLabel: View {
     var badge: String?
     var isSelected: Bool = false
     var isSecondary: Bool = false
+    var selectionNamespace: Namespace.ID?
     let isDark: Bool
 
     @State private var isHovered = false
@@ -402,20 +445,29 @@ struct HomeSidebarRowLabel: View {
                 Text(badge)
                     .font(.system(size: 11.5))
                     .monospacedDigit()
+                    .contentTransition(.numericText())
+                    .animation(AppAnimation.micro, value: badge)
                     .foregroundColor(AppPalette.labelTertiary(isDark))
             }
         }
         .padding(.horizontal, 10)
         .frame(height: isSecondary ? 34 : 38)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(
-                    isSelected
-                        ? AppPalette.homeSidebarSelection(isDark)
-                        : (isHovered ? AppPalette.homeSidebarSelection(isDark).opacity(0.55) : Color.clear)
-                )
-        )
+        .background {
+            if isSelected, let selectionNamespace {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(AppPalette.homeSidebarSelection(isDark))
+                    .matchedGeometryEffect(id: "homeSidebarSelection", in: selectionNamespace)
+            } else {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(
+                        isSelected
+                            ? AppPalette.homeSidebarSelection(isDark)
+                            : (isHovered ? AppPalette.homeSidebarSelection(isDark).opacity(0.55) : Color.clear)
+                    )
+            }
+        }
         .contentShape(Rectangle())
+        .animation(AppAnimation.micro, value: isHovered)
         .onHover { isHovered = $0 }
     }
 }
@@ -498,36 +550,51 @@ struct HomeDropAreaCard: View {
 
     @State private var isHovered = false
 
+    private var cardBackground: some View {
+        let fillOpacity: Double = isDark ? (isHovered ? 0.13 : 0.10) : (isHovered ? 0.07 : 0.05)
+        let outerStrokeOpacity: Double = isDark ? 0.22 : 0.13
+        let dashOpacity: Double = isHovered ? 0.75 : 0.42
+        return RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .fill(AppPalette.accentBlue.opacity(fillOpacity))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(AppPalette.accentBlue.opacity(outerStrokeOpacity), lineWidth: 3)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .strokeBorder(
+                        AppPalette.accentBlue.opacity(dashOpacity),
+                        style: StrokeStyle(lineWidth: 1.5, dash: [8, 6])
+                    )
+                    .padding(6)
+            )
+    }
+
     var body: some View {
         VStack(spacing: 12) {
             PDFStackIllustration(isDark: isDark)
                 .frame(width: 104, height: 62)
+                .scaleEffect(isHovered ? 1.04 : 1.0)
+                .offset(y: isHovered ? -2 : 0)
+                .accessibilityHidden(true)
 
             HomePrimaryButton(title: L10n.tr("打开文件", "Open File"), action: onOpenFilePicker)
+                .accessibilityHidden(true)
 
             Text(L10n.tr("或将 PDF 文件拖放到此处", "or drag and drop PDF files here"))
                 .font(.system(size: 12.5))
                 .foregroundColor(AppPalette.accentBlue.opacity(0.85))
+                .accessibilityHidden(true)
         }
         .frame(maxWidth: .infinity)
         .frame(height: isCompact ? 176 : 196)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(AppPalette.accentBlue.opacity(isDark ? 0.10 : 0.05))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(AppPalette.accentBlue.opacity(isDark ? 0.22 : 0.13), lineWidth: 3)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .strokeBorder(
-                    AppPalette.accentBlue.opacity(isHovered ? 0.75 : 0.42),
-                    style: StrokeStyle(lineWidth: 1.5, dash: [8, 6])
-                )
-                .padding(6)
-        )
+        .background(cardBackground)
         .contentShape(Rectangle())
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(L10n.tr("打开文件", "Open File")))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(.default, onOpenFilePicker)
+        .animation(AppAnimation.snappy, value: isHovered)
         .onHover { isHovered = $0 }
         .onTapGesture(perform: onOpenFilePicker)
     }
@@ -626,6 +693,7 @@ struct HomeThemeModeCard: View {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 13))
                             .foregroundColor(AppPalette.accentBlue)
+                            .transition(.scale.combined(with: .opacity))
                     }
                 }
                 .foregroundColor(AppPalette.labelPrimary(isDark))
@@ -641,9 +709,16 @@ struct HomeThemeModeCard: View {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(isSelected ? AppPalette.accentBlue : Color.clear, lineWidth: 2)
             )
+            .offset(y: isHovered ? -1.5 : 0)
+            .shadow(color: Color.black.opacity(isHovered ? (isDark ? 0.30 : 0.08) : 0), radius: 6, x: 0, y: 3)
             .contentShape(Rectangle())
+            .animation(AppAnimation.snappy, value: isHovered)
+            .animation(AppAnimation.snappy, value: isSelected)
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(mode.title))
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : [.isButton])
         .help("\(L10n.tr("阅读主题", "Reading Theme")): \(mode.title)")
         .onHover { isHovered = $0 }
     }
@@ -668,49 +743,66 @@ struct DocumentCardView: View {
         return parts.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
+    @ViewBuilder
+    private var favoriteBadge: some View {
+        if isHovered || item.isFavorite {
+            Button(action: onToggleFavorite) {
+                Image(systemName: item.isFavorite ? "star.fill" : "star")
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .symbolEffect(.bounce, value: item.isFavorite)
+                    .foregroundColor(item.isFavorite ? AppPalette.systemYellow : .white)
+                    .frame(width: 22, height: 22)
+                    .background(Circle().fill(Color.black.opacity(0.5)))
+            }
+            .buttonStyle(.plain)
+            .help(item.isFavorite ? L10n.tr("取消收藏", "Remove from Favorites") : L10n.tr("添加到收藏", "Add to Favorites"))
+            .padding(5)
+            .transition(.opacity.combined(with: .scale(scale: 0.85)))
+        }
+    }
+
+    private var coverThumbnail: some View {
+        Image(nsImage: PDFThumbnailCache.shared.themedCover(for: item, theme: pdfTheme))
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(contentMode: .fit)
+            .accessibilityHidden(true)
+            .frame(maxWidth: 112, maxHeight: 142)
+            .overlay(
+                Rectangle()
+                    .stroke(Color.black.opacity(isDark ? 0.35 : 0.10), lineWidth: 0.5)
+            )
+            .overlay(alignment: .topTrailing) {
+                favoriteBadge
+            }
+            .scaleEffect(isHovered ? 1.02 : 1.0)
+            .offset(y: isHovered ? -2 : 0)
+            .shadow(color: Color.black.opacity(isDark ? 0.5 : 0.16), radius: isHovered ? 7 : 3.5, x: 0, y: isHovered ? 3.5 : 1.5)
+            .frame(height: 150)
+    }
+
+    private var titleLabels: some View {
+        VStack(spacing: 2) {
+            Text(item.title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(AppPalette.labelPrimary(isDark))
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .truncationMode(.middle)
+
+            Text(subtitleText)
+                .font(.system(size: 10.5))
+                .foregroundColor(AppPalette.labelTertiary(isDark))
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityHidden(true)
+    }
+
     var body: some View {
         VStack(spacing: 8) {
-            Image(nsImage: PDFThumbnailCache.shared.themedCover(for: item, theme: pdfTheme))
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(maxWidth: 112, maxHeight: 142)
-                .overlay(
-                    Rectangle()
-                        .stroke(Color.black.opacity(isDark ? 0.35 : 0.10), lineWidth: 0.5)
-                )
-                .overlay(alignment: .topTrailing) {
-                    // Favorite Star (on hover, or always when favorited)
-                    if isHovered || item.isFavorite {
-                        Button(action: onToggleFavorite) {
-                            Image(systemName: item.isFavorite ? "star.fill" : "star")
-                                .font(.system(size: 10.5, weight: .semibold))
-                                .foregroundColor(item.isFavorite ? AppPalette.systemYellow : .white)
-                                .frame(width: 22, height: 22)
-                                .background(Circle().fill(Color.black.opacity(0.5)))
-                        }
-                        .buttonStyle(.plain)
-                        .help(item.isFavorite ? L10n.tr("取消收藏", "Remove from Favorites") : L10n.tr("添加到收藏", "Add to Favorites"))
-                        .padding(5)
-                    }
-                }
-                .shadow(color: Color.black.opacity(isDark ? 0.5 : 0.16), radius: isHovered ? 6 : 3.5, x: 0, y: isHovered ? 3 : 1.5)
-                .frame(height: 150)
-
-            VStack(spacing: 2) {
-                Text(item.title)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(AppPalette.labelPrimary(isDark))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-                    .truncationMode(.middle)
-
-                Text(subtitleText)
-                    .font(.system(size: 10.5))
-                    .foregroundColor(AppPalette.labelTertiary(isDark))
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity)
+            coverThumbnail
+            titleLabels
         }
         .padding(8)
         .background(
@@ -718,6 +810,12 @@ struct DocumentCardView: View {
                 .fill(isHovered ? AppPalette.homeCardHover(isDark) : Color.clear)
         )
         .contentShape(Rectangle())
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(item.title))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(.default, onOpen)
+        .animation(AppAnimation.snappy, value: isHovered)
+        .transition(.opacity.combined(with: .scale(scale: 0.94)))
         .onHover { isHovered = $0 }
         .onTapGesture(perform: onOpen)
         .help(item.url.path)

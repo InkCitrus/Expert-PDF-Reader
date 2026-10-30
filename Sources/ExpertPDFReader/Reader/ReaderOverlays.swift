@@ -43,6 +43,8 @@ struct SearchResultsPanel: View {
                 .fill(AppPalette.panelHairline(isDark))
                 .frame(width: 1)
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(L10n.tr("搜索结果", "Search Results")))
     }
 
     private var header: some View {
@@ -232,6 +234,7 @@ struct PageIndicatorOverlay: View {
     @State private var hideTask: Task<Void, Never>?
 
     var body: some View {
+        let shown = isVisible || isHovered || showGoToPage
         Button {
             presentGoToPage()
         } label: {
@@ -239,27 +242,36 @@ struct PageIndicatorOverlay: View {
                 Text(primaryLine)
                     .font(.system(size: 13, weight: .semibold))
                     .monospacedDigit()
+                    .contentTransition(.numericText())
                 if let secondaryLine {
                     Text(secondaryLine)
                         .font(.system(size: 10.5))
                         .monospacedDigit()
+                        .contentTransition(.numericText())
                         .opacity(0.75)
                 }
             }
+            .animation(AppAnimation.micro, value: primaryLine)
             .foregroundColor(.white)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .frame(minWidth: 64)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.black.opacity(0.78))
+                    .fill(Color.black.opacity(isHovered ? 0.86 : 0.78))
             )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(L10n.tr("前往页码…", "Go to Page…"))
-        .opacity(isVisible || isHovered || showGoToPage ? 1 : 0)
-        .animation(.easeInOut(duration: 0.25), value: isVisible || isHovered || showGoToPage)
+        .help(L10n.tr("前往页码… (⌥⌘G)", "Go to Page… (⌥⌘G)"))
+        .accessibilityLabel(Text("\(L10n.tr("页码", "Page")) \(primaryLine)"))
+        .opacity(shown ? 1 : 0)
+        .allowsHitTesting(shown)
+        .accessibilityHidden(!shown)
+        .scaleEffect(shown ? 1.0 : 0.96)
+        .offset(y: shown ? 0 : 4)
+        .animation(AppAnimation.snappy, value: shown)
+        .animation(AppAnimation.micro, value: isHovered)
         .onHover { isHovered = $0 }
         .onAppear(perform: flash)
         .onChange(of: tab.currentPageIndex) { _, _ in
@@ -277,16 +289,23 @@ struct PageIndicatorOverlay: View {
             hideTask?.cancel()
         }
         .popover(isPresented: $showGoToPage, arrowEdge: .top) {
-            HStack(spacing: 8) {
-                Text(L10n.tr("前往页码", "Go to Page"))
-                    .font(.system(size: 12))
-                TextField(goToPagePlaceholder, text: $goToPageInput)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 64)
-                    .onSubmit(commitGoToPage)
-                Button(L10n.tr("前往", "Go"), action: commitGoToPage)
-                    .keyboardShortcut(.defaultAction)
-                    .controlSize(.small)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Text(L10n.tr("前往页码", "Go to Page"))
+                        .font(.system(size: 12))
+                    TextField(goToPagePlaceholder, text: $goToPageInput)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 84)
+                        .onSubmit(commitGoToPage)
+                    Button(L10n.tr("前往", "Go"), action: commitGoToPage)
+                        .keyboardShortcut(.defaultAction)
+                        .controlSize(.small)
+                }
+                if hasPrintedPageNumbers {
+                    Text(L10n.tr("输入书籍页码，或输入 (n) 跳至第 n 页", "Enter Book Page, or (n) for PDF Page n"))
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                }
             }
             .padding(12)
         }
@@ -304,8 +323,14 @@ struct PageIndicatorOverlay: View {
 
     private var goToPagePlaceholder: String {
         let indices = 0..<tab.pageCount
-        guard hasPrintedPageNumbers,
-              let first = indices.lazy.compactMap({ tab.printedNumber(at: $0) }).first,
+        guard hasPrintedPageNumbers else {
+            return "1–\(tab.pageCount)"
+        }
+        if let firstArabic = indices.lazy.compactMap({ tab.printedNumber(at: $0) }).first(where: { Int($0) != nil }),
+           let lastArabic = indices.reversed().lazy.compactMap({ tab.printedNumber(at: $0) }).first(where: { Int($0) != nil }) {
+            return "\(firstArabic)–\(lastArabic)"
+        }
+        guard let first = indices.lazy.compactMap({ tab.printedNumber(at: $0) }).first,
               let last = indices.reversed().lazy.compactMap({ tab.printedNumber(at: $0) }).first else {
             return "1–\(tab.pageCount)"
         }
@@ -415,5 +440,7 @@ struct PageOverviewGridView: View {
             }
         }
         .background(store.resolvedPDFTheme(isDark: isDark).documentBackgroundColor(isDarkUI: isDark))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(L10n.tr("页面概览", "Page Overview")))
     }
 }

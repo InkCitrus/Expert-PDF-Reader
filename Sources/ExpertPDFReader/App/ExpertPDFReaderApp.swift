@@ -22,16 +22,35 @@ public final class ExpertPDFReaderAppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
 
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
             let handled = MainActor.assumeIsolated { () -> Bool in
                 guard let store = self?.store else { return false }
-                // ⌘= zooms in like the menu's ⌘+, which needs Shift on many keyboard layouts
-                if modifiers == .command, event.charactersIgnoringModifiers == "=" {
-                    guard let tab = store.activeDocumentTab else { return false }
-                    tab.triggerZoom(.zoomIn)
-                    return true
+
+                // ⌘/ toggles the Shortcuts & Tips cheat sheet anywhere in a reader window (including its attached sheet)
+                if modifiers == .command, event.keyCode == 44 || event.charactersIgnoringModifiers == "/" {
+                    let candidateWindow = event.window?.sheetParent ?? event.window
+                    let inReaderOrSheet = WindowChromeView.readerWindow == nil
+                        || WindowChromeView.isReaderWindow(candidateWindow)
+                    if inReaderOrSheet {
+                        if let winSession = store.windowSession(for: candidateWindow) {
+                            store.activateWindowSession(winSession.id)
+                            store.toggleShortcutsSheet(in: winSession.id)
+                        } else {
+                            store.toggleShortcutsSheet()
+                        }
+                        return true
+                    }
                 }
-                // ⌃⇥ / ⌃⇧⇥ switch tabs as in Safari and Finder (the Go menu shows ⇧⌘] / ⇧⌘[)
+
+                let isReaderWindow = WindowChromeView.readerWindow == nil
+                    || WindowChromeView.isReaderWindow(event.window)
+                guard isReaderWindow else { return false }
+
+                if let winSession = store.windowSession(for: event.window) {
+                    store.activateWindowSession(winSession.id)
+                }
+
+                // ⌃⇥ / ⌃⇧⇥ always switch tabs (including while a search/page field has focus), like Safari & Chrome
                 if event.keyCode == 48, modifiers == .control || modifiers == [.control, .shift] {
                     if modifiers.contains(.shift) {
                         store.selectPreviousTab()
@@ -40,6 +59,22 @@ public final class ExpertPDFReaderAppDelegate: NSObject, NSApplicationDelegate {
                     }
                     return true
                 }
+
+                let isEditingText = event.window?.firstResponder is NSTextView
+                guard !isEditingText else { return false }
+
+                // ⌘= zooms in like the menu's ⌘+, which needs Shift on many keyboard layouts
+                if modifiers == .command, event.charactersIgnoringModifiers == "=" || event.keyCode == 24 {
+                    guard let tab = store.activeDocumentTab else { return false }
+                    tab.triggerZoom(.zoomIn)
+                    return true
+                }
+
+                if modifiers == [.command, .shift], event.keyCode == 17, !store.closedTabs.isEmpty {
+                    store.reopenClosedTab()
+                    return true
+                }
+
                 return false
             }
             return handled ? nil : event
@@ -63,8 +98,112 @@ public final class ExpertPDFReaderAppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            MainActor.assumeIsolated {
+                guard let store else { return }
+                if let miniaturized = store.allWindowSessions.compactMap(\.nsWindow).first(where: \.isMiniaturized) {
+                    miniaturized.deminiaturize(nil)
+                } else {
+                    store.ensureSessionWindowVisible(store.primarySession)
+                }
+            }
+        }
+        return true
+    }
+
+    /// Dock icon right-click / Ctrl-click / long-press menu (New Window, Open…, Open Recent).
+    public func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let snapshot = MainActor.assumeIsolated {
+            (
+                newWindowTitle: L10n.tr("新建窗口", "New Window"),
+                openTitle: L10n.tr("打开...", "Open..."),
+                openRecentTitle: L10n.tr("打开最近使用", "Open Recent"),
+                recents: (store?.recentDocuments.prefix(10) ?? []).map { ($0.title, $0.url) }
+            )
+        }
+
+        let menu = NSMenu(title: "Dock")
+
+        let newWindowItem = NSMenuItem(
+            title: snapshot.newWindowTitle,
+            action: #selector(handleDockNewWindow(_:)),
+            keyEquivalent: ""
+        )
+        newWindowItem.target = self
+        menu.addItem(newWindowItem)
+
+        let openItem = NSMenuItem(
+            title: snapshot.openTitle,
+            action: #selector(handleDockOpenFile(_:)),
+            keyEquivalent: ""
+        )
+        openItem.target = self
+        menu.addItem(openItem)
+
+        if !snapshot.recents.isEmpty {
+            let recentMenu = NSMenu(title: snapshot.openRecentTitle)
+            for (title, url) in snapshot.recents {
+                let item = NSMenuItem(
+                    title: title,
+                    action: #selector(handleDockOpenRecent(_:)),
+                    keyEquivalent: ""
+                )
+                item.target = self
+                item.representedObject = url
+                recentMenu.addItem(item)
+            }
+            let recentRootItem = NSMenuItem(
+                title: snapshot.openRecentTitle,
+                action: nil,
+                keyEquivalent: ""
+            )
+            recentRootItem.submenu = recentMenu
+            menu.addItem(NSMenuItem.separator())
+            menu.addItem(recentRootItem)
+        }
+
+        return menu
+    }
+
+    @objc public func handleDockNewWindow(_ sender: Any?) {
+        MainActor.assumeIsolated {
+            NSApp.activate(ignoringOtherApps: true)
+            _ = store?.openNewWindow()
+        }
+    }
+
+    @objc private func handleDockOpenFile(_ sender: Any?) {
+        MainActor.assumeIsolated {
+            guard let store else { return }
+            NSApp.activate(ignoringOtherApps: true)
+            let hasVisible = store.allWindowSessions.contains { $0.nsWindow?.isVisible == true }
+            if !hasVisible {
+                let session = store.openNewWindow()
+                store.openFilePicker(in: session.id)
+            } else {
+                store.openFilePicker()
+            }
+        }
+    }
+
+    @objc private func handleDockOpenRecent(_ sender: NSMenuItem) {
+        MainActor.assumeIsolated {
+            guard let url = sender.representedObject as? URL, let store else { return }
+            NSApp.activate(ignoringOtherApps: true)
+            let hasVisible = store.allWindowSessions.contains { $0.nsWindow?.isVisible == true }
+            if !hasVisible {
+                let session = store.openNewWindow()
+                store.openDocument(at: url, in: session.id)
+            } else {
+                store.openDocument(at: url)
+            }
+        }
+    }
+
     public func applicationWillTerminate(_ notification: Notification) {
         MainActor.assumeIsolated {
+            store?.beginTermination()
             store?.saveSession()
         }
     }
@@ -82,12 +221,15 @@ public final class ExpertPDFReaderAppDelegate: NSObject, NSApplicationDelegate {
             store.openDocuments(at: urls)
         }
     }
+
+
 }
 
 @main
 public struct ExpertPDFReaderApp: App {
     @NSApplicationDelegateAdaptor(ExpertPDFReaderAppDelegate.self) private var appDelegate
     @StateObject private var store = AppStore()
+    @StateObject private var updateChecker = ReaderUpdateChecker()
 
     public init() {}
 
@@ -95,26 +237,41 @@ public struct ExpertPDFReaderApp: App {
         // A single window: a `WindowGroup` opened (and restored on launch) one more window, mirroring the
         // same tabs, for every PDF opened from Finder while the app was running
         Window("Expert PDF Reader", id: "main") {
-            MainWindowView(store: store)
-                .onAppear {
-                    appDelegate.store = store
-                    store.applyAppAppearance()
-                }
-                .onOpenURL { url in
-                    store.openDocument(at: url)
-                }
+            PrimaryWindowSceneRoot(store: store, appDelegate: appDelegate)
         }
-        // Title bar is drawn by MainWindowView's unified tab strip (WindowChromeConfigurator)
+        // WindowChrome installs the interactive unified titlebar accessory.
         .windowStyle(.hiddenTitleBar)
+        .windowToolbarStyle(.unifiedCompact)
         .defaultSize(width: 1180, height: 780)
         .commands {
             ReaderMenuCommands(store: store)
+            ReaderUpdateCommands(checker: updateChecker)
         }
 
         Settings {
             SettingsView(store: store)
         }
         .windowResizability(.contentSize)
+    }
+}
+
+private struct PrimaryWindowSceneRoot: View {
+    @ObservedObject var store: AppStore
+    let appDelegate: ExpertPDFReaderAppDelegate
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        MainWindowView(store: store, session: store.primarySession)
+            .onAppear {
+                appDelegate.store = store
+                store.openPrimaryWindowHandler = { [openWindow] in
+                    openWindow(id: "main")
+                }
+                store.applyAppAppearance()
+            }
+            .onOpenURL { url in
+                store.openDocument(at: url)
+            }
     }
 }
 
@@ -128,6 +285,11 @@ struct ReaderMenuCommands: Commands {
     var body: some Commands {
         // File Menu
         CommandGroup(replacing: .newItem) {
+            Button(L10n.tr("新建窗口", "New Window")) {
+                _ = store.openNewWindow()
+            }
+            .keyboardShortcut("n", modifiers: [.command])
+
             Button(L10n.tr("打开...", "Open...")) {
                 store.openFilePicker()
             }
@@ -157,7 +319,7 @@ struct ReaderMenuCommands: Commands {
                 store.reopenClosedTab()
             }
             .keyboardShortcut("t", modifiers: [.command, .shift])
-            .disabled(store.closedDocumentURLs.isEmpty)
+            .disabled(store.closedTabs.isEmpty)
         }
 
         // Replaces File › Close / Close All, whose ⌘W clashed with Close Tab
@@ -178,41 +340,53 @@ struct ReaderMenuCommands: Commands {
         CommandGroup(before: .toolbar) {
             Button(store.activeDocumentTab?.isLeftSidebarVisible == true ? L10n.tr("隐藏左边面板", "Hide Left Panel") : L10n.tr("显示左边面板", "Show Left Panel")) {
                 guard let tab = store.activeDocumentTab else { return }
-                if tab.isLeftSidebarVisible {
-                    tab.isLeftSidebarVisible = false
-                } else {
-                    tab.toggleLeftPanel(.documentSummary)
+                withAnimation(AppAnimation.panel) {
+                    if tab.isLeftSidebarVisible {
+                        tab.isLeftSidebarVisible = false
+                    } else {
+                        tab.toggleLeftPanel(.documentSummary)
+                    }
                 }
             }
             .keyboardShortcut("b", modifiers: [.command])
             .disabled(store.activeDocumentTab == nil)
 
             Button(store.activeDocumentTab?.isPageOverviewVisible == true ? L10n.tr("关闭页面概览", "Close Page Overview") : L10n.tr("页面概览", "Page Overview")) {
-                store.activeDocumentTab?.isPageOverviewVisible.toggle()
+                withAnimation(AppAnimation.panel) {
+                    store.activeDocumentTab?.isPageOverviewVisible.toggle()
+                }
             }
             .keyboardShortcut("1", modifiers: [.control, .command])
             .disabled(store.activeDocumentTab == nil)
 
             Button(L10n.tr("缩略图", "Thumbnails")) {
-                store.activeDocumentTab?.showSidebarTab(.thumbnails)
+                withAnimation(AppAnimation.panel) {
+                    store.activeDocumentTab?.showSidebarTab(.thumbnails)
+                }
             }
             .keyboardShortcut("2", modifiers: [.control, .command])
             .disabled(store.activeDocumentTab == nil)
 
             Button(L10n.tr("大纲", "Outline")) {
-                store.activeDocumentTab?.showSidebarTab(.outline)
+                withAnimation(AppAnimation.panel) {
+                    store.activeDocumentTab?.showSidebarTab(.outline)
+                }
             }
             .keyboardShortcut("3", modifiers: [.control, .command])
             .disabled(store.activeDocumentTab == nil)
 
             Button(L10n.tr("书签", "Bookmarks")) {
-                store.activeDocumentTab?.showSidebarTab(.bookmarks)
+                withAnimation(AppAnimation.panel) {
+                    store.activeDocumentTab?.showSidebarTab(.bookmarks)
+                }
             }
             .keyboardShortcut("4", modifiers: [.control, .command])
             .disabled(store.activeDocumentTab == nil)
 
             Button(L10n.tr("显示选项", "View Settings")) {
-                store.activeDocumentTab?.toggleLeftPanel(.viewSettings)
+                withAnimation(AppAnimation.panel) {
+                    store.activeDocumentTab?.toggleLeftPanel(.viewSettings)
+                }
             }
             .disabled(store.activeDocumentTab == nil)
 
@@ -351,14 +525,14 @@ struct ReaderMenuCommands: Commands {
             // ←/→ also turn pages (handled by the reader so text fields keep the arrow keys); the menu shows ⌥↑ / ⌥↓
             Button(L10n.tr("上一页", "Previous Page")) {
                 guard let tab = store.activeDocumentTab else { return }
-                tab.navigateToPage(tab.currentPageIndex - 1)
+                tab.stepPage(by: -1)
             }
             .keyboardShortcut(.upArrow, modifiers: [.option])
             .disabled(store.activeDocumentTab == nil)
 
             Button(L10n.tr("下一页", "Next Page")) {
                 guard let tab = store.activeDocumentTab else { return }
-                tab.navigateToPage(tab.currentPageIndex + 1)
+                tab.stepPage(by: 1)
             }
             .keyboardShortcut(.downArrow, modifiers: [.option])
             .disabled(store.activeDocumentTab == nil)
@@ -408,7 +582,9 @@ struct ReaderMenuCommands: Commands {
             Divider()
 
             Button(L10n.tr("全文查找...", "Find in Document...")) {
-                store.activeDocumentTab?.beginSearch()
+                withAnimation(AppAnimation.panel) {
+                    store.activeDocumentTab?.beginSearch()
+                }
             }
             .keyboardShortcut("f", modifiers: [.command])
             .disabled(store.activeDocumentTab == nil)
@@ -430,20 +606,47 @@ struct ReaderMenuCommands: Commands {
             Button(L10n.tr("显示下一标签", "Show Next Tab")) {
                 store.selectNextTab()
             }
-            .keyboardShortcut("}", modifiers: [.shift, .command])
+            .keyboardShortcut(.tab, modifiers: [.control])
+            .disabled(!store.canSelectAdjacentDocumentTab)
 
             Button(L10n.tr("显示上一标签", "Show Previous Tab")) {
                 store.selectPreviousTab()
             }
-            .keyboardShortcut("{", modifiers: [.shift, .command])
+            .keyboardShortcut(.tab, modifiers: [.control, .shift])
+            .disabled(!store.canSelectAdjacentDocumentTab)
         }
 
-        // Help Menu: the built-in Reading Guide instead of "Help isn't available"
+        // Window Menu: moving and merging document windows
+        CommandGroup(before: .windowList) {
+            Divider()
+            Button(L10n.tr("将标签移至新窗口", "Move Tab to New Window")) {
+                guard let docTab = store.activeDocumentTab else { return }
+                store.detachTabToNewWindow(id: docTab.id, from: store.activeSession.id)
+            }
+            .disabled(!(store.activeDocumentTab.map { store.canDetachTab(id: $0.id, in: store.activeSession.id) } ?? false))
+
+            Button(L10n.tr("合并所有窗口", "Merge All Windows")) {
+                store.mergeAllWindows()
+            }
+            .disabled(store.detachedSessions.isEmpty)
+            Divider()
+
+
+        }
+
+        // Help Menu: Shortcuts & Tips cheat sheet + built-in Reading Guide
         CommandGroup(replacing: .help) {
+            Button(L10n.tr("快捷键与技巧", "Shortcuts & Tips")) {
+                store.toggleShortcutsSheet()
+            }
+            .keyboardShortcut("/", modifiers: [.command])
+
             Button(L10n.tr("阅读指南", "Reading Guide")) {
                 store.openGettingStartedGuide()
             }
             .keyboardShortcut("?", modifiers: [.command])
+
+            Divider()
 
             Button(L10n.tr("在 GitHub 上查看 Expert PDF Reader", "Expert PDF Reader on GitHub")) {
                 NSWorkspace.shared.open(Self.projectURL)
@@ -451,12 +654,12 @@ struct ReaderMenuCommands: Commands {
         }
     }
 
-    /// ⌘W closes the selected document tab; on the Home tab, and in other windows such as Settings,
-    /// it closes the window, like closing the last tab in Safari
+    /// ⌘W closes the selected document tab; on the Home tab, in sole-tab detached windows, and in other
+    /// windows such as Settings, it closes the window, like closing the last tab in Safari
     private func closeTabOrWindow() {
         guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
-        if window === WindowChromeView.readerWindow, store.activeDocumentTab != nil {
-            store.closeCurrentTab()
+        if WindowChromeView.isReaderWindow(window) {
+            store.closeCurrentTabOrWindow(for: window)
         } else {
             window.performClose(nil)
         }

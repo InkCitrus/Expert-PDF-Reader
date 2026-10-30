@@ -31,6 +31,9 @@ jobs:
           ARCHS: arm64 x86_64
         run: ./build.sh
 
+      - name: Reader regression checks
+        run: ./scripts/test_reader.sh
+
       - name: Package DMG
         run: ./scripts/make_dmg.sh
 

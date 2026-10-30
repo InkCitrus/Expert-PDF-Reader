@@ -1,170 +1,123 @@
 import AppKit
 import SwiftUI
 
-/// Metrics published by `WindowChromeConfigurator` so the tab strip can make room for the traffic lights.
-public struct WindowChromeMetrics: Equatable {
-    public var trafficLightsInset: CGFloat = 80
-    public var isFullScreen: Bool = false
-}
-
-/// Unified title bar: the native title is hidden, content runs
-/// under the transparent title bar and the traffic lights are re-centered on the `40pt` tab strip.
-/// Mounted as a zero-size background of `MainWindowView`.
+/// A public titlebar accessory keeps native controls and interactive tabs on the same row.
 struct WindowChromeConfigurator: NSViewRepresentable {
-    let titleBarHeight: CGFloat
-    @Binding var metrics: WindowChromeMetrics
+    let windowTitle: String
+    let representedURL: URL?
+    let tabBar: AnyView
+    let tabBarBackground: NSColor
+    let onWindowAttached: ((NSWindow) -> Void)?
+    let onWindowBecameActive: (() -> Void)?
 
     func makeNSView(context: Context) -> WindowChromeView {
         let view = WindowChromeView()
-        view.titleBarHeight = titleBarHeight
-        view.onMetricsChange = metricsHandler()
+        updateNSView(view, context: context)
         return view
     }
 
-    func updateNSView(_ nsView: WindowChromeView, context: Context) {
-        nsView.titleBarHeight = titleBarHeight
-        nsView.onMetricsChange = metricsHandler()
-        nsView.layoutTrafficLights()
-    }
-
-    private func metricsHandler() -> (WindowChromeMetrics) -> Void {
-        let binding = $metrics
-        return { newMetrics in
-            DispatchQueue.main.async {
-                if binding.wrappedValue != newMetrics {
-                    binding.wrappedValue = newMetrics
-                }
-            }
-        }
+    func updateNSView(_ view: WindowChromeView, context: Context) {
+        view.windowTitle = windowTitle
+        view.representedURL = representedURL
+        view.setTabBar(tabBar)
+        view.tabBarBackground = tabBarBackground
+        view.onWindowAttached = onWindowAttached
+        view.onWindowBecameActive = onWindowBecameActive
+        view.syncWindowMetadata()
     }
 }
 
 final class WindowChromeView: NSView {
-    /// The reader window (as opposed to Settings, alerts or panels), for commands such as ⌘W
+    /// Most recently focused reader window (as opposed to Settings, alerts or panels)
     static weak var readerWindow: NSWindow?
+    private static let readerWindows = NSHashTable<NSWindow>.weakObjects()
 
-    var titleBarHeight: CGFloat = 40
-    var onMetricsChange: ((WindowChromeMetrics) -> Void)?
+    static func isReaderWindow(_ candidate: NSWindow?) -> Bool {
+        guard let candidate else { return readerWindow == nil }
+        return readerWindows.contains(candidate)
+    }
 
+
+    var windowTitle = "Expert PDF Reader"
+    var representedURL: URL?
+    var tabBarBackground = NSColor.windowBackgroundColor
+    var onWindowAttached: ((NSWindow) -> Void)?
+    var onWindowBecameActive: (() -> Void)?
     nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
-    private var isLayingOut = false
-    private var isFullScreen = false
+    nonisolated(unsafe) private var titleObservation: NSKeyValueObservation?
+    private var isSyncingMetadata = false
+    private let accessory = NSTitlebarAccessoryViewController()
+    private var tabHost: TabBarHostingView?
+
+    func setTabBar(_ content: AnyView) {
+        if let tabHost { tabHost.rootView = content }
+        else {
+            let host = TabBarHostingView(rootView: content)
+            host.frame = NSRect(x: 0, y: 0, width: 600, height: MainWindowView.tabStripHeight)
+            host.sizingOptions = []
+            tabHost = host
+            accessory.view = host
+            accessory.layoutAttribute = .top
+        }
+    }
 
     deinit {
+        titleObservation?.invalidate()
         observers.forEach { NotificationCenter.default.removeObserver($0) }
     }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func isAccessibilityElement() -> Bool { false }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        removeObservers()
+        titleObservation?.invalidate()
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        observers.removeAll()
         guard let window else { return }
         Self.readerWindow = window
+        Self.readerWindows.add(window)
 
+        window.styleMask.insert(.fullSizeContentView)
+        // The compact toolbar provides the original 40pt row. A bare native titlebar clamps .top to 32pt.
+        if window.toolbar == nil { window.toolbar = NSToolbar(identifier: "ReaderTabs") }
+        window.toolbarStyle = .unifiedCompact
+        window.toolbar?.isVisible = true
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
-        window.styleMask.insert(.fullSizeContentView)
         window.isMovableByWindowBackground = false
-        isFullScreen = window.styleMask.contains(.fullScreen)
+        window.addTitlebarAccessoryViewController(accessory)
+        onWindowAttached?(window)
+        if window.isKeyWindow || window.isMainWindow { onWindowBecameActive?() }
+        syncWindowMetadata()
 
-        let relayoutNotifications: [Notification.Name] = [
-            NSWindow.didResizeNotification,
-            NSWindow.didEndLiveResizeNotification,
-            NSWindow.didBecomeKeyNotification,
-            NSWindow.didResignKeyNotification,
-            NSWindow.didChangeBackingPropertiesNotification,
-            NSWindow.didExitFullScreenNotification
-        ]
-        for name in relayoutNotifications {
-            observe(name, object: window) { $0.layoutTrafficLights() }
+        titleObservation = window.observe(\.title, options: [.new]) { [weak self] _, _ in
+            MainActor.assumeIsolated { self?.syncWindowMetadata() }
         }
-        observe(NSWindow.willEnterFullScreenNotification, object: window) { $0.setFullScreen(true) }
-        observe(NSWindow.willExitFullScreenNotification, object: window) { $0.setFullScreen(false) }
-
-        // AppKit re-lays out the title bar buttons on its own schedule (appearance, key state, title changes…)
-        for button in trafficLightButtons(in: window) {
-            button.postsFrameChangedNotifications = true
-            observe(NSView.frameDidChangeNotification, object: button) { $0.layoutTrafficLights() }
-        }
-        layoutTrafficLights()
-    }
-
-    func layoutTrafficLights() {
-        guard !isLayingOut, let window else { return }
-        let buttons = trafficLightButtons(in: window)
-        guard let titleBarView = buttons.first?.superview else { return }
-        isLayingOut = true
-        defer { isLayingOut = false }
-
-        if !isFullScreen {
-            // Put the buttons' centers on the strip's midline, staying inside the native title bar view.
-            let barHeight = titleBarView.bounds.height
-            for button in buttons {
-                let buttonHeight = button.frame.height
-                let centeredY = titleBarView.isFlipped
-                    ? (titleBarHeight - buttonHeight) / 2
-                    : barHeight - (titleBarHeight + buttonHeight) / 2
-                let targetY = min(max(0, centeredY.rounded()), max(0, barHeight - buttonHeight))
-                if abs(button.frame.origin.y - targetY) > 0.5 {
-                    button.setFrameOrigin(NSPoint(x: button.frame.origin.x, y: targetY))
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didBecomeMainNotification] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let window = self.window else { return }
+                    Self.readerWindow = window
+                    self.onWindowBecameActive?()
                 }
-            }
+            })
         }
-
-        let trailingEdge = buttons.map { $0.frame.maxX }.max() ?? 66
-        onMetricsChange?(WindowChromeMetrics(trafficLightsInset: (trailingEdge + 14).rounded(), isFullScreen: isFullScreen))
     }
 
-    private func setFullScreen(_ value: Bool) {
-        isFullScreen = value
-        layoutTrafficLights()
+    func syncWindowMetadata() {
+        guard !isSyncingMetadata, let window else { return }
+        isSyncingMetadata = true
+        defer { isSyncingMetadata = false }
+        if window.representedURL != representedURL { window.representedURL = representedURL }
+        if window.title != windowTitle { window.title = windowTitle }
+        if window.backgroundColor != tabBarBackground { window.backgroundColor = tabBarBackground }
+        NSApp.changeWindowsItem(window, title: windowTitle, filename: false)
     }
 
-    private func trafficLightButtons(in window: NSWindow) -> [NSButton] {
-        [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].compactMap { window.standardWindowButton($0) }
-    }
-
-    private func observe(_ name: Notification.Name, object: AnyObject, handler: @escaping (WindowChromeView) -> Void) {
-        let token = NotificationCenter.default.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                handler(self)
-            }
-        }
-        observers.append(token)
-    }
-
-    private func removeObservers() {
-        observers.forEach { NotificationCenter.default.removeObserver($0) }
-        observers.removeAll()
-    }
 }
 
-// MARK: - WindowDragArea (empty tab-strip space behaves like a native title bar)
-
-struct WindowDragArea: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        WindowDragView()
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {}
-}
-
-private final class WindowDragView: NSView {
-    override func mouseDown(with event: NSEvent) {
-        guard let window else { return }
-        if event.clickCount == 2 {
-            // Honour System Settings › Desktop & Dock › "Double-click a window's title bar to"
-            switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") {
-            case "Minimize":
-                window.performMiniaturize(nil)
-            case "None":
-                break
-            default:
-                window.performZoom(nil)
-            }
-        } else {
-            window.performDrag(with: event)
-        }
-    }
+private final class TabBarHostingView: NSHostingView<AnyView> {
+    override var mouseDownCanMoveWindow: Bool { false }
 }

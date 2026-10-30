@@ -3,14 +3,28 @@ import Foundation
 import PDFKit
 import Vision
 
-/// What a sample of a book's pages shows, read with on-device text recognition: the page numbers printed on
-/// them and the direction the book reads. Scans often carry page labels numbered in scan order, or none at all,
-/// and a book bound on the right (vertical Chinese and Japanese) may be stored in reading order or, as the
-/// Internet Archive scans it, with each spread's left page first.
+/// What a sample of a book's pages shows, read from the PDF's text layer when present or with on-device text
+/// recognition for scans: the page numbers printed on them and the direction the book reads. Scans and many
+/// digital books carry page labels numbered in file order, or none at all, and a book bound on the right
+/// (vertical Chinese and Japanese) may be stored in reading order or, as the Internet Archive scans it, with
+/// each spread's left page first.
 public struct BookPageScan: Codable, Equatable {
+    public static let currentVersion = 4
+
+    public var version: Int? = Self.currentVersion
     public var printedNumbers: PrintedPageNumbers?
     /// Spreads read right to left: the earlier page belongs on the right. `nil` when the sample did not tell
     public var readsRightToLeft: Bool?
+
+    public init(
+        version: Int? = Self.currentVersion,
+        printedNumbers: PrintedPageNumbers? = nil,
+        readsRightToLeft: Bool? = nil
+    ) {
+        self.version = version
+        self.printedNumbers = printedNumbers
+        self.readsRightToLeft = readsRightToLeft
+    }
 }
 
 public struct PrintedPageNumbers: Codable, Equatable {
@@ -28,11 +42,28 @@ public struct PrintedPageNumbers: Codable, Equatable {
     public var oddIndexShift: Int
     /// The PDF's own page labels disagree with what is printed (or are missing), so these numbers replace them
     public var replacesPageLabels: Bool
+    /// Front-matter labels printed before the main Arabic numbering begins (e.g. "i", "ii" or "目录 - 1")
+    public var frontMatterLabels: [Int: String]?
 
     public func number(at index: Int) -> Int? {
         guard let run = runs.first(where: { $0.firstIndex <= index && index <= $0.lastIndex }) else { return nil }
         let number = index + run.offset + (index % 2 == 1 ? oddIndexShift : 0)
         return number > 0 ? number : nil
+    }
+
+    public func label(at index: Int) -> String? {
+        if let frontMatter = frontMatterLabels?[index] {
+            return frontMatter
+        }
+        return number(at: index).map(String.init)
+    }
+}
+
+enum PageNumberLabel {
+    static func canonical(_ label: String) -> String {
+        let value = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let plain = value.replacingOccurrences(of: #"(?<=\d)[,.\u00A0\u202F](?=\d{3}(?:\D|$))"#, with: "", options: .regularExpression)
+        return plain.allSatisfy({ $0.isASCII && $0.isNumber }) ? Int(plain).map(String.init) ?? value : value
     }
 }
 
@@ -51,6 +82,15 @@ public enum BookPageScanner {
         let label: String?
     }
 
+    private struct PositionedText {
+        let text: String
+        /// Normalized horizontal centre across the page, 0 (left) … 1 (right)
+        let midX: CGFloat
+        /// Distance from the outer edge of the strip (0 = right at the bottom/top edge, 1 = inner edge of strip)
+        let distanceFromOuterEdge: CGFloat
+        var edgeNumber: (number: Int, position: CGFloat)? = nil
+    }
+
     /// Pages read once each, as scanning goes back to narrow down where the numbering jumps
     final class PageReader {
         let document: PDFDocument
@@ -62,32 +102,169 @@ public enum BookPageScanner {
 
         func read(_ index: Int) -> Reading? {
             if let reading = readings[index] { return reading }
-            guard let page = document.page(at: index), let image = render(page) else { return nil }
+            guard !Task.isCancelled, index >= 0, index < document.pageCount, let page = document.page(at: index) else { return nil }
+
+            // Digital PDFs already carry selectable text with exact character bounds: reading the header/footer
+            // directly takes microseconds per page and avoids OCR errors on code listings or small fonts.
+            // Hidden OCR in a scan can be badly wrong, including its digits and writing direction.
+            // Read visible ink for image pages instead of treating that text as authoritative.
+            let textReading = page.hasFullPageScanImage ? nil : readFromTextLayer(page: page, index: index)
+            if let textReading, textReading.number != nil {
+                readings[index] = textReading
+                return textReading
+            }
+            // A book can mix digital pages and scans, or carry an incomplete OCR layer.
+            // Missing margin text on this page needs OCR regardless of the other pages.
+
+            guard let image = render(page) else { return nil }
             let found = readNumber(in: image)
             let reading = Reading(
                 index: index,
                 number: found?.number,
                 position: found?.position ?? 0.5,
-                writing: writingDirection(in: image),
+                writing: textReading?.writing ?? writingDirection(in: image),
                 label: page.printedNumber
             )
             readings[index] = reading
             return reading
         }
+
+        private func readFromTextLayer(page: PDFPage, index: Int) -> Reading? {
+            guard let fullText = page.string,
+                  fullText.trimmingCharacters(in: .whitespacesAndNewlines).count >= 8 else {
+                return nil
+            }
+            let box = page.bounds(for: .cropBox)
+            guard box.width > 40, box.height > 40, page.rotation % 360 == 0 else { return nil }
+
+            let stripHeight = box.height / 8
+            let bottomRect = CGRect(x: box.minX, y: box.minY, width: box.width, height: stripHeight)
+            let topRect = CGRect(x: box.minX, y: box.maxY - stripHeight, width: box.width, height: stripHeight)
+
+            let found = extractStripNumber(in: bottomRect, on: page, box: box, isBottom: true)
+                ?? extractStripNumber(in: topRect, on: page, box: box, isBottom: false)
+
+            return Reading(
+                index: index,
+                number: found?.number,
+                position: found?.position ?? 0.5,
+                writing: textLayerWritingDirection(on: page, box: box),
+                label: page.printedNumber
+            )
+        }
+
+        fileprivate func readRawFrontMatterLabel(at index: Int) -> String? {
+            guard index >= 0, index < document.pageCount,
+                  let page = document.page(at: index),
+                  let fullText = page.string,
+                  !fullText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return nil
+            }
+            let box = page.bounds(for: .cropBox)
+            guard box.width > 40, box.height > 40, page.rotation % 360 == 0 else { return nil }
+            let stripHeight = box.height / 8
+            let bottomRect = CGRect(x: box.minX, y: box.minY, width: box.width, height: stripHeight)
+            let topRect = CGRect(x: box.minX, y: box.maxY - stripHeight, width: box.width, height: stripHeight)
+            let lines = [outermostLineText(in: bottomRect, on: page, box: box, isBottom: true),
+                         outermostLineText(in: topRect, on: page, box: box, isBottom: false)].compactMap { $0 }
+            return lines.first { text in
+                let words = stripPageDecorations(text).split(whereSeparator: \.isWhitespace).map(String.init)
+                return words.first.flatMap(parseRomanNumeral) != nil
+                    || words.last.flatMap(parseRomanNumeral) != nil
+                    || parsePrefixedPageLabel(text) != nil
+            }
+        }
+
+        private func outermostLineText(in rect: CGRect, on page: PDFPage, box: CGRect, isBottom: Bool) -> String? {
+            let items = positionedLines(in: rect, on: page, box: box, isBottom: isBottom)
+            guard let minDist = items.map(\.distanceFromOuterEdge).min() else { return nil }
+            let tolerance: CGFloat = 0.08 // 1% of page height
+            let baseline = items.filter { $0.distanceFromOuterEdge <= minDist + tolerance }
+            guard baseline.count == 1 else { return nil }
+            return baseline[0].text
+        }
+
+        private func extractStripNumber(
+            in rect: CGRect,
+            on page: PDFPage,
+            box: CGRect,
+            isBottom: Bool
+        ) -> (number: Int, position: CGFloat)? {
+            let items = positionedLines(in: rect, on: page, box: box, isBottom: isBottom)
+            return pickPageNumber(from: items)
+        }
+
+        private func positionedLines(in rect: CGRect, on page: PDFPage, box: CGRect, isBottom: Bool) -> [PositionedText] {
+            guard let selection = page.selection(for: rect) else { return [] }
+            let stripHeight = max(1, rect.height)
+            return selection.selectionsByLine().compactMap { line -> PositionedText? in
+                guard let raw = line.string?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+                    return nil
+                }
+                let b = line.bounds(for: page)
+                guard b.width > 0, b.height > 0 else { return nil }
+                // Exclude lines whose vertical centre actually lies outside the strip
+                guard rect.contains(CGPoint(x: b.midX, y: b.midY)) else { return nil }
+                let dist = isBottom
+                    ? max(0, (b.minY - box.minY) / stripHeight)
+                    : max(0, (box.maxY - b.maxY) / stripHeight)
+                let midX = min(max(0, (b.midX - box.minX) / box.width), 1)
+                var item = PositionedText(text: raw, midX: midX, distanceFromOuterEdge: dist)
+                if let token = edgeNumberToken(in: raw), let text = page.string as NSString? {
+                    // PDFKit can represent one visible line with several disjoint text ranges.
+                    for index in 0..<line.numberOfTextRanges(on: page) {
+                        let range = line.range(at: index, on: page)
+                        guard range.location + range.length <= text.length,
+                              let originalToken = edgeNumberToken(in: text.substring(with: range)),
+                              originalToken.number == token.number else { continue }
+                        let numberRange = NSRange(location: range.location + originalToken.range.location, length: originalToken.range.length)
+                        // Selection ranges index the string; characterBounds indexes rendered glyphs and can
+                        // diverge after synthetic newlines or ligatures.
+                        guard let bounds = page.selection(for: numberRange)?.bounds(for: page) else { continue }
+                        let x = (bounds.midX - box.minX) / box.width
+                        if x < 0.28 || x > 0.72 { item.edgeNumber = (token.number, x) }
+                    }
+                }
+                return item
+            }
+        }
+
+        private func textLayerWritingDirection(on page: PDFPage, box: CGRect) -> WritingDirection? {
+            let bodyRect = box.insetBy(dx: box.width * 0.1, dy: box.height * 0.14)
+            guard let sel = page.selection(for: bodyRect) else { return nil }
+            var horizontal = 0
+            var vertical = 0
+            for line in sel.selectionsByLine().prefix(40) {
+                guard let text = line.string?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      text.count >= 4 else { continue }
+                let b = line.bounds(for: page)
+                if b.width > b.height * 1.6 {
+                    horizontal += 1
+                } else if b.height > b.width * 1.6 {
+                    vertical += 1
+                }
+            }
+            if horizontal >= 3 && horizontal >= vertical * 2 { return .horizontal }
+            if vertical >= 3 && vertical >= horizontal * 2 { return .vertical }
+            return nil
+        }
     }
 
     /// Looks at pairs of neighbouring pages spread over the book, then at pages between two samples whose numbering
-    /// disagrees. Takes a few seconds (longer for scans stored as JPEG 2000); call it off the main thread with a
-    /// document of its own.
+    /// disagrees. Instant on digital PDFs; takes a few seconds on image-only scans. Call off the main thread with a
+    /// private copy of the document.
     public static func scan(_ document: PDFDocument, pairs: Int = 10) -> BookPageScan {
         let count = document.pageCount
         guard count >= 16 else { return BookPageScan() }
         let reader = PageReader(document: document)
         for index in sampleIndices(pageCount: count, pairs: pairs) {
-            _ = reader.read(index)
+            _ = autoreleasepool { reader.read(index) }
         }
         let numbers = printedNumbers(using: reader, pageCount: count)
-        return BookPageScan(printedNumbers: numbers, readsRightToLeft: readsRightToLeft(Array(reader.readings.values), numbers: numbers))
+        return BookPageScan(
+            printedNumbers: numbers,
+            readsRightToLeft: readsRightToLeft(Array(reader.readings.values), numbers: numbers)
+        )
     }
 
     static func sampleIndices(pageCount: Int, pairs: Int) -> [Int] {
@@ -133,7 +310,6 @@ public enum BookPageScanner {
                 runs.append(.init(firstIndex: point.index, lastIndex: point.index, offset: point.offset))
             }
         }
-        // A run seen on a single page is a misreading unless it is confirmed while narrowing down the jumps
         guard !runs.isEmpty else { return nil }
 
         // Narrow down each jump between runs by reading the pages in between
@@ -148,7 +324,7 @@ public enum BookPageScanner {
                 guard let reading = [middle, middle + 1, middle - 1].lazy
                     .filter({ $0 > low && $0 < high })
                     .compactMap({ reader.read($0) })
-                    .first(where: { $0.number != nil }) else { break }
+                    .first(where: { $0.number != nil && [lowOffset, highOffset].contains(offset(of: $0)) }) else { break }
                 let found = offset(of: reading)
                 if found == lowOffset {
                     low = reading.index
@@ -164,16 +340,270 @@ public enum BookPageScanner {
         // Single-page runs that never got confirmed by a neighbour are dropped
         runs = runs.filter { $0.lastIndex > $0.firstIndex || runs.count == 1 }
         guard !runs.isEmpty else { return nil }
-        runs[0].firstIndex = 0
-        runs[runs.count - 1].lastIndex = pageCount - 1
 
-        let model = PrintedPageNumbers(runs: runs, oddIndexShift: oddIndexShift, replacesPageLabels: false)
+        // Narrow where the first run actually starts so front matter (cover, Roman preface, TOC) is not overwritten
+        runs[0].firstIndex = findFirstRunStart(
+            firstSampleIndex: runs[0].firstIndex,
+            runOffset: runs[0].offset,
+            oddIndexShift: oddIndexShift,
+            reader: reader,
+            offsetOf: offset
+        )
+
+        // Narrow where the last run ends so unnumbered back covers / flyleaves at the end are left unnumbered
+        runs[runs.count - 1].lastIndex = findLastRunEnd(
+            lastSampleIndex: runs[runs.count - 1].lastIndex,
+            runOffset: runs[runs.count - 1].offset,
+            pageCount: pageCount,
+            reader: reader,
+            offsetOf: offset
+        )
+
+        let frontMatter = detectFrontMatterLabels(before: runs[0].firstIndex, reader: reader)
+
+        let model = PrintedPageNumbers(
+            runs: runs,
+            oddIndexShift: oddIndexShift,
+            replacesPageLabels: false,
+            frontMatterLabels: frontMatter.isEmpty ? nil : frontMatter
+        )
         let checked = numbered.filter { model.number(at: $0.index) == $0.number }
         guard checked.count * 10 >= numbered.count * 7 else { return nil }
         let labelsMatch = checked.filter { $0.label == String($0.number!) }.count
         var result = model
-        result.replacesPageLabels = labelsMatch * 10 < checked.count * 8
+        result.replacesPageLabels = labelsMatch * 10 < checked.count * 8 || !frontMatter.isEmpty
         return result
+    }
+
+    private static func findFirstRunStart(
+        firstSampleIndex: Int,
+        runOffset: Int,
+        oddIndexShift: Int,
+        reader: PageReader,
+        offsetOf: (Reading) -> Int
+    ) -> Int {
+        // Earliest index whose computed Arabic page number is >= 1
+        var earliest = 0
+        while earliest < firstSampleIndex {
+            let num = earliest + runOffset + (earliest % 2 == 1 ? oddIndexShift : 0)
+            if num >= 1 { break }
+            earliest += 1
+        }
+        guard earliest < firstSampleIndex else { return firstSampleIndex }
+
+        // Check `earliest` (or the next 1-2 pages when Page 1 is an unnumbered title/chapter opening)
+        for probe in earliest...min(earliest + 5, firstSampleIndex) {
+            if let r = reader.read(probe), r.number != nil {
+                if offsetOf(r) == runOffset {
+                    return earliest
+                }
+                break
+            }
+        }
+
+        // Binary-narrow between `earliest` and `firstSampleIndex` when front matter used positive indices
+        var low = earliest
+        var high = firstSampleIndex
+        var probes = 0
+        while high - low > 1, probes < 8 {
+            probes += 1
+            let mid = (low + high) / 2
+            guard let reading = [mid, mid + 1, mid - 1].lazy
+                .filter({ $0 > low && $0 < high })
+                .compactMap({ reader.read($0) })
+                .first(where: { $0.number != nil }) else { break }
+            if offsetOf(reading) == runOffset {
+                high = reading.index
+            } else {
+                low = reading.index
+            }
+        }
+        // Include an unnumbered chapter-opening page right before `high` if its implied number is >= 1
+        if high > earliest, let prev = reader.read(high - 1), prev.number == nil {
+            let implied = (high - 1) + runOffset + ((high - 1) % 2 == 1 ? oddIndexShift : 0)
+            if implied == 1 {
+                return high - 1
+            }
+        }
+        return high
+    }
+
+    private static func findLastRunEnd(
+        lastSampleIndex: Int,
+        runOffset: Int,
+        pageCount: Int,
+        reader: PageReader,
+        offsetOf: (Reading) -> Int
+    ) -> Int {
+        let lastPage = pageCount - 1
+        guard lastSampleIndex < lastPage else { return lastPage }
+
+        // Check the last few pages (back cover, colophon, blank flyleaves) from the very end inwards
+        let tailWindow = min(6, lastPage - lastSampleIndex)
+        for idx in stride(from: lastPage, through: lastPage - tailWindow + 1, by: -1) {
+            if let r = reader.read(idx), r.number != nil, offsetOf(r) == runOffset {
+                return idx
+            }
+        }
+
+        // Binary-narrow if more than `tailWindow` pages at the end are unnumbered (e.g. index plates / appendices)
+        var low = lastSampleIndex
+        var high = lastPage - tailWindow + 1
+        var probes = 0
+        while high - low > 1, probes < 8 {
+            probes += 1
+            let mid = (low + high) / 2
+            guard let reading = [mid, mid - 1, mid + 1].lazy
+                .filter({ $0 > low && $0 < high })
+                .compactMap({ reader.read($0) })
+                .first(where: { $0.number != nil }) else { break }
+            if offsetOf(reading) == runOffset {
+                low = reading.index
+            } else {
+                high = reading.index
+            }
+        }
+        return low
+    }
+
+    /// Detects sequential Roman numerals ("i", "ii"…) or prefixed section numbers ("目录 - 1", "目录 - 2"…)
+    /// on front-matter pages before `bodyStartIndex`.
+    private static func detectFrontMatterLabels(before bodyStartIndex: Int, reader: PageReader) -> [Int: String] {
+        guard bodyStartIndex >= 2, bodyStartIndex <= 32 else { return [:] }
+        var rawByIndex: [Int: String] = [:]
+        for idx in 0..<bodyStartIndex {
+            if let raw = reader.readRawFrontMatterLabel(at: idx) {
+                rawByIndex[idx] = raw
+            }
+        }
+        guard rawByIndex.count >= 2 else { return [:] }
+
+        var accepted: [Int: String] = [:]
+
+        // 1. Sequential Roman numerals (e.g. i, ii, iii, iv or I, II, III, IV)
+        var romanOffsets: [Int: Int] = [:]
+        var romanValues: [Int: (value: Int, text: String)] = [:]
+        for (idx, text) in rawByIndex {
+            let words = stripPageDecorations(text).split(whereSeparator: \.isWhitespace).map(String.init)
+            let trimmed = words.first.flatMap { parseRomanNumeral($0) == nil ? nil : $0 }
+                ?? words.last.flatMap { parseRomanNumeral($0) == nil ? nil : $0 }
+                ?? stripPageDecorations(text)
+            if let val = parseRomanNumeral(trimmed) {
+                romanValues[idx] = (val, trimmed)
+                romanOffsets[val - idx, default: 0] += 1
+            }
+        }
+        if let (bestOffset, count) = romanOffsets.max(by: { $0.value < $1.value }), count >= 2 {
+            for (idx, entry) in romanValues where entry.value - idx == bestOffset {
+                accepted[idx] = entry.text
+            }
+        }
+
+        // 2. Prefixed sequential front-matter labels (e.g. "目录 - 1" .. "目录 - 5", "TOC 1" .. "TOC 4")
+        var byPrefix: [String: [(idx: Int, number: Int, fullText: String)]] = [:]
+        for (idx, text) in rawByIndex where accepted[idx] == nil {
+            if let parsed = parsePrefixedPageLabel(text) {
+                byPrefix[parsed.prefix, default: []].append((idx, parsed.number, parsed.fullText))
+            }
+        }
+        for (_, group) in byPrefix where group.count >= 2 {
+            var offsets: [Int: Int] = [:]
+            for entry in group {
+                offsets[entry.number - entry.idx, default: 0] += 1
+            }
+            if let (bestOffset, count) = offsets.max(by: { $0.value < $1.value }), count >= 2 {
+                for entry in group where entry.number - entry.idx == bestOffset {
+                    accepted[entry.idx] = entry.fullText
+                }
+            }
+        }
+
+        return accepted
+    }
+
+    // MARK: - Candidate Selection & Parsing
+
+    /// Ignore nonnumeric publisher lines outside the running header. Within the remaining candidates,
+    /// the outermost baseline wins; a book-wide run still needs agreement from neighbouring pages.
+    private static func pickPageNumber(from items: [PositionedText]) -> (number: Int, position: CGFloat)? {
+        let candidates = items.compactMap { item -> (number: Int, position: CGFloat, distance: CGFloat)? in
+            if let number = parseStandalonePageNumber(item.text) {
+                return (number, item.midX, item.distanceFromOuterEdge)
+            }
+            if let edge = item.edgeNumber { return (edge.number, edge.position, item.distanceFromOuterEdge) }
+            return nil
+        }
+        guard let distance = candidates.map(\.distance).min() else { return nil }
+        return candidates.filter { $0.distance <= distance + 0.08 }
+            .max { abs($0.position - 0.5) < abs($1.position - 0.5) }
+            .map { ($0.number, $0.position) }
+    }
+
+    private static func stripPageDecorations(_ text: String) -> String {
+        let decoration = CharacterSet(charactersIn: "-–—―·•[]()（） \t")
+        return text.trimmingCharacters(in: decoration)
+    }
+
+    private static func parseStandalonePageNumber(_ raw: String) -> Int? {
+        let cleaned = stripPageDecorations(raw)
+        guard (1...4).contains(cleaned.count), cleaned.allSatisfy(\.isASCII), let n = Int(cleaned), n > 0 else {
+            return nil
+        }
+        return n
+    }
+
+    /// The number at either end of a running title, separated by any whitespace. Its actual glyph bounds
+    /// must also lie near a corner; a number in the middle of prose or a publisher's year is not enough.
+    private static func edgeNumberToken(in raw: String) -> (number: Int, range: NSRange)? {
+        guard !raw.contains(".."), !raw.contains("…"), !raw.contains(";"), !raw.contains("{"), !raw.contains("}") else {
+            return nil
+        }
+        for pattern in [#"(?:^|\s)([0-9]{1,4})\s*$"#, #"^\s*([0-9]{1,4})\s+"#] {
+            guard let match = raw.range(of: pattern, options: .regularExpression) else { continue }
+            let part = String(raw[match])
+            guard let digits = part.range(of: #"[0-9]+"#, options: .regularExpression),
+                  let number = Int(part[digits]), number > 0,
+                  let full = raw.range(of: String(part[digits]), range: match) else { continue }
+            let range = NSRange(full, in: raw)
+            return (number, range)
+        }
+        return nil
+    }
+
+    private static func parseRomanNumeral(_ text: String) -> Int? {
+        guard (1...8).contains(text.count) else { return nil }
+        let upper = text.uppercased()
+        guard text == upper || text == text.lowercased() else { return nil }
+        let values: [Character: Int] = ["I": 1, "V": 5, "X": 10, "L": 50, "C": 100]
+        let chars = Array(upper)
+        guard chars.allSatisfy({ values[$0] != nil }) else { return nil }
+        var total = 0
+        for i in chars.indices {
+            let curr = values[chars[i]]!
+            let next = (i + 1 < chars.count) ? values[chars[i + 1]]! : 0
+            total += curr < next ? -curr : curr
+        }
+        return (1...60).contains(total) ? total : nil
+    }
+
+    private static func parsePrefixedPageLabel(_ raw: String) -> (prefix: String, number: Int, fullText: String)? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count <= 20, !trimmed.contains(".."), !trimmed.contains(";") else { return nil }
+        var digitStart = trimmed.endIndex
+        while digitStart > trimmed.startIndex {
+            let prev = trimmed.index(before: digitStart)
+            if trimmed[prev].isASCII && trimmed[prev].isNumber {
+                digitStart = prev
+            } else {
+                break
+            }
+        }
+        let digits = String(trimmed[digitStart...])
+        let prefix = String(trimmed[..<digitStart]).trimmingCharacters(in: .whitespaces)
+        guard !prefix.isEmpty, (1...3).contains(digits.count), let num = Int(digits), num > 0 else {
+            return nil
+        }
+        return (prefix: prefix, number: num, fullText: trimmed)
     }
 
     // MARK: - Direction
@@ -191,7 +621,6 @@ public enum BookPageScanner {
         }
         let sided = fitting.filter { $0.position < 0.35 || $0.position > 0.65 }
         let evenOnRight = sided.filter { ($0.number! % 2 == 0) == ($0.position > 0.5) }.count
-        let cornersSayRight = sided.count >= 4 && evenOnRight * 10 >= sided.count * 8
         let cornersSayLeft = sided.count >= 4 && (sided.count - evenOnRight) * 10 >= sided.count * 8
 
         if isVertical && !cornersSayLeft {
@@ -206,7 +635,7 @@ public enum BookPageScanner {
         return nil
     }
 
-    // MARK: - Page image
+    // MARK: - Page image (OCR fallback for scanned pages without selectable text)
 
     struct PageImage {
         let pixels: [UInt8]
@@ -215,13 +644,13 @@ public enum BookPageScanner {
         let cgImage: CGImage
     }
 
-    /// The page in grey, 700 px wide: drawn once, since a scanned page's image is slow to decode
+    /// Enough resolution for small printed footer digits, drawn only on sampled pages.
     static func render(_ page: PDFPage) -> PageImage? {
         let box = page.bounds(for: .mediaBox)
         guard box.width > 0, box.height > 0, page.rotation % 360 == 0 else { return nil }
-        let width = 700
+        let width = 1400
         let height = Int(CGFloat(width) * box.height / box.width)
-        guard height > 100, height < 4000 else { return nil }
+        guard height > 100, height < 8000 else { return nil }
         var pixels = [UInt8](repeating: 255, count: width * height)
         let image: CGImage? = pixels.withUnsafeMutableBytes { buffer in
             guard let context = CGContext(
@@ -236,12 +665,15 @@ public enum BookPageScanner {
         return image.map { PageImage(pixels: pixels, width: width, height: height, cgImage: $0) }
     }
 
-    /// The page number in the bottom (else top) eighth of the page: digits only, the one nearest a corner
+    /// The page number in the bottom (else top) eighth of a scanned page: outermost baseline only
     static func readNumber(in image: PageImage) -> (number: Int, position: CGFloat)? {
         let stripHeight = image.height / 8
-        // Image rows run from the top
-        for rect in [CGRect(x: 0, y: image.height - stripHeight, width: image.width, height: stripHeight),
-                     CGRect(x: 0, y: 0, width: image.width, height: stripHeight)] {
+        let strips: [(rect: CGRect, isBottom: Bool)] = [
+            (CGRect(x: 0, y: image.height - stripHeight, width: image.width, height: stripHeight), true),
+            (CGRect(x: 0, y: 0, width: image.width, height: stripHeight), false)
+        ]
+        // Image rows run from the top; Vision's normalized boundingBox has origin at bottom-left
+        for (rect, isBottom) in strips {
             guard let strip = image.cgImage.cropping(to: rect) else { continue }
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
@@ -249,16 +681,24 @@ public enum BookPageScanner {
             // Digits only: the Latin model is a hundred times faster than detecting the page's language
             request.recognitionLanguages = ["en-US"]
             try? VNImageRequestHandler(cgImage: strip).perform([request])
-            var best: (number: Int, position: CGFloat)?
-            for observation in request.results ?? [] {
-                guard let text = observation.topCandidates(1).first?.string.trimmingCharacters(in: .whitespaces),
-                      (1...4).contains(text.count), text.allSatisfy(\.isASCII), let number = Int(text), number > 0 else { continue }
-                let position = observation.boundingBox.midX
-                if best.map({ abs(position - 0.5) > abs($0.position - 0.5) }) ?? true {
-                    best = (number, position)
+            let items: [PositionedText] = (request.results ?? []).compactMap { obs in
+                guard let text = obs.topCandidates(1).first?.string.trimmingCharacters(in: .whitespaces),
+                      !text.isEmpty else { return nil }
+                let b = obs.boundingBox
+                let dist = isBottom ? max(0, b.minY) : max(0, 1 - b.maxY)
+                var item = PositionedText(text: text, midX: b.midX, distanceFromOuterEdge: dist)
+                if let candidate = obs.topCandidates(1).first,
+                   let token = edgeNumberToken(in: candidate.string),
+                   let range = Range(token.range, in: candidate.string),
+                   let bounds = try? candidate.boundingBox(for: range)?.boundingBox,
+                   bounds.midX < 0.28 || bounds.midX > 0.72 {
+                    item.edgeNumber = (token.number, bounds.midX)
                 }
+                return item
             }
-            if let best { return best }
+            if let best = pickPageNumber(from: items) {
+                return best
+            }
         }
         return nil
     }

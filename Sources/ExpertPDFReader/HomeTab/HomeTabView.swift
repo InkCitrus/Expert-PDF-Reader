@@ -115,6 +115,7 @@ public struct HomeTabRootView: View {
                             .controlSize(.mini)
                             .font(.system(size: 12))
                             .foregroundColor(AppPalette.labelSecondary(isDark))
+                            .disabled(store.readingThemeMode != .system)
                     }
                     HStack(spacing: 12) {
                         ForEach(PDFReadingThemeMode.allCases) { mode in

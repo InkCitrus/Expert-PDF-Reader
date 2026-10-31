@@ -392,33 +392,6 @@ struct ReaderMenuCommands: Commands {
 
             Divider()
 
-            // Pickers render as submenus with a checkmark on the current choice. Their items keep the old
-            // language after a live switch unless rebuilt, hence an id that changes with the language.
-            Picker(L10n.tr("主题", "Theme"), selection: $store.readingThemeMode) {
-                ForEach(PDFReadingThemeMode.allCases) { mode in
-                    Text(mode.title).tag(mode)
-                }
-            }
-            .id("theme.\(store.appLanguage.rawValue)")
-
-            Toggle(L10n.tr("浅色时使用纸质替代日间", "Use Sepia Instead of Day in Light Mode"), isOn: $store.useSepiaForLightSystemTheme)
-
-            Picker(L10n.tr("界面外观", "App Appearance"), selection: $store.appearanceMode) {
-                ForEach(AppAppearanceMode.allCases) { mode in
-                    Text(mode.title).tag(mode)
-                }
-            }
-            .id("appearance.\(store.appLanguage.rawValue)")
-
-            Picker(L10n.tr("语言", "Language"), selection: $store.appLanguage) {
-                ForEach(AppLanguage.allCases) { lang in
-                    Text(lang.title).tag(lang)
-                }
-            }
-            .id("language.\(store.appLanguage.rawValue)")
-
-            Divider()
-
             // Page Layout Modes
             Button(L10n.tr("单页", "Single Page")) {
                 store.activeDocumentTab?.layoutMode = .singlePage
@@ -458,8 +431,6 @@ struct ReaderMenuCommands: Commands {
             }
             .keyboardShortcut("m", modifiers: [.shift, .command])
             .disabled(store.activeDocumentTab == nil)
-
-            Divider()
 
             // Split View Submenu
             Menu(L10n.tr("分屏视图", "Split View")) {
@@ -516,6 +487,40 @@ struct ReaderMenuCommands: Commands {
             }
             .keyboardShortcut("9", modifiers: [.command])
             .disabled(store.activeDocumentTab == nil)
+
+            Divider()
+
+            // Global preferences follow the document view controls. Rebuild localized submenus
+            // when the language changes so their choices switch alongside the menu titles.
+            Menu(L10n.tr("阅读主题", "Reading Theme")) {
+                Picker(L10n.tr("阅读主题", "Reading Theme"), selection: $store.readingThemeMode) {
+                    ForEach(PDFReadingThemeMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+
+                Divider()
+
+                Toggle(L10n.tr("浅色时使用纸质替代日间", "Use Sepia Instead of Day in Light Mode"), isOn: $store.useSepiaForLightSystemTheme)
+                    .disabled(store.readingThemeMode != .system)
+            }
+            .id("theme.\(store.appLanguage.rawValue)")
+
+            Picker(L10n.tr("界面外观", "App Appearance"), selection: $store.appearanceMode) {
+                ForEach(AppAppearanceMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .id("appearance.\(store.appLanguage.rawValue)")
+
+            Picker(L10n.tr("语言", "Language"), selection: $store.appLanguage) {
+                ForEach(AppLanguage.allCases) { lang in
+                    Text(lang.title).tag(lang)
+                }
+            }
+            .id("language.\(store.appLanguage.rawValue)")
 
             Divider()
         }

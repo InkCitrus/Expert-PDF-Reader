@@ -787,9 +787,10 @@ struct DocumentCardView: View {
             Text(item.title)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(AppPalette.labelPrimary(isDark))
-                .lineLimit(2)
+                .lineLimit(2, reservesSpace: true)
                 .multilineTextAlignment(.center)
                 .truncationMode(.middle)
+                .fixedSize(horizontal: false, vertical: true)
 
             Text(subtitleText)
                 .font(.system(size: 10.5))
@@ -819,7 +820,7 @@ struct DocumentCardView: View {
         .transition(.opacity.combined(with: .scale(scale: 0.94)))
         .onHover { isHovered = $0 }
         .onTapGesture(perform: onOpen)
-        .help(item.url.path)
+        .help("\(item.url.lastPathComponent)\n\(item.url.deletingLastPathComponent().path)")
         .contextMenu {
             Button(L10n.tr("阅读文档", "Read Document")) { onOpen() }
             Button(item.isFavorite ? L10n.tr("取消收藏", "Remove from Favorites") : L10n.tr("添加到收藏", "Add to Favorites")) { onToggleFavorite() }

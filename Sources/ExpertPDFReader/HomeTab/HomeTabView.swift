@@ -789,7 +789,7 @@ struct DocumentCardView: View {
             Text(item.title)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(AppPalette.labelPrimary(isDark))
-                .lineLimit(2, reservesSpace: true)
+                .lineLimit(2)
                 .multilineTextAlignment(.center)
                 .truncationMode(.middle)
                 .fixedSize(horizontal: false, vertical: true)

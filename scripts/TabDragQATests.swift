@@ -39,6 +39,50 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
             && abs(rect.height - MainWindowView.tabStripHeight) < 1
     }
     func settle() async { try? await Task.sleep(nanoseconds: 650_000_000) }
+
+    func checkPreviewThemes() {
+        let feedback = TabDragFeedback()
+        let savedAppearance = NSApp.appearance
+        defer { feedback.end(); NSApp.appearance = savedAppearance }
+        let location = TabDragLocation(screenPoint: NSPoint(x: 400, y: 500),
+                                       grabOffset: NSPoint(x: 45, y: 13), tabSize: NSSize(width: 260, height: 40))
+        var firstPanel: NSPanel?
+        func luminance(_ color: NSColor) -> CGFloat {
+            let rgb = color.usingColorSpace(.sRGB)!
+            func linear(_ value: CGFloat) -> CGFloat {
+                value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+            }
+            return 0.2126 * linear(rgb.redComponent) + 0.7152 * linear(rgb.greenComponent) + 0.0722 * linear(rgb.blueComponent)
+        }
+        for isDark in [true, false, true] {
+            // The app and source tab may have different appearances. Reuse the same floating panel.
+            NSApp.appearance = NSAppearance(named: isDark ? .aqua : .darkAqua)
+            let focus = NSApp.keyWindow
+            feedback.update(title: "F77YB – Foundations of Statistical Inference", isDark: isDark, at: location, target: nil)
+            guard let panel = NSApp.windows.first(where: { $0 is NSPanel && $0.ignoresMouseEvents && $0.isVisible }) as? NSPanel,
+                  let view = panel.contentView, let background = view.layer?.backgroundColor,
+                  let fill = NSColor(cgColor: background),
+                  let label = view.subviews.compactMap({ $0 as? NSTextField }).first, let ink = label.textColor else {
+                check(false, "drag preview appears with a readable title"); return
+            }
+            let lightness = luminance(fill)
+            let contrast = (max(lightness, luminance(ink)) + 0.05) / (min(lightness, luminance(ink)) + 0.05)
+            check(isDark ? lightness < 0.12 : lightness > 0.8,
+                  "\(isDark ? "dark" : "light") drag preview follows the source theme despite the opposite app appearance")
+            check(contrast >= 4.5, "drag title has at least 4.5:1 contrast against its background")
+            check(NSApp.keyWindow === focus && !panel.isKeyWindow && panel.ignoresMouseEvents,
+                  "themed preview preserves keyboard focus and ignores mouse events")
+            if let firstPanel { check(panel === firstPanel, "the same preview updates when its theme changes") }
+            else { firstPanel = panel }
+            if let directory = ProcessInfo.processInfo.environment["TAB_DRAG_QA_EVIDENCE_DIR"],
+               let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                view.cacheDisplay(in: view.bounds, to: bitmap)
+                let url = URL(fileURLWithPath: directory).appendingPathComponent("tab-drag-preview-\(isDark ? "dark" : "light").png")
+                try? bitmap.representation(using: .png, properties: [:])?.write(to: url)
+            }
+        }
+    }
+
     func drag(_ title: String, from session: ReaderWindowSession, to point: NSPoint,
               grabFraction: CGFloat = 0.5) async {
         let sourceWindow = session.nsWindow!
@@ -152,6 +196,7 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
             let primary = store.primarySession
             check(names(primary) == ["Alpha", "Beta", "Gamma"], "three real document tabs appear")
             check(tabsAreInContent(primary), "primary tabs use the unified native titlebar accessory")
+            checkPreviewThemes()
             let home = window.titlebarAccessoryViewControllers.compactMap { homeDragView(in: $0.view) }.first!
             let beforeHomeClick = window.frame
             await click(home)

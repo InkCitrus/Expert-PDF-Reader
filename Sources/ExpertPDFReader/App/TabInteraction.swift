@@ -186,12 +186,6 @@ extension ReaderWindowSession {
             view.layer?.cornerRadius = 8
             view.layer?.masksToBounds = true
             view.layer?.borderWidth = 0.5
-            let accent = NSView(frame: NSRect(x: 0, y: location.tabSize.height - 2.5,
-                                               width: location.tabSize.width, height: 2.5))
-            accent.autoresizingMask = [.width, .minYMargin]
-            accent.wantsLayer = true
-            accent.layer?.backgroundColor = NSColor(AppPalette.accentBlue).cgColor
-            view.addSubview(accent)
             let label = NSTextField(labelWithString: title)
             label.frame = NSRect(x: 12, y: (location.tabSize.height - 18) * 0.5,
                                  width: location.tabSize.width - 24, height: 18)

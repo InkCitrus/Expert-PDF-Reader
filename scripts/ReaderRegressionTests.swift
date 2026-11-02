@@ -204,8 +204,29 @@ struct ReaderRegressionTests {
         let coveredPage = coveredDocument.page(at:0)!
         let coveredSelection = coveredPage.selection(for:CGRect(x:30,y:450,width:550,height:100))!
         check(coveredSelection.string?.contains("hidden explanation") == true
-              && PDFSelectionVisibility.hasOverlappingText(coveredSelection,on:coveredPage),
-              "covered PDF text is recognized as overlapping layers rather than copied as visible prose")
+              && PDFSelectionVisibility.requiresVisualSelection(on:coveredPage),
+              "covered PDF text is excluded from native selection using the final rendered page")
+        check(PDFSelectionVisibility.cachedDecision(for:coveredPage) == true,
+              "page visibility is cached so repeated drags do not render the page again")
+        let nativeDocument = PDFDocument(url: alpha)!
+        check(!PDFSelectionVisibility.requiresVisualSelection(on:nativeDocument.page(at:0)!),
+              "ordinary visible digital text keeps native selection and its original characters")
+        let clippedData = NSMutableData()
+        let clippedContext = CGContext(consumer:CGDataConsumer(data:clippedData)!,mediaBox:&coveredBox,nil)!
+        clippedContext.beginPDFPage(nil)
+        clippedContext.saveGState()
+        clippedContext.clip(to:CGRect(x:0,y:0,width:600,height:100))
+        clippedContext.drawPDFPage(nativeDocument.page(at:0)!.pageRef!)
+        clippedContext.restoreGState()
+        clippedContext.endPDFPage();clippedContext.closePDF()
+        let clippedDocument = PDFDocument(data:clippedData as Data)!
+        let clippedPage = clippedDocument.page(at:0)!
+        check(clippedPage.string?.contains("complete paragraph") == true
+              && PDFSelectionVisibility.requiresVisualSelection(on:clippedPage),
+              "nested clipping excludes invisible text even without overlapping replacement lines")
+        clippedPage.setBounds(CGRect(x:0,y:0,width:600,height:100),for:.cropBox)
+        check(PDFSelectionVisibility.cachedDecision(for:clippedPage) == nil,
+              "changing the page crop invalidates cached visibility geometry")
 
         let spreadTab = freshStore().openDocument(at: try fixture("SpreadNavigation"), interactive: false)!
         spreadTab.layoutMode = .twoPages

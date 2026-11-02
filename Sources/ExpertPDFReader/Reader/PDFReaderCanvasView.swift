@@ -640,7 +640,7 @@ final class ThemedPDFView: PDFView {
         if ocrSelectionOverlay.copySelectionIfPresent() { return }
         if let selection = currentSelection, selection.pages.count == 1,
            let page = selection.pages.first, page.rotation == 0,
-           (page.hasFullPageScanImage || PDFSelectionVisibility.hasOverlappingText(selection, on: page)),
+           PDFSelectionVisibility.requiresVisualSelection(on: page),
            document?.allowsCopying == true {
             recognizeText(on: page, selectionBounds: selection.bounds(for: page))
             return

@@ -42,8 +42,6 @@ public struct PrintedPageNumbers: Codable, Equatable {
     public var oddIndexShift: Int
     /// The PDF's own page labels disagree with what is printed (or are missing), so these numbers replace them
     public var replacesPageLabels: Bool
-    /// Front-matter labels printed before the main Arabic numbering begins (e.g. "i", "ii" or "目录 - 1")
-    public var frontMatterLabels: [Int: String]?
 
     public func number(at index: Int) -> Int? {
         guard let run = runs.first(where: { $0.firstIndex <= index && index <= $0.lastIndex }) else { return nil }
@@ -52,9 +50,6 @@ public struct PrintedPageNumbers: Codable, Equatable {
     }
 
     public func label(at index: Int) -> String? {
-        if let frontMatter = frontMatterLabels?[index] {
-            return frontMatter
-        }
         return number(at: index).map(String.init)
     }
 }
@@ -64,6 +59,13 @@ enum PageNumberLabel {
         let value = label.trimmingCharacters(in: .whitespacesAndNewlines)
         let plain = value.replacingOccurrences(of: #"(?<=\d)[,.\u00A0\u202F](?=\d{3}(?:\D|$))"#, with: "", options: .regularExpression)
         return plain.allSatisfy({ $0.isASCII && $0.isNumber }) ? Int(plain).map(String.init) ?? value : value
+    }
+
+    static func positiveNumber(_ label: String) -> Int? {
+        let value = canonical(label)
+        guard !value.isEmpty, value.allSatisfy({ $0.isASCII && $0.isNumber }),
+              let number = Int(value), number > 0 else { return nil }
+        return number
     }
 }
 
@@ -151,37 +153,6 @@ public enum BookPageScanner {
                 writing: textLayerWritingDirection(on: page, box: box),
                 label: page.printedNumber
             )
-        }
-
-        fileprivate func readRawFrontMatterLabel(at index: Int) -> String? {
-            guard index >= 0, index < document.pageCount,
-                  let page = document.page(at: index),
-                  let fullText = page.string,
-                  !fullText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                return nil
-            }
-            let box = page.bounds(for: .cropBox)
-            guard box.width > 40, box.height > 40, page.rotation % 360 == 0 else { return nil }
-            let stripHeight = box.height / 8
-            let bottomRect = CGRect(x: box.minX, y: box.minY, width: box.width, height: stripHeight)
-            let topRect = CGRect(x: box.minX, y: box.maxY - stripHeight, width: box.width, height: stripHeight)
-            let lines = [outermostLineText(in: bottomRect, on: page, box: box, isBottom: true),
-                         outermostLineText(in: topRect, on: page, box: box, isBottom: false)].compactMap { $0 }
-            return lines.first { text in
-                let words = stripPageDecorations(text).split(whereSeparator: \.isWhitespace).map(String.init)
-                return words.first.flatMap(parseRomanNumeral) != nil
-                    || words.last.flatMap(parseRomanNumeral) != nil
-                    || parsePrefixedPageLabel(text) != nil
-            }
-        }
-
-        private func outermostLineText(in rect: CGRect, on page: PDFPage, box: CGRect, isBottom: Bool) -> String? {
-            let items = positionedLines(in: rect, on: page, box: box, isBottom: isBottom)
-            guard let minDist = items.map(\.distanceFromOuterEdge).min() else { return nil }
-            let tolerance: CGFloat = 0.08 // 1% of page height
-            let baseline = items.filter { $0.distanceFromOuterEdge <= minDist + tolerance }
-            guard baseline.count == 1 else { return nil }
-            return baseline[0].text
         }
 
         private func extractStripNumber(
@@ -359,19 +330,17 @@ public enum BookPageScanner {
             offsetOf: offset
         )
 
-        let frontMatter = detectFrontMatterLabels(before: runs[0].firstIndex, reader: reader)
-
         let model = PrintedPageNumbers(
             runs: runs,
             oddIndexShift: oddIndexShift,
-            replacesPageLabels: false,
-            frontMatterLabels: frontMatter.isEmpty ? nil : frontMatter
+            replacesPageLabels: false
         )
         let checked = numbered.filter { model.number(at: $0.index) == $0.number }
         guard checked.count * 10 >= numbered.count * 7 else { return nil }
         let labelsMatch = checked.filter { $0.label == String($0.number!) }.count
         var result = model
-        result.replacesPageLabels = labelsMatch * 10 < checked.count * 8 || !frontMatter.isEmpty
+        result.replacesPageLabels = labelsMatch * 10 < checked.count * 8
+            || runs[0].firstIndex > 0 || runs[runs.count - 1].lastIndex < pageCount - 1
         return result
     }
 
@@ -466,61 +435,6 @@ public enum BookPageScanner {
         return low
     }
 
-    /// Detects sequential Roman numerals ("i", "ii"…) or prefixed section numbers ("目录 - 1", "目录 - 2"…)
-    /// on front-matter pages before `bodyStartIndex`.
-    private static func detectFrontMatterLabels(before bodyStartIndex: Int, reader: PageReader) -> [Int: String] {
-        guard bodyStartIndex >= 2, bodyStartIndex <= 32 else { return [:] }
-        var rawByIndex: [Int: String] = [:]
-        for idx in 0..<bodyStartIndex {
-            if let raw = reader.readRawFrontMatterLabel(at: idx) {
-                rawByIndex[idx] = raw
-            }
-        }
-        guard rawByIndex.count >= 2 else { return [:] }
-
-        var accepted: [Int: String] = [:]
-
-        // 1. Sequential Roman numerals (e.g. i, ii, iii, iv or I, II, III, IV)
-        var romanOffsets: [Int: Int] = [:]
-        var romanValues: [Int: (value: Int, text: String)] = [:]
-        for (idx, text) in rawByIndex {
-            let words = stripPageDecorations(text).split(whereSeparator: \.isWhitespace).map(String.init)
-            let trimmed = words.first.flatMap { parseRomanNumeral($0) == nil ? nil : $0 }
-                ?? words.last.flatMap { parseRomanNumeral($0) == nil ? nil : $0 }
-                ?? stripPageDecorations(text)
-            if let val = parseRomanNumeral(trimmed) {
-                romanValues[idx] = (val, trimmed)
-                romanOffsets[val - idx, default: 0] += 1
-            }
-        }
-        if let (bestOffset, count) = romanOffsets.max(by: { $0.value < $1.value }), count >= 2 {
-            for (idx, entry) in romanValues where entry.value - idx == bestOffset {
-                accepted[idx] = entry.text
-            }
-        }
-
-        // 2. Prefixed sequential front-matter labels (e.g. "目录 - 1" .. "目录 - 5", "TOC 1" .. "TOC 4")
-        var byPrefix: [String: [(idx: Int, number: Int, fullText: String)]] = [:]
-        for (idx, text) in rawByIndex where accepted[idx] == nil {
-            if let parsed = parsePrefixedPageLabel(text) {
-                byPrefix[parsed.prefix, default: []].append((idx, parsed.number, parsed.fullText))
-            }
-        }
-        for (_, group) in byPrefix where group.count >= 2 {
-            var offsets: [Int: Int] = [:]
-            for entry in group {
-                offsets[entry.number - entry.idx, default: 0] += 1
-            }
-            if let (bestOffset, count) = offsets.max(by: { $0.value < $1.value }), count >= 2 {
-                for entry in group where entry.number - entry.idx == bestOffset {
-                    accepted[entry.idx] = entry.fullText
-                }
-            }
-        }
-
-        return accepted
-    }
-
     // MARK: - Candidate Selection & Parsing
 
     /// Ignore nonnumeric publisher lines outside the running header. Within the remaining candidates,
@@ -568,42 +482,6 @@ public enum BookPageScanner {
             return (number, range)
         }
         return nil
-    }
-
-    private static func parseRomanNumeral(_ text: String) -> Int? {
-        guard (1...8).contains(text.count) else { return nil }
-        let upper = text.uppercased()
-        guard text == upper || text == text.lowercased() else { return nil }
-        let values: [Character: Int] = ["I": 1, "V": 5, "X": 10, "L": 50, "C": 100]
-        let chars = Array(upper)
-        guard chars.allSatisfy({ values[$0] != nil }) else { return nil }
-        var total = 0
-        for i in chars.indices {
-            let curr = values[chars[i]]!
-            let next = (i + 1 < chars.count) ? values[chars[i + 1]]! : 0
-            total += curr < next ? -curr : curr
-        }
-        return (1...60).contains(total) ? total : nil
-    }
-
-    private static func parsePrefixedPageLabel(_ raw: String) -> (prefix: String, number: Int, fullText: String)? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count <= 20, !trimmed.contains(".."), !trimmed.contains(";") else { return nil }
-        var digitStart = trimmed.endIndex
-        while digitStart > trimmed.startIndex {
-            let prev = trimmed.index(before: digitStart)
-            if trimmed[prev].isASCII && trimmed[prev].isNumber {
-                digitStart = prev
-            } else {
-                break
-            }
-        }
-        let digits = String(trimmed[digitStart...])
-        let prefix = String(trimmed[..<digitStart]).trimmingCharacters(in: .whitespaces)
-        guard !prefix.isEmpty, (1...3).contains(digits.count), let num = Int(digits), num > 0 else {
-            return nil
-        }
-        return (prefix: prefix, number: num, fullText: trimmed)
     }
 
     // MARK: - Direction

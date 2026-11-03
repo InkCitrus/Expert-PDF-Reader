@@ -65,6 +65,7 @@ enum OCRTextLayout {
         guard !lines.isEmpty else { return ([], 1) }
         let sizes = lines.map { vertical ? $0.width : $0.height }.sorted()
         let glyph = sizes[sizes.count / 2]
+        if !vertical { return (horizontalBlocks(from: lines, glyph: glyph), glyph) }
         var blocks: [[RecognizedTextLine]] = []
         for line in lines.sorted(by: { $0.y < $1.y }) {
             if let last = blocks.last, line.y <= (last.map(\.maxY).max() ?? 0) + glyph * 2 {
@@ -81,6 +82,33 @@ enum OCRTextLayout {
                 return a.x < b.x
             }
         }, glyph)
+    }
+
+    /// Nearby baselines belong together only when their horizontal text spans overlap. Figure labels,
+    /// captions and separate columns can share a baseline without sharing a reading order.
+    private static func horizontalBlocks(from lines: [RecognizedTextLine], glyph: Double) -> [[RecognizedTextLine]] {
+        var blocks: [[RecognizedTextLine]] = []
+        for line in lines.sorted(by: { $0.y == $1.y ? $0.x < $1.x : $0.y < $1.y }) {
+            let candidates = blocks.indices.filter { index in
+                guard let previous = blocks[index].last,
+                      line.y > previous.y + min(line.height, previous.height) * 0.5,
+                      line.y - previous.maxY <= glyph * 2,
+                      max(line.height, previous.height) <= min(line.height, previous.height) * 2 else { return false }
+                let overlap = min(line.x + line.width, previous.x + previous.width) - max(line.x, previous.x)
+                return overlap >= min(line.width, previous.width) * 0.5
+            }
+            let nearest = candidates.min { a, b in
+                let left = blocks[a].last!, right = blocks[b].last!
+                return max(0, line.y - left.maxY) + abs(line.x - left.x) * 0.25
+                    < max(0, line.y - right.maxY) + abs(line.x - right.x) * 0.25
+            }
+            if let nearest { blocks[nearest].append(line) }
+            else { blocks.append([line]) }
+        }
+        return blocks.sorted { left, right in
+            let a = left[0], b = right[0]
+            return a.y == b.y ? a.x < b.x : a.y < b.y
+        }
     }
 
     static func orderedLines(from recognized: [RecognizedTextLine], vertical: Bool, pageHeight: Int? = nil) -> [RecognizedTextLine] {

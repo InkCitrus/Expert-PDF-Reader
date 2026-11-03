@@ -2,31 +2,64 @@ import AppKit
 import PDFKit
 import Vision
 
-/// Some slides cover an imported page's text with a new explanation. PDFKit still selects both layers.
+/// PDFKit can select text outside a nested form's clip or underneath later drawing commands.
+/// Validate the page's native character geometry against its rendered pixels before starting selection.
+@MainActor
 enum PDFSelectionVisibility {
-    static func hasOverlappingText(_ selection: PDFSelection, on page: PDFPage) -> Bool {
-        let lines = selection.selectionsByLine().filter { ($0.string?.count ?? 0) >= 12 }
-            .map { $0.bounds(for: page) }.filter { !$0.isEmpty && !$0.isInfinite && !$0.isNull }
-            .sorted { $0.minY < $1.minY }
-        guard lines.count >= 3 else { return false }
-        let maxHeight = lines.map(\.height).max() ?? 0
-        var overlaps = 0
-        for index in lines.indices {
-            let line = lines[index]
-            for previous in (0..<index).reversed() {
-                let other = lines[previous]
-                if other.minY + maxHeight < line.minY { break }
-                let intersection = line.intersection(other)
-                // Exclude ordinary adjacent lines, separate columns, short formula fragments and
-                // a font's duplicate overprint on the same baseline.
-                if !intersection.isNull,
-                   intersection.height > min(line.height, other.height) * 0.55,
-                   intersection.width > min(line.width, other.width) * 0.5,
-                   (abs(line.midY - other.midY) > min(line.height, other.height) * 0.12
-                    || abs(line.height - other.height) > min(line.height, other.height) * 0.15) {
-                    overlaps += 1
-                    if overlaps >= 2 { return true }
+    private final class Decision {
+        let box: CGRect
+        let requiresRecognition: Bool
+        init(box: CGRect, requiresRecognition: Bool) {
+            self.box = box; self.requiresRecognition = requiresRecognition
+        }
+    }
+    // Weak keys do not keep closed documents alive. A margin change invalidates the saved geometry.
+    private static let decisions = NSMapTable<PDFPage, Decision>(keyOptions: .weakMemory, valueOptions: .strongMemory)
+
+    static func cachedDecision(for page: PDFPage) -> Bool? {
+        guard let decision = decisions.object(forKey: page), decision.box == page.bounds(for: .cropBox) else { return nil }
+        return decision.requiresRecognition
+    }
+
+    static func requiresVisualSelection(on page: PDFPage) -> Bool {
+        if let decision = cachedDecision(for: page) { return decision }
+        let required = page.hasFullPageScanImage || hasInvisibleCharacters(on: page)
+        decisions.setObject(Decision(box: page.bounds(for: .cropBox), requiresRecognition: required), forKey: page)
+        return required
+    }
+
+    private static func hasInvisibleCharacters(on page: PDFPage) -> Bool {
+        let text = (page.string ?? "") as NSString
+        guard page.rotation % 360 == 0, text.length >= 6,
+              let image = PageTextRecognition.render(page, maximumDimension: 1600) else { return false }
+        let box = page.bounds(for: .cropBox)
+        let scaleX = CGFloat(image.width) / box.width, scaleY = CGFloat(image.height) / box.height
+        func isBlank(_ rect: CGRect) -> Bool {
+            let left = max(0, Int(floor((rect.minX - box.minX) * scaleX)) - 1)
+            let right = min(image.width, Int(ceil((rect.maxX - box.minX) * scaleX)) + 1)
+            let top = max(0, Int(floor((box.maxY - rect.maxY) * scaleY)) - 1)
+            let bottom = min(image.height, Int(ceil((box.maxY - rect.minY) * scaleY)) + 1)
+            guard left < right, top < bottom else { return false }
+            var low = UInt8.max, high = UInt8.min
+            for row in top..<bottom {
+                for column in left..<right {
+                    let pixel = image.pixels[row * image.width + column]
+                    low = min(low, pixel); high = max(high, pixel)
+                    if Int(high) - Int(low) > 3 { return false }
                 }
+            }
+            return true
+        }
+        var missing = 0
+        for index in 0..<min(page.numberOfCharacters, text.length) {
+            guard let scalar = Unicode.Scalar(text.character(at: index)), CharacterSet.letters.contains(scalar) else { continue }
+            let rect = page.characterBounds(at: index).intersection(box)
+            guard !rect.isNull, !rect.isInfinite, rect.width > 0.5, rect.height > 1,
+                  rect.width * scaleX >= 1.5, rect.height * scaleY >= 4 else { continue }
+            if isBlank(rect) {
+                missing += 1
+                // Require several absent letters, ignoring spaces, control characters and tiny fragments.
+                if missing >= 6 { return true }
             }
         }
         return false
@@ -168,12 +201,12 @@ enum PageTextRecognition {
         return text
     }
 
-    static func render(_ page: PDFPage) -> BookPageScanner.PageImage? {
+    static func render(_ page: PDFPage, maximumDimension: CGFloat = 2200) -> BookPageScanner.PageImage? {
         let box = page.bounds(for: .cropBox)
         guard box.width > 0, box.height > 0 else { return nil }
         let turned = page.rotation % 180 != 0
         let size = turned ? CGSize(width: box.height, height: box.width) : box.size
-        let scale = min(3, 2200 / max(size.width, size.height))
+        let scale = min(3, maximumDimension / max(size.width, size.height))
         let width = max(1, Int(size.width * scale)), height = max(1, Int(size.height * scale))
         var pixels = [UInt8](repeating: 255, count: width * height)
         let image: CGImage? = pixels.withUnsafeMutableBytes { buffer in

@@ -115,6 +115,7 @@ public struct HomeTabRootView: View {
                             .controlSize(.mini)
                             .font(.system(size: 12))
                             .foregroundColor(AppPalette.labelSecondary(isDark))
+                            .disabled(store.readingThemeMode != .system)
                     }
                     HStack(spacing: 12) {
                         ForEach(PDFReadingThemeMode.allCases) { mode in
@@ -736,6 +737,8 @@ struct DocumentCardView: View {
     let onRemoveRecent: (() -> Void)?
 
     @State private var isHovered = false
+    @State private var filenameAnchor = NSViewAnchor()
+    @State private var filenamePreview = DocumentFilePreview()
 
     /// The page count is read in the background and stays `0` until then
     private var subtitleText: String {
@@ -789,6 +792,7 @@ struct DocumentCardView: View {
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
                 .truncationMode(.middle)
+                .fixedSize(horizontal: false, vertical: true)
 
             Text(subtitleText)
                 .font(.system(size: 10.5))
@@ -796,6 +800,11 @@ struct DocumentCardView: View {
                 .lineLimit(1)
         }
         .frame(maxWidth: .infinity)
+        .background(ViewAnchorRepresentable(anchor: filenameAnchor).allowsHitTesting(false))
+        .onHover { hovering in
+            if hovering { filenamePreview.show(item.url, near: filenameAnchor, isDark: isDark) }
+            else { filenamePreview.hide() }
+        }
         .accessibilityHidden(true)
     }
 
@@ -817,8 +826,8 @@ struct DocumentCardView: View {
         .animation(AppAnimation.snappy, value: isHovered)
         .transition(.opacity.combined(with: .scale(scale: 0.94)))
         .onHover { isHovered = $0 }
+        .onDisappear { filenamePreview.hide() }
         .onTapGesture(perform: onOpen)
-        .help(item.url.path)
         .contextMenu {
             Button(L10n.tr("阅读文档", "Read Document")) { onOpen() }
             Button(item.isFavorite ? L10n.tr("取消收藏", "Remove from Favorites") : L10n.tr("添加到收藏", "Add to Favorites")) { onToggleFavorite() }

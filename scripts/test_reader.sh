@@ -16,6 +16,9 @@ if [[ "${1:-}" == "--ui" || "${1:-}" == "--scene" ]]; then
     TEST_BINARY="$TEST_APP/Contents/MacOS/TabDragQATests"
     mkdir -p "$TEST_APP/Contents/MacOS"
     cp Support/Info.plist "$TEST_APP/Contents/Info.plist"
+    # QA windows are not PDF viewers and must never appear in Finder's Open With menu.
+    /usr/libexec/PlistBuddy -c 'Delete :CFBundleDocumentTypes' "$TEST_APP/Contents/Info.plist"
+    trap '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$TEST_APP" >/dev/null 2>&1 || true; rm -rf "$TEST_APP"' EXIT
     /usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier io.github.inkcitrus.expertpdfreader.selfdragqa' "$TEST_APP/Contents/Info.plist"
     /usr/libexec/PlistBuddy -c 'Set :CFBundleExecutable TabDragQATests' "$TEST_APP/Contents/Info.plist"
     /usr/libexec/PlistBuddy -c 'Set :CFBundleName Tab Drag QA' "$TEST_APP/Contents/Info.plist"

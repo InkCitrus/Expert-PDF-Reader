@@ -2,7 +2,7 @@ import AppKit
 import NaturalLanguage
 import PDFKit
 
-/// Scanned pages keep their original pixels. Only selection uses the recognized character geometry.
+/// Scans and pages with unreliable native text keep their original pixels; selection uses visible glyphs.
 final class OCRTextSelectionOverlay: NSView, NSMenuItemValidation {
     private final class CachedText: NSObject {
         let value: OCRPageText
@@ -92,7 +92,7 @@ final class OCRTextSelectionOverlay: NSView, NSMenuItemValidation {
     private func page(at point: CGPoint) -> PDFPage? {
         guard let pdfView, pdfView.document?.allowsCopying == true,
               let page = pdfView.page(for: convert(point, to: pdfView), nearest: false),
-              page.rotation % 360 == 0, page.hasFullPageScanImage else { return nil }
+              page.rotation % 360 == 0, PDFSelectionVisibility.requiresVisualSelection(on: page) else { return nil }
         let pagePoint = pdfView.convert(convert(point, to: pdfView), to: page)
         if let annotation = page.annotation(at: pagePoint), annotation.action != nil || annotation.type == PDFAnnotationSubtype.widget.rawValue { return nil }
         return page
@@ -110,7 +110,8 @@ final class OCRTextSelectionOverlay: NSView, NSMenuItemValidation {
 
     override func resetCursorRects() {
         guard let pdfView else { return }
-        for page in pdfView.visiblePages where page.rotation % 360 == 0 && page.hasFullPageScanImage {
+        for page in pdfView.visiblePages where page.rotation % 360 == 0
+            && (PDFSelectionVisibility.cachedDecision(for: page) ?? page.hasFullPageScanImage) {
             let rect = convert(pdfView.convert(page.bounds(for: .cropBox), from: page), from: pdfView).intersection(bounds)
             guard !rect.isNull, !rect.isEmpty else { continue }
             let vertical = cache.object(forKey: page)?.value.isVertical ?? ((pdfView as? ThemedPDFView)?.readsRightToLeft == true)

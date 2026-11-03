@@ -171,7 +171,7 @@ extension ReaderWindowSession {
     private var label: NSTextField?
     private weak var markedSession: ReaderWindowSession?
 
-    func update(title: String, at location: TabDragLocation, target: ReaderWindowSession?) {
+    func update(title: String, isDark: Bool, at location: TabDragLocation, target: ReaderWindowSession?) {
         if panel == nil {
             let panel = NSPanel(contentRect: location.previewFrame,
                                 styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -184,7 +184,8 @@ extension ReaderWindowSession {
             let view = NSView(frame: panel.contentView!.bounds)
             view.wantsLayer = true
             view.layer?.cornerRadius = 8
-            view.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.96).cgColor
+            view.layer?.masksToBounds = true
+            view.layer?.borderWidth = 0.5
             let label = NSTextField(labelWithString: title)
             label.frame = NSRect(x: 12, y: (location.tabSize.height - 18) * 0.5,
                                  width: location.tabSize.width - 24, height: 18)
@@ -196,6 +197,12 @@ extension ReaderWindowSession {
             self.panel = panel
             self.label = label
         }
+        // A detached panel does not inherit the source window's appearance. Use the same explicit
+        // palette as its tab strip instead of resolving a dynamic NSColor into a light CGColor.
+        panel?.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
+        panel?.contentView?.layer?.backgroundColor = NSColor(AppPalette.tabSelectedBackground(isDark)).cgColor
+        panel?.contentView?.layer?.borderColor = NSColor(AppPalette.tabSeparator(isDark)).cgColor
+        label?.textColor = NSColor(AppPalette.labelPrimary(isDark))
         label?.stringValue = title
         panel?.setFrame(location.previewFrame, display: true)
         panel?.orderFront(nil)

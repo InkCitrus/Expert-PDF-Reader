@@ -231,7 +231,7 @@ struct TopTabBarView: View {
                         draggingTabID = state.id
                         let target = store.dropTargetWindowAndIndex(atScreenPoint: point, excluding: session.id)?.session
                             ?? (session.containsTabStrip(point) ? session : nil)
-                        dragFeedback.update(title: state.title, at: location, target: target)
+                        dragFeedback.update(title: state.title, isDark: isDark, at: location, target: target)
                     },
                     onDragEnded: { location in
                         draggingTabID = nil
@@ -576,6 +576,10 @@ struct DocumentTabItemView: View {
 
             Button(L10n.tr("在 Finder 中显示", "Show in Finder")) {
                 store.showInFinder(id: state.documentID)
+            }
+            Button(L10n.tr("复制为路径名", "Copy as Pathname")) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(state.documentID.url.path, forType: .string)
             }
         }
     }

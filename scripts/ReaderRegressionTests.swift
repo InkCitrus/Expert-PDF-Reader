@@ -5,7 +5,7 @@ import PDFKit
 
 @main
 struct ReaderRegressionTests {
-    @MainActor static func main() throws {
+    @MainActor static func main() async throws {
         setbuf(stdout, nil)
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.prohibited)
@@ -204,8 +204,29 @@ struct ReaderRegressionTests {
         let coveredPage = coveredDocument.page(at:0)!
         let coveredSelection = coveredPage.selection(for:CGRect(x:30,y:450,width:550,height:100))!
         check(coveredSelection.string?.contains("hidden explanation") == true
-              && PDFSelectionVisibility.hasOverlappingText(coveredSelection,on:coveredPage),
-              "covered PDF text is recognized as overlapping layers rather than copied as visible prose")
+              && PDFSelectionVisibility.requiresVisualSelection(on:coveredPage),
+              "covered PDF text is excluded from native selection using the final rendered page")
+        check(PDFSelectionVisibility.cachedDecision(for:coveredPage) == true,
+              "page visibility is cached so repeated drags do not render the page again")
+        let nativeDocument = PDFDocument(url: alpha)!
+        check(!PDFSelectionVisibility.requiresVisualSelection(on:nativeDocument.page(at:0)!),
+              "ordinary visible digital text keeps native selection and its original characters")
+        let clippedData = NSMutableData()
+        let clippedContext = CGContext(consumer:CGDataConsumer(data:clippedData)!,mediaBox:&coveredBox,nil)!
+        clippedContext.beginPDFPage(nil)
+        clippedContext.saveGState()
+        clippedContext.clip(to:CGRect(x:0,y:0,width:600,height:100))
+        clippedContext.drawPDFPage(nativeDocument.page(at:0)!.pageRef!)
+        clippedContext.restoreGState()
+        clippedContext.endPDFPage();clippedContext.closePDF()
+        let clippedDocument = PDFDocument(data:clippedData as Data)!
+        let clippedPage = clippedDocument.page(at:0)!
+        check(clippedPage.string?.contains("complete paragraph") == true
+              && PDFSelectionVisibility.requiresVisualSelection(on:clippedPage),
+              "nested clipping excludes invisible text even without overlapping replacement lines")
+        clippedPage.setBounds(CGRect(x:0,y:0,width:600,height:100),for:.cropBox)
+        check(PDFSelectionVisibility.cachedDecision(for:clippedPage) == nil,
+              "changing the page crop invalidates cached visibility geometry")
 
         let spreadTab = freshStore().openDocument(at: try fixture("SpreadNavigation"), interactive: false)!
         spreadTab.layoutMode = .twoPages
@@ -233,10 +254,87 @@ struct ReaderRegressionTests {
 
         let mixed = PDFDocument(url: try fixture("MixedNumbers", mixedNumbers: true))!
         let numbers = BookPageScanner.scan(mixed).printedNumbers
-        check(numbers?.label(at: 1) == "i" && numbers?.label(at: 4) == "iv"
+        check(numbers?.label(at: 1) == nil && numbers?.label(at: 4) == nil
               && numbers?.label(at: 5) == "1" && numbers?.label(at: 23) == "19"
               && numbers?.label(at: 0) == nil && numbers?.label(at: 24) == nil,
-              "mixed Roman and Arabic page numbers preserve unnumbered covers")
+              "front matter omits textual labels while Arabic book numbering preserves covers")
+        do {
+            let tab = DocumentTabState(url: mixed.documentURL!, pdfDocument: mixed)
+            var position = tab.readingPosition
+            position.bookPageScan = BookPageScan(printedNumbers: numbers)
+            tab.restore(position)
+            check(tab.displayPageNumber(at: 0) == "(1)" && tab.displayPageNumber(at: 1) == "(2)"
+                  && tab.displayPageNumber(at: 4) == "(5)" && tab.displayPageNumber(at: 5) == "1"
+                  && tab.displayPageNumber(at: 24) == "(25)",
+                  "front matter and unnumbered back covers show parenthesized PDF positions")
+            check(tab.pageIndex(forPageInput: "1") == 5 && tab.pageIndex(forPageInput: "19") == 23,
+                  "bare numbers navigate by book page rather than PDF position")
+            check(tab.pageIndex(forPageInput: "(1)") == 0 && tab.pageIndex(forPageInput: "(25)") == 24,
+                  "parenthesized numbers can reach both unnumbered covers")
+            check(tab.pageIndex(forPageInput: "（２）") == 1 && tab.pageIndex(forPageInput: "１") == 5
+                  && tab.pageIndex(forPageInput: "  ( 2 ) \n") == 1,
+                  "page entry accepts full-width digits, parentheses and surrounding whitespace")
+            check(["", "0", "20", "(0)", "(26)", "-1", "iv", "目录 - 1", "((1))", "+1", "1x"].allSatisfy {
+                tab.pageIndex(forPageInput: $0) == nil
+            }, "invalid book entries do not silently fall back to PDF positions")
+            let legacy = #"{"runs":[{"firstIndex":5,"lastIndex":23,"offset":-4}],"oddIndexShift":0,"replacesPageLabels":true,"frontMatterLabels":{"1":"目录 - 1","2":"ii"}}"#
+            let restored = try JSONDecoder().decode(PrintedPageNumbers.self, from: Data(legacy.utf8))
+            position.bookPageScan = BookPageScan(printedNumbers: restored)
+            tab.restore(position)
+            check(tab.displayPageNumber(at: 1) == "(2)" && tab.pageIndex(forPageInput: "1") == 5,
+                  "saved numbering caches discard legacy front-matter titles without requiring a rescan")
+            let plain = DocumentTabState(url: alpha, pdfDocument: PDFDocument(url: alpha)!)
+            check(plain.pageIndex(forPageInput: "4") == 3 && plain.pageIndex(forPageInput: "(4)") == 3,
+                  "documents without separate book numbering accept both input formats")
+            position.bookPageScan = BookPageScan(printedNumbers: .init(runs: [.init(firstIndex: 3, lastIndex: 22, offset: -2)],
+                oddIndexShift: 2, replacesPageLabels: true))
+            tab.restore(position)
+            check(tab.pageIndex(forPageInput: "2") == 4 && tab.pageIndex(forPageInput: "3") == 3
+                  && tab.pageIndex(forPageInput: "21") == 21 && tab.pageIndex(forPageInput: "20") == 22,
+                  "left-first scanned spreads navigate by printed numbers despite interleaved PDF order")
+        }
+        do {
+            let url = root.appendingPathComponent("ScanCache.pdf")
+            var box = CGRect(x: 0, y: 0, width: 600, height: 800)
+            let image = CGContext(data: nil, width: 600, height: 800, bitsPerComponent: 8, bytesPerRow: 2400,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            image.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1)); image.fill(box)
+            image.setFillColor(CGColor(red: 0, green: 0, blue: 1, alpha: 1)); image.fill(CGRect(x: 300, y: 400, width: 300, height: 400))
+            let context = CGContext(url as CFURL, mediaBox: &box, nil)!
+            context.beginPDFPage(nil); context.draw(image.makeImage()!, in: box); context.endPDFPage(); context.closePDF()
+            let native = PDFDocument(url: url)!, cached = PDFDocument(url: url)!
+            ScannedPageCache.install(on: cached)
+            let a = native.page(at: 0)!, b = cached.page(at: 0)!
+            func tile(_ page: PDFPage, scale: CGFloat, at point: CGPoint) -> Data {
+                let bitmap = CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 256,
+                    space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+                bitmap.setFillColor(gray: 1, alpha: 1); bitmap.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+                bitmap.translateBy(x: -point.x * scale, y: -point.y * scale); bitmap.scaleBy(x: scale, y: scale)
+                page.draw(with: .cropBox, to: bitmap)
+                return Data(bytes: bitmap.data!, count: 64 * 256)
+            }
+            let locations = [CGPoint(x: 40, y: 50), CGPoint(x: 380, y: 500)]
+            check(locations.allSatisfy { tile(a, scale: 4.5, at: $0) == tile(b, scale: 4.5, at: $0) },
+                  "cold scan rasters above 200 percent retain native pixels in separate tiles")
+            let crop = CGRect(x: 80, y: 90, width: 470, height: 610)
+            a.setBounds(crop, for: .cropBox); b.setBounds(crop, for: .cropBox)
+            check(tile(a, scale: 4.5, at: .init(x: 30, y: 40)) == tile(b, scale: 4.5, at: .init(x: 30, y: 40)),
+                  "scan raster keys preserve nonzero crop origins")
+            a.rotation = 90; b.rotation = 90
+            check(tile(a, scale: 2, at: .zero) == tile(b, scale: 2, at: .zero),
+                  "rotated scans retain native drawing")
+            a.rotation = 0; b.rotation = 0
+            let request = ScannedPageCache.PrefetchPage(index: 0, mediaBox: box, cropBox: crop, rotation: 0)
+            await ScannedPageCache.prefetch(url: url, pages: [request], scale: 4.5).value
+            check(tile(a, scale: 4.5, at: .init(x: 30, y: 40)) == tile(b, scale: 4.5, at: .init(x: 30, y: 40)),
+                  "private prefetch copies share valid scan pixels with the visible document")
+            let identity = ScannedPageCache.identity(of: cached)
+            try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(2)], ofItemAtPath: url.path)
+            let changed = PDFDocument(url: url)!
+            ScannedPageCache.install(on: changed)
+            check(ScannedPageCache.identity(of: changed) != identity,
+                  "source file modification invalidates reusable scan document identities")
+        }
         do {
             let url = root.appendingPathComponent("RunningHeaders.pdf")
             var media = CGRect(x: 0, y: 0, width: 600, height: 800)
@@ -328,6 +426,34 @@ struct ReaderRegressionTests {
                                       imageSize: CGSize(width: 200, height: 300), cropBox: CGRect(x: 0, y: 0, width: 200, height: 300))
             check(unicode.selectedText(from: 0, through: 2) == "甲😀乙", "OCR text ranges preserve Unicode surrogate pairs")
             check(text.selectedText(from: -1, through: 1).isEmpty, "invalid OCR selection indices return no text")
+        }
+        do {
+            func row(_ text: String, x: Double, y: Double, width: Double) -> RecognizedTextLine {
+                let step = width / Double(text.count)
+                let characters = text.enumerated().map { index, character in
+                    RecognizedTextCharacter(text: String(character), confidence: 0.99, x: x + Double(index) * step,
+                        y: y, width: step, height: 20)
+                }
+                return .init(text: text, confidence: 0.99, x: x, y: y, width: width, height: 20, characters: characters)
+            }
+            let lines = [row("For a small number of rolls,", x: 100, y: 100, width: 270),
+                         row("but for large numbers", x: 500, y: 110, width: 220),
+                         row("the proportion may differ.", x: 100, y: 122, width: 260),
+                         row("0.1", x: 30, y: 132, width: 25),
+                         row("the proportion is close.", x: 500, y: 132, width: 230),
+                         row("probability of 0.167", x: 100, y: 144, width: 200)]
+            let text = OCRPageText(lines: lines, vertical: false, imageSize: CGSize(width: 800, height: 400),
+                                   cropBox: CGRect(x: 0, y: 0, width: 800, height: 400))
+            let start = text.nearestGlyph(to: CGPoint(x: 101, y: 290))!
+            let end = text.nearestGlyph(to: CGPoint(x: 299, y: 246))!
+            let expected = "For a small number of rolls, the proportion may differ. probability of 0.167"
+            check(text.selectedText(from: start, through: end) == expected,
+                  "selecting a diagram annotation excludes adjacent captions and axis labels")
+            check(text.selectedText(from: end, through: start) == expected,
+                  "reverse dragging preserves the same isolated annotation block")
+            let bounds = text.selectedBounds(from: start, through: end)
+            check(bounds.count == 3 && bounds.allSatisfy { $0.minX >= 100 && $0.maxX <= 370 },
+                  "block selection highlights only the selected caption's lines")
         }
         do {
             let document = PDFDocument(url: alpha)!

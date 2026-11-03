@@ -175,7 +175,7 @@ public struct ReaderToolbarView: View {
             }
         }
         items.append(.separator)
-        items.append(.action(L10n.tr("浅色时使用纸质替代日间", "Use Sepia Instead of Day in Light Mode"), isChecked: store.useSepiaForLightSystemTheme) {
+        items.append(.action(L10n.tr("浅色时使用纸质替代日间", "Use Sepia Instead of Day in Light Mode"), isChecked: store.useSepiaForLightSystemTheme, isEnabled: store.readingThemeMode == .system) {
             store.useSepiaForLightSystemTheme.toggle()
         })
         NativeMenu.popUp(items, below: anchor.view)
@@ -1336,6 +1336,7 @@ struct DocumentViewSettingsPanel: View {
                     .toggleStyle(.switch)
                     .controlSize(.mini)
                     .padding(.top, 2)
+                    .disabled(store.readingThemeMode != .system)
                 }
 
                 // 4. Page Tools (Clear Margins + Rotation)

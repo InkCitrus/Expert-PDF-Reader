@@ -296,25 +296,15 @@ struct PageIndicatorOverlay: View {
                     TextField(goToPagePlaceholder, text: $goToPageInput)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 84)
+                        .accessibilityLabel(Text(L10n.tr("页码", "Page")))
                         .onSubmit(commitGoToPage)
                     Button(L10n.tr("前往", "Go"), action: commitGoToPage)
                         .keyboardShortcut(.defaultAction)
                         .controlSize(.small)
                 }
-                if hasPrintedPageNumbers {
-                    Text(L10n.tr("输入书籍页码，或输入 (n) 跳至第 n 页", "Enter Book Page, or (n) for PDF Page n"))
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(.secondary)
-                }
             }
             .padding(12)
         }
-    }
-
-    /// Books (scans especially) number their pages differently from the PDF, with the cover and front matter
-    /// first: Go to Page then takes the number printed on the page, or "(n)" for the n-th page
-    private var hasPrintedPageNumbers: Bool {
-        !tab.pageIndicesByLabel.isEmpty
     }
 
     private var currentPageInput: String {
@@ -322,23 +312,14 @@ struct PageIndicatorOverlay: View {
     }
 
     private var goToPagePlaceholder: String {
-        let indices = 0..<tab.pageCount
-        guard hasPrintedPageNumbers else {
-            return "1–\(tab.pageCount)"
-        }
-        if let firstArabic = indices.lazy.compactMap({ tab.printedNumber(at: $0) }).first(where: { Int($0) != nil }),
-           let lastArabic = indices.reversed().lazy.compactMap({ tab.printedNumber(at: $0) }).first(where: { Int($0) != nil }) {
-            return "\(firstArabic)–\(lastArabic)"
-        }
-        guard let first = indices.lazy.compactMap({ tab.printedNumber(at: $0) }).first,
-              let last = indices.reversed().lazy.compactMap({ tab.printedNumber(at: $0) }).first else {
+        let numbers = tab.pageIndicesByLabel.keys.compactMap(Int.init)
+        guard let first = numbers.min(), let last = numbers.max() else {
             return "1–\(tab.pageCount)"
         }
         return "\(first)–\(last)"
     }
 
-    /// The printed numbers of the pages in view when the book has its own numbering, then their positions:
-    /// "16, 17" over "18, 19 / 114" for a spread, "n / total" alone otherwise
+    /// Show book numbers above PDF positions only when they differ; front matter uses "n / total".
     private var primaryLine: String {
         let pages = tab.visiblePageIndices
         let printed = pages.compactMap { tab.printedNumber(at: $0) }
@@ -377,19 +358,7 @@ struct PageIndicatorOverlay: View {
     }
 
     private func commitGoToPage() {
-        // Full-width digits typed with a Chinese or Japanese input method count too
-        let input = (goToPageInput.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? goToPageInput)
-            .trimmingCharacters(in: .whitespaces)
-        let position = { (text: Substring) in Int(text).flatMap { (1...tab.pageCount).contains($0) ? $0 - 1 : nil } }
-        let target: Int?
-        if hasPrintedPageNumbers {
-            target = input.hasPrefix("(") && input.hasSuffix(")") && input.count > 2
-                ? position(input.dropFirst().dropLast())
-                : tab.pageIndex(forLabel: input)
-        } else {
-            target = position(Substring(input))
-        }
-        guard let target else {
+        guard let target = tab.pageIndex(forPageInput: goToPageInput) else {
             NSSound.beep()
             return
         }

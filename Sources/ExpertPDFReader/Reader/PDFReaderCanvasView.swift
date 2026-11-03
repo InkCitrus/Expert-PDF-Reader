@@ -436,7 +436,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                   let url = document.documentURL, let page = pdfView.currentPage, page.hasFullPageScanImage else { return }
             let index = document.index(for: page)
             let scale = pdfView.scaleFactor * (pdfView.window?.backingScaleFactor ?? 2)
-            let key = "\(ObjectIdentifier(document)):\(index):\(scale):\(parent.layoutToken):\(pdfView.displayMode.rawValue)"
+            let key = "\(ObjectIdentifier(document)):\(index):\(ScannedPageCache.resolution(for: scale)):\(parent.layoutToken):\(pdfView.displayMode.rawValue)"
             guard key != lastPrefetchKey else { return }
             let direction = index < lastPrefetchPage ? -1 : 1
             lastPrefetchKey = key
@@ -640,7 +640,7 @@ final class ThemedPDFView: PDFView {
         if ocrSelectionOverlay.copySelectionIfPresent() { return }
         if let selection = currentSelection, selection.pages.count == 1,
            let page = selection.pages.first, page.rotation == 0,
-           (page.hasFullPageScanImage || PDFSelectionVisibility.hasOverlappingText(selection, on: page)),
+           PDFSelectionVisibility.requiresVisualSelection(on: page),
            document?.allowsCopying == true {
             recognizeText(on: page, selectionBounds: selection.bounds(for: page))
             return

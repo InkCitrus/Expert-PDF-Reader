@@ -20,16 +20,18 @@ enum ScannedPageCache {
         identitiesLock.lock()
         defer { identitiesLock.unlock() }
         if let identity = identities.object(forKey: document) { return identity as String }
-        let identity: String
-        if let url = document.documentURL,
-           let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]) {
-            identity = "\(url.standardizedFileURL.path):\(values.contentModificationDate?.timeIntervalSince1970 ?? 0):\(values.fileSize ?? 0)"
-        } else {
-            identity = UUID().uuidString
-        }
+        let identity = document.documentURL.flatMap { fileIdentity(for: $0) } ?? UUID().uuidString
         identities.setObject(identity as NSString, forKey: document)
         return identity
     }
+
+    private static func fileIdentity(for url: URL) -> String? {
+        guard let values = try? FileManager.default.attributesOfItem(atPath: url.resolvingSymlinksInPath().path),
+              let modified = values[.modificationDate] as? Date, let size = values[.size] as? NSNumber else { return nil }
+        return "\(url.standardizedFileURL.path):\(modified.timeIntervalSince1970):\(size)"
+    }
+
+    static func resolution(for scale: CGFloat) -> CGFloat { max(1, ceil(scale * 2) / 2) }
 
     struct PrefetchPage: Sendable {
         let index: Int
@@ -50,10 +52,12 @@ enum ScannedPageCache {
 
         func prepare(url: URL, pages: [PrefetchPage], scale: CGFloat) {
             guard !Task.isCancelled else { return }
-            guard let copy = PDFDocument(url: url), !copy.isLocked else { return }
-            ScannedPageCache.install(on: copy)
-            let copyIdentity = ScannedPageCache.identity(of: copy)
-            if identity != copyIdentity { document = copy; identity = copyIdentity }
+            if document == nil || identity != ScannedPageCache.fileIdentity(for: url) {
+                guard let copy = PDFDocument(url: url), !copy.isLocked else { return }
+                ScannedPageCache.install(on: copy)
+                document = copy
+                identity = ScannedPageCache.identity(of: copy)
+            }
             guard let document else { return }
             for request in pages {
                 guard !Task.isCancelled else { return }
@@ -146,10 +150,10 @@ final class CachedScanPage: PDFPage {
     override func draw(with box: PDFDisplayBox, to context: CGContext) {
         let transform = context.ctm
         let scale = max(hypot(transform.a, transform.b), hypot(transform.c, transform.d))
-        // Printing/exporting and very deep zoom retain the original vector/image drawing path.
+        // Printing/exporting and images beyond the raster pixel budget retain the original drawing path.
         guard context.width > 0, context.height > 0,
-              let raster = raster(with: box, scale: scale, onlyCached: scale > 4) else { super.draw(with: box, to: context); return }
-        let resolution = max(1, ceil(scale * 2) / 2)
+              let raster = raster(with: box, scale: scale) else { super.draw(with: box, to: context); return }
+        let resolution = ScannedPageCache.resolution(for: scale)
         context.saveGState()
         context.interpolationQuality = .high
         context.draw(raster.image, in: CGRect(x: 0, y: 0, width: CGFloat(raster.image.width) / resolution,
@@ -159,16 +163,15 @@ final class CachedScanPage: PDFPage {
 
     fileprivate func warmRaster(with box: PDFDisplayBox, scale: CGFloat) { _ = raster(with: box, scale: scale, waits: true) }
 
-    private func raster(with box: PDFDisplayBox, scale: CGFloat, onlyCached: Bool = false, waits: Bool = false) -> Raster? {
+    private func raster(with box: PDFDisplayBox, scale: CGFloat, waits: Bool = false) -> Raster? {
         guard rotation == 0, scale.isFinite, scale > 0, scale <= 8, annotations.isEmpty else { return nil }
         let displayed = bounds(for: box)
-        let resolution = max(1, ceil(scale * 2) / 2)
+        let resolution = ScannedPageCache.resolution(for: scale)
         let width = Int(ceil(displayed.width * resolution)), height = Int(ceil(displayed.height * resolution))
         guard width > 0, height > 0, width * height <= 24_000_000 else { return nil }
         let state = rasterState
         let key = "\(state.id):\(box.rawValue):\(displayed):\(bounds(for: .mediaBox)):\(width)x\(height)" as NSString
         if let cached = Self.cache.object(forKey: key) { return cached }
-        guard !onlyCached else { return nil }
         // A visible tile never waits for an adjacent-page worker. Keep drawing natively until it is ready.
         if waits { state.lock.lock() }
         else if !state.lock.try() { return nil }

@@ -577,6 +577,10 @@ struct DocumentTabItemView: View {
             Button(L10n.tr("在 Finder 中显示", "Show in Finder")) {
                 store.showInFinder(id: state.documentID)
             }
+            Button(L10n.tr("复制为路径名", "Copy as Pathname")) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(state.documentID.url.path, forType: .string)
+            }
         }
     }
 

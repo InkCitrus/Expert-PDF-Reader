@@ -254,10 +254,39 @@ struct ReaderRegressionTests {
 
         let mixed = PDFDocument(url: try fixture("MixedNumbers", mixedNumbers: true))!
         let numbers = BookPageScanner.scan(mixed).printedNumbers
-        check(numbers?.label(at: 1) == "i" && numbers?.label(at: 4) == "iv"
+        check(numbers?.label(at: 1) == nil && numbers?.label(at: 4) == nil
               && numbers?.label(at: 5) == "1" && numbers?.label(at: 23) == "19"
               && numbers?.label(at: 0) == nil && numbers?.label(at: 24) == nil,
-              "mixed Roman and Arabic page numbers preserve unnumbered covers")
+              "front matter omits textual labels while Arabic book numbering preserves covers")
+        do {
+            let tab = DocumentTabState(url: mixed.documentURL!, pdfDocument: mixed)
+            var position = tab.readingPosition
+            position.bookPageScan = BookPageScan(printedNumbers: numbers)
+            tab.restore(position)
+            check(tab.displayPageNumber(at: 0) == "(1)" && tab.displayPageNumber(at: 1) == "(2)"
+                  && tab.displayPageNumber(at: 4) == "(5)" && tab.displayPageNumber(at: 5) == "1"
+                  && tab.displayPageNumber(at: 24) == "(25)",
+                  "front matter and unnumbered back covers show parenthesized PDF positions")
+            check(tab.pageIndex(forPageInput: "1") == 5 && tab.pageIndex(forPageInput: "19") == 23,
+                  "bare numbers navigate by book page rather than PDF position")
+            check(tab.pageIndex(forPageInput: "(1)") == 0 && tab.pageIndex(forPageInput: "(25)") == 24,
+                  "parenthesized numbers can reach both unnumbered covers")
+            check(tab.pageIndex(forPageInput: "（２）") == 1 && tab.pageIndex(forPageInput: "１") == 5
+                  && tab.pageIndex(forPageInput: "  ( 2 ) \n") == 1,
+                  "page entry accepts full-width digits, parentheses and surrounding whitespace")
+            check(["", "0", "20", "(0)", "(26)", "-1", "iv", "目录 - 1", "((1))", "+1", "1x"].allSatisfy {
+                tab.pageIndex(forPageInput: $0) == nil
+            }, "invalid book entries do not silently fall back to PDF positions")
+            let legacy = #"{"runs":[{"firstIndex":5,"lastIndex":23,"offset":-4}],"oddIndexShift":0,"replacesPageLabels":true,"frontMatterLabels":{"1":"目录 - 1","2":"ii"}}"#
+            let restored = try JSONDecoder().decode(PrintedPageNumbers.self, from: Data(legacy.utf8))
+            position.bookPageScan = BookPageScan(printedNumbers: restored)
+            tab.restore(position)
+            check(tab.displayPageNumber(at: 1) == "(2)" && tab.pageIndex(forPageInput: "1") == 5,
+                  "saved numbering caches discard legacy front-matter titles without requiring a rescan")
+            let plain = DocumentTabState(url: alpha, pdfDocument: PDFDocument(url: alpha)!)
+            check(plain.pageIndex(forPageInput: "4") == 3 && plain.pageIndex(forPageInput: "(4)") == 3,
+                  "documents without separate book numbering accept both input formats")
+        }
         do {
             let url = root.appendingPathComponent("RunningHeaders.pdf")
             var media = CGRect(x: 0, y: 0, width: 600, height: 800)

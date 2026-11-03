@@ -500,11 +500,9 @@ extension PDFDocument {
 }
 
 extension PDFPage {
-    /// The number printed on the page per the PDF's page labels; scans often give their unnumbered
-    /// front matter an empty label, which counts as none
+    /// Only Arabic book page numbers are exposed. Front-matter titles and Roman labels use PDF positions.
     public var printedNumber: String? {
-        guard let label = label?.trimmingCharacters(in: .whitespaces), !label.isEmpty else { return nil }
-        return PageNumberLabel.canonical(label)
+        label.flatMap(PageNumberLabel.positiveNumber).map(String.init)
     }
 }
 
@@ -796,7 +794,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         pdfDocument.pageCount
     }
 
-    /// Printed page numbers from the PDF's page labels (a scanned book's "iv" or "10" on its 31st page),
+    /// Numeric book page numbers (a scanned book's "10" on its 31st page),
     /// label → page indices; empty when every label is just the page's position
     public var pageIndicesByLabel: [String: [Int]] {
         if let cached = cachedPageIndicesByLabel { return cached }
@@ -808,9 +806,12 @@ public final class DocumentTabState: ObservableObject, Identifiable {
             return [:]
         }
         var map: [String: [Int]] = [:]
-        var hasPrintedNumbers = false
+        var hasPrintedNumbers = pageScan?.printedNumbers?.replacesPageLabels == true
         for idx in 0..<pdfDocument.pageCount {
-            guard let label = printedNumber(at: idx) else { continue }
+            guard let label = printedNumber(at: idx) else {
+                hasPrintedNumbers = true
+                continue
+            }
             map[label, default: []].append(idx)
             if label != "\(idx + 1)" { hasPrintedNumbers = true }
         }
@@ -828,13 +829,24 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         return pageIndicesByLabel.isEmpty ? "\(index + 1)" : "(\(index + 1))"
     }
 
-    /// The page printed with `label`, ignoring case only when nothing matches exactly (a book may letter its
-    /// cover pages "A", "B"… and number the preface "i", "ii"…); when several pages share it (numbering
-    /// restarts per part), the one nearest to the current page
+    /// The page printed with this number; when numbering restarts per part, choose the nearest match.
     public func pageIndex(forLabel label: String) -> Int? {
-        let candidates = pageIndicesByLabel[label]
-            ?? pageIndicesByLabel.filter { $0.key.caseInsensitiveCompare(label) == .orderedSame }.flatMap(\.value)
-        return candidates.min { abs($0 - currentPageIndex) < abs($1 - currentPageIndex) }
+        guard let number = PageNumberLabel.positiveNumber(label) else { return nil }
+        return pageIndicesByLabel[String(number)]?.min { abs($0 - currentPageIndex) < abs($1 - currentPageIndex) }
+    }
+
+    /// Bare numbers address book pages. Parenthesized numbers always address positions in the PDF.
+    public func pageIndex(forPageInput raw: String) -> Int? {
+        let input = (raw.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? raw)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if input.hasPrefix("("), input.hasSuffix(")"), input.count > 2 {
+            guard let position = PageNumberLabel.positiveNumber(String(input.dropFirst().dropLast())),
+                  (1...pageCount).contains(position) else { return nil }
+            return position - 1
+        }
+        guard let number = PageNumberLabel.positiveNumber(input) else { return nil }
+        if !pageIndicesByLabel.isEmpty { return pageIndex(forLabel: String(number)) }
+        return (1...pageCount).contains(number) ? number - 1 : nil
     }
 
     public var readingPosition: ReadingPosition {

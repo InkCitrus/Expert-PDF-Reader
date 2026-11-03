@@ -436,7 +436,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                   let url = document.documentURL, let page = pdfView.currentPage, page.hasFullPageScanImage else { return }
             let index = document.index(for: page)
             let scale = pdfView.scaleFactor * (pdfView.window?.backingScaleFactor ?? 2)
-            let key = "\(ObjectIdentifier(document)):\(index):\(scale):\(parent.layoutToken):\(pdfView.displayMode.rawValue)"
+            let key = "\(ObjectIdentifier(document)):\(index):\(ScannedPageCache.resolution(for: scale)):\(parent.layoutToken):\(pdfView.displayMode.rawValue)"
             guard key != lastPrefetchKey else { return }
             let direction = index < lastPrefetchPage ? -1 : 1
             lastPrefetchKey = key

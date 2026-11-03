@@ -307,27 +307,13 @@ struct PageIndicatorOverlay: View {
         }
     }
 
-    /// Books (scans especially) number their pages differently from the PDF, with the cover and front matter
-    /// first: Go to Page then takes the number printed on the page, or "(n)" for the n-th page
-    private var hasPrintedPageNumbers: Bool {
-        !tab.pageIndicesByLabel.isEmpty
-    }
-
     private var currentPageInput: String {
         tab.displayPageNumber(at: tab.currentPageIndex)
     }
 
     private var goToPagePlaceholder: String {
-        let indices = 0..<tab.pageCount
-        guard hasPrintedPageNumbers else {
-            return "1–\(tab.pageCount)"
-        }
-        if let firstArabic = indices.lazy.compactMap({ tab.printedNumber(at: $0) }).first(where: { Int($0) != nil }),
-           let lastArabic = indices.reversed().lazy.compactMap({ tab.printedNumber(at: $0) }).first(where: { Int($0) != nil }) {
-            return "\(firstArabic)–\(lastArabic)"
-        }
-        guard let first = indices.lazy.compactMap({ tab.printedNumber(at: $0) }).first,
-              let last = indices.reversed().lazy.compactMap({ tab.printedNumber(at: $0) }).first else {
+        let numbers = tab.pageIndicesByLabel.keys.compactMap(Int.init)
+        guard let first = numbers.min(), let last = numbers.max() else {
             return "1–\(tab.pageCount)"
         }
         return "\(first)–\(last)"

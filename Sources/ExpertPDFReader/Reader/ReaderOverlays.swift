@@ -302,11 +302,6 @@ struct PageIndicatorOverlay: View {
                         .keyboardShortcut(.defaultAction)
                         .controlSize(.small)
                 }
-                if hasPrintedPageNumbers {
-                    Text(L10n.tr("输入书籍页码，或输入 (n) 跳至第 n 页", "Enter Book Page, or (n) for PDF Page n"))
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(.secondary)
-                }
             }
             .padding(12)
         }

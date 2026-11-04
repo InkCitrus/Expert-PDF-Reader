@@ -872,7 +872,10 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         if let pageDirection = position.pageDirection {
             self.pageDirection = pageDirection
         }
-        if let pageScan = position.bookPageScan, pageScan.version == BookPageScan.currentVersion {
+        if var pageScan = position.bookPageScan, pageScan.version == BookPageScan.currentVersion {
+            if let numbers = pageScan.printedNumbers {
+                pageScan.printedNumbers = BookPageScanner.refiningArticleOpening(numbers, in: pdfDocument)
+            }
             self.pageScan = pageScan
         }
     }

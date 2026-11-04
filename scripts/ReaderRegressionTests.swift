@@ -362,6 +362,54 @@ struct ReaderRegressionTests {
                   "single-space running titles below publisher text recognize repeated inserted pages")
         }
         do {
+            func article(_ name: String, range: String = "595–622", mismatchedSecondPage: Bool = false) -> PDFDocument {
+                let url = root.appendingPathComponent(name).appendingPathExtension("pdf")
+                var box = CGRect(x: 0, y: 0, width: 600, height: 800)
+                let context = CGContext(url as CFURL, mediaBox: &box, nil)!
+                for index in 0..<29 {
+                    context.beginPDFPage(nil)
+                    NSGraphicsContext.saveGraphicsState()
+                    NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+                    let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12)]
+                    let header = index == 0 ? "2023" : (index == 1 ? "2023, VOL. 20, NO. 2, \(range)"
+                        : "\(594 + index + (mismatchedSecondPage && index == 3 ? 1 : 0)) JOURNAL AUTHOR")
+                    (header as NSString).draw(at: CGPoint(x: 45, y: 750), withAttributes: attributes)
+                    let body = index == 0 ? "Publisher download page. Cite this article: 595–622."
+                        : "ABSTRACT and Introduction. A complete paragraph for article pagination."
+                    (body as NSString).draw(at: CGPoint(x: 50, y: 500), withAttributes: attributes)
+                    NSGraphicsContext.restoreGraphicsState()
+                    context.endPDFPage()
+                }
+                context.closePDF()
+                return PDFDocument(url: url)!
+            }
+            let document = article("JournalOpening")
+            let scan = BookPageScanner.scan(document)
+            check(scan.printedNumbers?.number(at: 0) == nil && scan.printedNumbers?.number(at: 1) == 595
+                  && scan.printedNumbers?.number(at: 2) == 596 && scan.printedNumbers?.number(at: 28) == 622,
+                  "a corroborated journal range includes the unnumbered article opening and excludes its publisher cover")
+            let legacy = PrintedPageNumbers(runs: [.init(firstIndex: 2, lastIndex: 28, offset: 594)],
+                                           oddIndexShift: 0, replacesPageLabels: true)
+            let tab = DocumentTabState(url: document.documentURL!, pdfDocument: document)
+            var position = tab.readingPosition
+            position.bookPageScan = BookPageScan(printedNumbers: legacy)
+            tab.restore(position)
+            check(tab.displayPageNumber(at: 0) == "(1)" && tab.displayPageNumber(at: 1) == "595"
+                  && tab.pageIndex(forPageInput: "595") == 1 && tab.pageIndex(forPageInput: "(1)") == 0,
+                  "old journal caches are refined without changing numeric and PDF-position navigation")
+            for (name, range) in [("UnrelatedYears", "2021–2023"), ("WrongFirstPage", "594–622"), ("WrongEndPage", "595–623")] {
+                check(BookPageScanner.refiningArticleOpening(legacy, in: article(name, range: range)) == legacy,
+                      "journal refinement ignores an uncorroborated range: \(name)")
+            }
+            check(BookPageScanner.refiningArticleOpening(legacy, in: article("WrongNeighbour", mismatchedSecondPage: true)) == legacy,
+                  "journal refinement requires both following printed numbers to agree")
+            let bookNumbers = PrintedPageNumbers(runs: [.init(firstIndex: 5, lastIndex: 23, offset: -4)],
+                                                oddIndexShift: 0, replacesPageLabels: true)
+            let bookDocument = PDFDocument(url: try fixture("NormalBook", mixedNumbers: true))!
+            check(BookPageScanner.refiningArticleOpening(bookNumbers, in: bookDocument) == bookNumbers,
+                  "ordinary book front matter and numbering caches remain unchanged")
+        }
+        do {
             check(PageNumberLabel.canonical("1,210") == "1210" && PageNumberLabel.canonical("1.210") == "1210"
                   && PageNumberLabel.canonical("1\u{202F}210") == "1210" && PageNumberLabel.canonical("A-1,210") == "A-1,210",
                   "localized numeric PDF labels do not create duplicate book page indicators")

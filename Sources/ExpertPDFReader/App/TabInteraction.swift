@@ -92,27 +92,44 @@ final class TabInteractionView: NSView {
 
 struct TabStripAnchor: NSViewRepresentable {
     let session: ReaderWindowSession
+    let axis: Axis
 
     func makeNSView(context: Context) -> NSView {
         let view = TabStripAnchorView()
-        session.tabStripView = view
+        view.session = session
+        view.axis = axis
         return view
     }
 
-    func updateNSView(_ view: NSView, context: Context) {
-        session.tabStripView = view
-    }
+    func updateNSView(_ view: NSView, context: Context) {}
 }
 
 private final class TabStripAnchorView: NSView {
-    var insertionX: CGFloat? { didSet { needsDisplay = true } }
+    weak var session: ReaderWindowSession?
+    var axis: Axis = .horizontal
+    var insertionPosition: CGFloat? { didSet { needsDisplay = true } }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil {
+            session?.tabStripView = self
+        } else if session?.tabStripView === self {
+            session?.tabStripView = nil
+        }
+    }
+
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func isAccessibilityElement() -> Bool { false }
     override func draw(_ dirtyRect: NSRect) {
-        guard let insertionX else { return }
+        guard let insertionPosition else { return }
+        let caret: NSRect
+        if axis == .vertical {
+            caret = NSRect(x: 6, y: insertionPosition - 1.5, width: bounds.width - 12, height: 3)
+        } else {
+            caret = NSRect(x: insertionPosition - 1.5, y: 4, width: 3, height: bounds.height - 8)
+        }
         NSColor.controlAccentColor.setFill()
-        NSBezierPath(roundedRect: NSRect(x: insertionX - 1.5, y: 4, width: 3, height: bounds.height - 8),
-                     xRadius: 1.5, yRadius: 1.5).fill()
+        NSBezierPath(roundedRect: caret, xRadius: 1.5, yRadius: 1.5).fill()
     }
 }
 
@@ -147,19 +164,35 @@ extension ReaderWindowSession {
     }
 
     func nearestDocumentIndex(at point: NSPoint) -> Int? {
-        documentTabFrames.min { abs($0.frame.midX - point.x) < abs($1.frame.midX - point.x) }?.index
+        if (tabStripView as? TabStripAnchorView)?.axis == .vertical {
+            return documentTabFrames.min { abs($0.frame.midY - point.y) < abs($1.frame.midY - point.y) }?.index
+        }
+        return documentTabFrames.min { abs($0.frame.midX - point.x) < abs($1.frame.midX - point.x) }?.index
     }
 
     func documentInsertionIndex(at point: NSPoint) -> Int {
-        documentTabFrames.first { point.x < $0.frame.midX }?.index ?? tabs.filter { !$0.isHome }.count
+        documentTabFrames.first { isBeforeTab($0.frame, at: point) }?.index ?? tabs.filter { !$0.isHome }.count
+    }
+
+    private func isBeforeTab(_ frame: NSRect, at point: NSPoint) -> Bool {
+        if (tabStripView as? TabStripAnchorView)?.axis == .vertical {
+            return point.y > frame.midY
+        }
+        return point.x < frame.midX
     }
 
     func showTabInsertion(at point: NSPoint?) {
         guard let view = tabStripView as? TabStripAnchorView, let window = view.window else { return }
-        guard let point else { view.insertionX = nil; view.displayIfNeeded(); return }
+        guard var point else { view.insertionPosition = nil; view.displayIfNeeded(); return }
         let frames = documentTabFrames
-        let x = frames.first { point.x < $0.frame.midX }?.frame.minX ?? frames.last?.frame.maxX ?? point.x
-        view.insertionX = view.convert(window.convertPoint(fromScreen: NSPoint(x: x, y: point.y)), from: nil).x
+        let next = frames.first { isBeforeTab($0.frame, at: point) }?.frame
+        if view.axis == .vertical {
+            point.y = next?.maxY ?? frames.last?.frame.minY ?? point.y
+        } else {
+            point.x = next?.minX ?? frames.last?.frame.maxX ?? point.x
+        }
+        let local = view.convert(window.convertPoint(fromScreen: point), from: nil)
+        view.insertionPosition = view.axis == .vertical ? local.y : local.x
         view.displayIfNeeded()
     }
 }

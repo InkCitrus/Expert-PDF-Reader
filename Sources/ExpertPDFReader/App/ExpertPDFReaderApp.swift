@@ -338,18 +338,28 @@ struct ReaderMenuCommands: Commands {
         // View Menu: the reader's commands join the system View menu (above Enter Full Screen)
         // instead of a second menu titled View
         CommandGroup(before: .toolbar) {
-            Button(store.activeDocumentTab?.isLeftSidebarVisible == true ? L10n.tr("隐藏左边面板", "Hide Left Panel") : L10n.tr("显示左边面板", "Show Left Panel")) {
-                guard let tab = store.activeDocumentTab else { return }
+            Toggle(L10n.tr("在侧边栏显示标签页", "Show Tabs in Sidebar"), isOn: $store.tabsInSidebar)
+            Divider()
+
+            let showNavigationTitle = store.activeSession.sidebarPanel == .navigation
+                ? L10n.tr("隐藏导航", "Hide Navigation") : L10n.tr("显示导航", "Show Navigation")
+            let showLeftPanelTitle = store.activeDocumentTab?.isLeftSidebarVisible == true
+                ? L10n.tr("隐藏左边面板", "Hide Left Panel") : L10n.tr("显示左边面板", "Show Left Panel")
+            Button(store.tabsInSidebar ? showNavigationTitle : showLeftPanelTitle) {
                 withAnimation(AppAnimation.panel) {
-                    if tab.isLeftSidebarVisible {
-                        tab.isLeftSidebarVisible = false
-                    } else {
-                        tab.toggleLeftPanel(.documentSummary)
+                    if store.tabsInSidebar {
+                        store.activeSession.toggleSidebar(.navigation)
+                    } else if let tab = store.activeDocumentTab {
+                        if tab.isLeftSidebarVisible {
+                            tab.isLeftSidebarVisible = false
+                        } else {
+                            tab.toggleLeftPanel(.documentSummary)
+                        }
                     }
                 }
             }
             .keyboardShortcut("b", modifiers: [.command])
-            .disabled(store.activeDocumentTab == nil)
+            .disabled(!store.tabsInSidebar && store.activeDocumentTab == nil)
 
             Button(store.activeDocumentTab?.isPageOverviewVisible == true ? L10n.tr("关闭页面概览", "Close Page Overview") : L10n.tr("页面概览", "Page Overview")) {
                 withAnimation(AppAnimation.panel) {
@@ -361,7 +371,7 @@ struct ReaderMenuCommands: Commands {
 
             Button(L10n.tr("缩略图", "Thumbnails")) {
                 withAnimation(AppAnimation.panel) {
-                    store.activeDocumentTab?.showSidebarTab(.thumbnails)
+                    store.showSidebarTab(.thumbnails)
                 }
             }
             .keyboardShortcut("2", modifiers: [.control, .command])
@@ -369,7 +379,7 @@ struct ReaderMenuCommands: Commands {
 
             Button(L10n.tr("大纲", "Outline")) {
                 withAnimation(AppAnimation.panel) {
-                    store.activeDocumentTab?.showSidebarTab(.outline)
+                    store.showSidebarTab(.outline)
                 }
             }
             .keyboardShortcut("3", modifiers: [.control, .command])
@@ -377,7 +387,7 @@ struct ReaderMenuCommands: Commands {
 
             Button(L10n.tr("书签", "Bookmarks")) {
                 withAnimation(AppAnimation.panel) {
-                    store.activeDocumentTab?.showSidebarTab(.bookmarks)
+                    store.showSidebarTab(.bookmarks)
                 }
             }
             .keyboardShortcut("4", modifiers: [.control, .command])
@@ -385,7 +395,7 @@ struct ReaderMenuCommands: Commands {
 
             Button(L10n.tr("显示选项", "View Settings")) {
                 withAnimation(AppAnimation.panel) {
-                    store.activeDocumentTab?.toggleLeftPanel(.viewSettings)
+                    store.toggleViewSettings(in: store.activeSession)
                 }
             }
             .disabled(store.activeDocumentTab == nil)

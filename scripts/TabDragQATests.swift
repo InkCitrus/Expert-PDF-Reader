@@ -38,6 +38,13 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         return !window.titlebarAccessoryViewControllers.isEmpty && abs(rect.maxY - window.frame.maxY) < 2
             && abs(rect.height - MainWindowView.tabStripHeight) < 1
     }
+
+    func tabsAreInSidebar(_ session: ReaderWindowSession) -> Bool {
+        guard let window = session.nsWindow, let strip = session.tabStripView else { return false }
+        let rect = window.convertToScreen(strip.convert(strip.bounds, to: nil))
+        return abs(rect.minX - window.frame.minX) < 2 && rect.height > MainWindowView.tabStripHeight
+            && rect.maxY < window.frame.maxY - MainWindowView.tabStripHeight
+    }
     func settle() async { try? await Task.sleep(nanoseconds: 650_000_000) }
 
     func checkPreviewThemes() {
@@ -165,6 +172,68 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         check(session.selectedTabID == selectedID && session.tabs.map(\.id) == tabOrder,
               "Home drag neither selects Home nor reorders document tabs")
     }
+
+    func checkSidebarTabs(_ primary: ReaderWindowSession) async {
+        let originalOrder = names(primary)
+        let originalTab = primary.activeDocumentTab
+        store.tabsInSidebar = true
+        await settle()
+        check(tabsAreInSidebar(primary) && names(primary) == originalOrder && primary.activeDocumentTab === originalTab,
+              "moving tabs into the sidebar preserves tab order and selection")
+
+        store.activateWindowSession(primary.id)
+        primary.toggleSidebar(.openDocuments)
+        store.showSidebarTab(.outline)
+        await settle()
+        check(primary.sidebarPanel == .navigation
+              && originalTab?.activeSidebarTab == .outline && !tabsAreInSidebar(primary),
+              "opening the outline from a hidden sidebar replaces the document list")
+
+        primary.toggleSidebar(.openDocuments)
+        await settle()
+        check(tabsAreInSidebar(primary) && primary.activeDocumentTab === originalTab,
+              "returning to open documents keeps the selected PDF")
+
+        store.openNewHomeTab(in: primary.id)
+        await settle()
+        check(primary.activeDocumentTab == nil && primary.sidebarPanel == .navigation
+              && primary.tabStripView?.window == nil,
+              "going Home opens its navigation even when the document list was visible")
+        primary.toggleSidebar(.openDocuments)
+        if let originalTab { primary.selectedTabID = originalTab.id }
+        await settle()
+
+        await drag("Gamma", from: primary, to: center("Beta", in: primary))
+        check(names(primary) == ["Gamma", "Beta", "Alpha"] && primary.activeDocumentTab?.title == "Gamma",
+              "dragging vertically reorders and selects a sidebar tab")
+
+        let gamma = tab("Gamma", in: primary)
+        var outside = center("Gamma", in: primary)
+        outside.x += 300
+        await drag("Gamma", from: primary, to: outside)
+        if let detached = store.detachedSessions.first {
+            check(tabsAreInSidebar(detached) && detached.activeDocumentTab === gamma && names(primary) == ["Beta", "Alpha"],
+                  "a sidebar tab tears off into a window with the same layout")
+            window.setFrame(NSRect(x: 40, y: 350, width: 820, height: 600), display: true)
+            detached.nsWindow?.setFrame(NSRect(x: 400, y: 80, width: 820, height: 600), display: true)
+            await settle()
+            var destination = center("Alpha", in: primary)
+            destination.y += 8
+            await drag("Gamma", from: detached, to: destination)
+            check(store.detachedSessions.isEmpty && names(primary) == ["Beta", "Gamma", "Alpha"],
+                  "cross-window sidebar drops insert before the correct row")
+        } else {
+            check(false, "a sidebar tab tears off into a window with the same layout")
+        }
+
+        let reordered = names(primary)
+        if let originalTab { primary.selectedTabID = originalTab.id }
+        store.tabsInSidebar = false
+        await settle()
+        check(tabsAreInContent(primary) && names(primary) == reordered && primary.activeDocumentTab === originalTab,
+              "returning to the titlebar preserves the reordered tabs and reading state")
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSWindow.allowsAutomaticWindowTabbing = false
         let domain = Bundle.main.bundleIdentifier!
@@ -249,6 +318,7 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
                 check(primary.activeDocumentTab === alpha && alpha.currentPageIndex == 2 && store.closedTabs.isEmpty,
                       "cross-window dragging keeps reading state without creating a closed-tab record")
             }
+            await checkSidebarTabs(primary)
             let renamed = fixtureDirectory.appendingPathComponent("Alpha-renamed.pdf")
             let active = primary.activeDocumentTab!
             try! FileManager.default.moveItem(at: active.documentID.url, to: renamed)

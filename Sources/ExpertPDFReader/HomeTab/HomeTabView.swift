@@ -36,7 +36,7 @@ public struct HomeTabRootView: View {
 
     public var body: some View {
         HStack(spacing: 0) {
-            if !isStandaloneSplitPane {
+            if !isStandaloneSplitPane && !store.tabsInSidebar {
                 HomeTabSidebarView(store: store, session: session)
                     .frame(width: Self.sidebarWidth)
                     .frame(maxHeight: .infinity)
@@ -44,7 +44,7 @@ public struct HomeTabRootView: View {
 
             pageContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(AppPalette.homeContentBackground(isDark))
+                .background(AppPalette.homeContentBackground(isDark), ignoresSafeAreaEdges: [])
         }
         .overlay {
             // Drag-and-Drop Overlay (DropOverlayView)
@@ -403,7 +403,7 @@ struct HomeTabSidebarView: View {
         .padding(.horizontal, 12)
         .padding(.top, 14)
         .padding(.bottom, 14)
-        .background(AppPalette.homeSidebarBackground(isDark))
+        .background(AppPalette.homeSidebarBackground(isDark), ignoresSafeAreaEdges: [])
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Text(L10n.tr("主页导航栏", "Home Sidebar")))
     }

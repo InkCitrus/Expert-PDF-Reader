@@ -32,7 +32,7 @@ public struct ReaderToolbarView: View {
             toolbarContent(.minimal)
         }
         .frame(height: Self.height)
-        .background(AppPalette.toolbarBackground(isDark))
+        .background(AppPalette.toolbarBackground(isDark), ignoresSafeAreaEdges: [])
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(AppPalette.chromeHairline(isDark))
@@ -48,41 +48,42 @@ public struct ReaderToolbarView: View {
     private func toolbarContent(_ density: Density) -> some View {
         HStack(spacing: 2) {
             // Left Group: Document Summary / Page Overview / View Settings + Zoom (PDFZoomToolbarItemView)
-            ToolbarIconButton(
-                icon: "sidebar.left",
-                tooltip: L10n.tr("文档概要：缩略图、大纲与书签 (⌘B)", "Document Summary: Thumbnails, Outline & Bookmarks (⌘B)"),
-                isActive: tab.isLeftSidebarVisible && tab.leftPanel == .documentSummary,
-                isDark: isDark
-            ) {
-                withAnimation(AppAnimation.panel) {
-                    tab.toggleLeftPanel(.documentSummary)
+            if !store.tabsInSidebar {
+                ToolbarIconButton(
+                    icon: "sidebar.left",
+                    tooltip: L10n.tr("文档概要：缩略图、大纲与书签 (⌘B)", "Document Summary: Thumbnails, Outline & Bookmarks (⌘B)"),
+                    isActive: tab.isLeftSidebarVisible && tab.leftPanel == .documentSummary,
+                    isDark: isDark
+                ) {
+                    withAnimation(AppAnimation.panel) {
+                        tab.toggleLeftPanel(.documentSummary)
+                    }
                 }
-            }
-
-            ToolbarIconButton(
-                icon: "square.grid.2x2",
-                tooltip: L10n.tr("页面概览 (⌃⌘1)", "Page Overview (⌃⌘1)"),
-                isActive: tab.isPageOverviewVisible,
-                isDark: isDark
-            ) {
-                withAnimation(AppAnimation.panel) {
-                    tab.isPageOverviewVisible.toggle()
+                ToolbarIconButton(
+                    icon: "square.grid.2x2",
+                    tooltip: L10n.tr("页面概览 (⌃⌘1)", "Page Overview (⌃⌘1)"),
+                    isActive: tab.isPageOverviewVisible,
+                    isDark: isDark
+                ) {
+                    withAnimation(AppAnimation.panel) {
+                        tab.isPageOverviewVisible.toggle()
+                    }
                 }
-            }
 
-            ToolbarIconButton(
-                icon: "book",
-                tooltip: L10n.tr("显示选项：页面布局、分屏与阅读主题", "View Settings: Page Layout, Split View & Reading Theme"),
-                isActive: tab.isLeftSidebarVisible && tab.leftPanel == .viewSettings,
-                isDark: isDark
-            ) {
-                withAnimation(AppAnimation.panel) {
-                    tab.toggleLeftPanel(.viewSettings)
+                ToolbarIconButton(
+                    icon: "book",
+                    tooltip: L10n.tr("显示选项：页面布局、分屏与阅读主题", "View Settings: Page Layout, Split View & Reading Theme"),
+                    isActive: tab.isLeftSidebarVisible && tab.leftPanel == .viewSettings,
+                    isDark: isDark
+                ) {
+                    withAnimation(AppAnimation.panel) {
+                        tab.toggleLeftPanel(.viewSettings)
+                    }
                 }
             }
 
             zoomControls(density)
-                .padding(.leading, 8)
+                .padding(.leading, store.tabsInSidebar ? 0 : 8)
 
             Spacer(minLength: 16)
 
@@ -336,6 +337,8 @@ public struct ReaderToolbarView: View {
 struct ToolbarIconButton: View {
     let icon: String
     let tooltip: String
+    var title: String? = nil
+    var showsMenuIndicator = false
     var isActive: Bool = false
     var isDisabled: Bool = false
     var activeTint: Color?
@@ -346,10 +349,23 @@ struct ToolbarIconButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 14.5, weight: .regular))
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: 14.5, weight: .regular))
+                if let title {
+                    Text(title)
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+                if showsMenuIndicator {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                }
+            }
                 .foregroundColor(foregroundColor)
-                .frame(width: 34, height: 28)
+                .padding(.horizontal, title == nil ? 0 : 8)
+                .frame(width: title == nil ? 34 : nil, height: 28)
                 .background(
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
                         .fill(backgroundColor)
@@ -552,15 +568,17 @@ enum NativeMenu {
 public struct ReaderLeftSidebarView: View {
     @ObservedObject var store: AppStore
     @ObservedObject var tab: DocumentTabState
+    var panel: ReaderLeftPanel? = nil
 
     @Environment(\.colorScheme) private var colorScheme
     private var isDark: Bool { colorScheme == .dark }
+    private var activePanel: ReaderLeftPanel { panel ?? tab.leftPanel }
 
     public static let width: CGFloat = 240
 
     public var body: some View {
         Group {
-            switch tab.leftPanel {
+            switch activePanel {
             case .documentSummary:
                 documentSummary
             case .viewSettings:
@@ -569,14 +587,14 @@ public struct ReaderLeftSidebarView: View {
         }
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)
-        .background(AppPalette.panelBackground(isDark))
+        .background(AppPalette.panelBackground(isDark), ignoresSafeAreaEdges: [])
         .overlay(alignment: .trailing) {
             Rectangle()
                 .fill(AppPalette.panelHairline(isDark))
                 .frame(width: 1)
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(Text(tab.leftPanel == .documentSummary ? tab.activeSidebarTab.title : L10n.tr("显示选项", "View Settings")))
+        .accessibilityLabel(Text(activePanel == .documentSummary ? tab.activeSidebarTab.title : L10n.tr("显示选项", "View Settings")))
     }
 
     private var documentSummary: some View {
@@ -680,6 +698,7 @@ struct PanelSegmentedControl<Item: Identifiable & Hashable, SegmentLabel: View>:
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
         }
         .padding(3)

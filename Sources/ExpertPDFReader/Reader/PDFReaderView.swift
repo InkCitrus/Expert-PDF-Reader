@@ -2,8 +2,8 @@ import AppKit
 import PDFKit
 import SwiftUI
 
-/// The reader of one document tab:
-/// `ReaderToolbarView` on top, the left dock (`ReaderLeftSidebarView`), the primary `PDFReaderCanvasView`
+/// The workspace of one document tab:
+/// the document sidebar, the primary `PDFReaderCanvasView`
 /// with its page indicator / page overview, the optional Split View comparison pane and the right search dock.
 public struct PDFReaderView: View {
     @ObservedObject var store: AppStore
@@ -18,39 +18,33 @@ public struct PDFReaderView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
-            // Top Reader Toolbar
-            ReaderToolbarView(store: store, tab: tab)
+        HStack(spacing: 0) {
+            if tab.isLeftSidebarVisible && !store.tabsInSidebar {
+                ReaderLeftSidebarView(store: store, tab: tab)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+            }
 
-            // Main Workspace: Left Dock + Canvas (single / split / page overview) + Search Dock
-            HStack(spacing: 0) {
-                if tab.isLeftSidebarVisible {
-                    ReaderLeftSidebarView(store: store, tab: tab)
-                        .transition(.move(edge: .leading).combined(with: .opacity))
-                }
+            ZStack {
+                canvasArea
+                    .accessibilityHidden(tab.isPageOverviewVisible)
 
-                ZStack {
-                    canvasArea
-                        .accessibilityHidden(tab.isPageOverviewVisible)
-
-                    if tab.isPageOverviewVisible {
-                        PageOverviewGridView(store: store, tab: tab, isDark: isDark)
-                            .transition(.opacity.combined(with: .scale(scale: 0.97)))
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipped()
-
-                if tab.isSearchVisible {
-                    SearchResultsPanel(tab: tab, isDark: isDark)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                if tab.isPageOverviewVisible {
+                    PageOverviewGridView(store: store, tab: tab, isDark: isDark)
+                        .transition(.opacity.combined(with: .scale(scale: 0.97)))
                 }
             }
-            .animation(AppAnimation.panel, value: tab.isLeftSidebarVisible)
-            .animation(AppAnimation.panel, value: tab.isSearchVisible)
-            .animation(AppAnimation.panel, value: tab.isPageOverviewVisible)
-            .animation(AppAnimation.panel, value: tab.splitMode)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
+
+            if tab.isSearchVisible {
+                SearchResultsPanel(tab: tab, isDark: isDark)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
         }
+        .animation(AppAnimation.panel, value: tab.isLeftSidebarVisible)
+        .animation(AppAnimation.panel, value: tab.isSearchVisible)
+        .animation(AppAnimation.panel, value: tab.isPageOverviewVisible)
+        .animation(AppAnimation.panel, value: tab.splitMode)
         .background(store.resolvedPDFTheme(isDark: isDark).documentBackgroundColor(isDarkUI: isDark))
         .task(id: tab.documentID) {
             // Restoring background tabs must not compete with the first visible scan for CPU and OCR.

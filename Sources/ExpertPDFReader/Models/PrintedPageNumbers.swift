@@ -102,6 +102,11 @@ public enum BookPageScanner {
             self.document = document
         }
 
+        func numberFromText(at index: Int) -> Int? {
+            guard let page = document.page(at: index), !page.hasFullPageScanImage else { return nil }
+            return readFromTextLayer(page: page, index: index)?.number
+        }
+
         func read(_ index: Int) -> Reading? {
             if let reading = readings[index] { return reading }
             guard !Task.isCancelled, index >= 0, index < document.pageCount, let page = document.page(at: index) else { return nil }
@@ -351,6 +356,10 @@ public enum BookPageScanner {
         reader: PageReader,
         offsetOf: (Reading) -> Int
     ) -> Int {
+        if let opening = articleOpeningIndex(before: firstSampleIndex, offset: runOffset,
+                                              oddIndexShift: oddIndexShift, reader: reader) {
+            return opening
+        }
         // Earliest index whose computed Arabic page number is >= 1
         var earliest = 0
         while earliest < firstSampleIndex {
@@ -395,6 +404,49 @@ public enum BookPageScanner {
             }
         }
         return high
+    }
+
+    /// Journal articles often omit the first folio but print their page range in the opening header.
+    /// Confirm both following pages and the range's last page; preceding publisher covers stay unnumbered.
+    private static func articleOpeningIndex(before firstIndex: Int, offset: Int, oddIndexShift: Int,
+                                             reader: PageReader) -> Int? {
+        guard firstIndex > 0, offset > 1, oddIndexShift == 0 else { return nil }
+        for index in 0..<min(firstIndex, 6) {
+            guard !Task.isCancelled, let page = reader.document.page(at: index), !page.hasFullPageScanImage else { continue }
+            let box = page.bounds(for: .cropBox)
+            let header = CGRect(x: box.minX, y: box.maxY - box.height / 4, width: box.width, height: box.height / 4)
+            let lines = page.selection(for: header)?.selectionsByLine().filter {
+                header.contains(CGPoint(x: $0.bounds(for: page).midX, y: $0.bounds(for: page).midY))
+            } ?? []
+            for line in lines {
+                let text = (line.string ?? "") as NSString
+                for match in articlePageRange.matches(in: text as String, range: NSRange(location: 0, length: text.length)) {
+                    guard let first = Int(text.substring(with: match.range(at: 1))),
+                          let last = Int(text.substring(with: match.range(at: 2))),
+                          first == index + offset, last >= first + 2,
+                          last - offset == reader.document.pageCount - 1,
+                          reader.numberFromText(at: index + 1) == first + 1,
+                          reader.numberFromText(at: index + 2) == first + 2,
+                          reader.numberFromText(at: last - offset) == last else { continue }
+                    return index
+                }
+            }
+        }
+        return nil
+    }
+
+    private static let articlePageRange = try! NSRegularExpression(
+        pattern: #"(?<![0-9])([1-9][0-9]{0,3})\s*[-–—]\s*([1-9][0-9]{0,3})(?![0-9])"#)
+
+    /// Repair this narrow omission in existing caches without rescanning books or running OCR on launch.
+    static func refiningArticleOpening(_ numbers: PrintedPageNumbers, in document: PDFDocument) -> PrintedPageNumbers {
+        guard let first = numbers.runs.first, first.firstIndex > 0, first.offset > 1, numbers.oddIndexShift == 0,
+              let index = articleOpeningIndex(before: first.firstIndex, offset: first.offset,
+                                               oddIndexShift: numbers.oddIndexShift, reader: PageReader(document: document)) else { return numbers }
+        var result = numbers
+        result.runs[0].firstIndex = index
+        result.replacesPageLabels = true
+        return result
     }
 
     private static func findLastRunEnd(

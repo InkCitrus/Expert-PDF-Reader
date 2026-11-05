@@ -226,6 +226,12 @@ public enum ReaderLeftPanel: String, Codable {
     case viewSettings = "viewSettings"
 }
 
+enum SidebarPanel {
+    case openDocuments
+    case navigation
+    case viewSettings
+}
+
 public enum ReaderSidebarTab: String, CaseIterable, Identifiable, Codable {
     case thumbnails = "thumbnails"
     case outline = "outline"
@@ -872,7 +878,10 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         if let pageDirection = position.pageDirection {
             self.pageDirection = pageDirection
         }
-        if let pageScan = position.bookPageScan, pageScan.version == BookPageScan.currentVersion {
+        if var pageScan = position.bookPageScan, pageScan.version == BookPageScan.currentVersion {
+            if let numbers = pageScan.printedNumbers {
+                pageScan.printedNumbers = BookPageScanner.refiningArticleOpening(numbers, in: pdfDocument)
+            }
             self.pageScan = pageScan
         }
     }
@@ -1267,12 +1276,18 @@ public final class ReaderWindowSession: ObservableObject, Identifiable {
         didSet { onTabsChanged?() }
     }
     @Published public var selectedTabID: UUID {
-        didSet { onTabsChanged?() }
+        didSet {
+            if selectedTabID != oldValue && activeDocumentTab == nil {
+                sidebarPanel = .navigation
+            }
+            onTabsChanged?()
+        }
     }
     var onTabsChanged: (() -> Void)?
     weak var tabStripView: NSView?
     let tabViews = NSMapTable<NSUUID, NSView>.strongToWeakObjects()
     @Published public var homeCurrentPage: HomeTabPage = .home
+    @Published var sidebarPanel: SidebarPanel?
     @Published public var isShortcutsSheetPresented: Bool = false
     @Published public var shortcutsInitialCategory: ShortcutGuideCategory = .all
     public weak var nsWindow: NSWindow?
@@ -1283,6 +1298,11 @@ public final class ReaderWindowSession: ObservableObject, Identifiable {
         self.isPrimary = isPrimary
         self.tabs = tabs
         self.selectedTabID = selectedTabID
+        self.sidebarPanel = tabs.contains { $0.id == selectedTabID && !$0.isHome } ? .openDocuments : .navigation
+    }
+
+    func toggleSidebar(_ panel: SidebarPanel) {
+        sidebarPanel = sidebarPanel == panel ? nil : panel
     }
 
     public var activeDocumentTab: DocumentTabState? {
@@ -1470,6 +1490,17 @@ public final class AppStore: ObservableObject {
         }
     }
 
+    @Published public var tabsInSidebar: Bool {
+        didSet {
+            UserDefaults.standard.set(tabsInSidebar, forKey: "expertPDFReader.tabsInSidebar")
+            if tabsInSidebar && !oldValue {
+                for session in allWindowSessions {
+                    session.sidebarPanel = session.activeDocumentTab == nil ? .navigation : .openDocuments
+                }
+            }
+        }
+    }
+
     @Published public var appLanguage: AppLanguage {
         didSet {
             L10n.currentLanguage = appLanguage
@@ -1556,6 +1587,26 @@ public final class AppStore: ObservableObject {
 
     public var activeSession: ReaderWindowSession {
         allWindowSessions.first(where: { $0.id == activeWindowSessionID }) ?? primarySession
+    }
+
+    func showSidebarTab(_ sidebarTab: ReaderSidebarTab) {
+        let session = activeSession
+        guard let tab = session.activeDocumentTab else { return }
+        if tabsInSidebar {
+            tab.activeSidebarTab = sidebarTab
+            session.sidebarPanel = .navigation
+        } else {
+            tab.showSidebarTab(sidebarTab)
+        }
+    }
+
+    func toggleViewSettings(in session: ReaderWindowSession) {
+        guard let tab = session.activeDocumentTab else { return }
+        if tabsInSidebar {
+            session.toggleSidebar(.viewSettings)
+        } else {
+            tab.toggleLeftPanel(.viewSettings)
+        }
     }
 
     public func session(withID id: UUID?) -> ReaderWindowSession {
@@ -1712,6 +1763,7 @@ public final class AppStore: ObservableObject {
         let savedAppRaw = defaults.string(forKey: "expertPDFReader.appearanceMode")
             ?? AppAppearanceMode.system.rawValue
         self.appearanceMode = AppAppearanceMode(rawValue: savedAppRaw) ?? .system
+        self.tabsInSidebar = defaults.bool(forKey: "expertPDFReader.tabsInSidebar")
 
         let formatter = DateFormatter()
         formatter.locale = lang.locale
@@ -1898,6 +1950,9 @@ public final class AppStore: ObservableObject {
         pruneMissingDocuments()
         let targetSession = session(withID: sessionID)
         performAnimated(AppAnimation.tab) {
+            if tabsInSidebar {
+                targetSession.sidebarPanel = .navigation
+            }
             if let existing = targetSession.tabs.first(where: { $0.isHome }) {
                 targetSession.selectedTabID = existing.id
             } else {
@@ -2270,7 +2325,7 @@ public final class AppStore: ObservableObject {
         saveOpenTabs()
     }
 
-    /// Finds another open reader window whose tab bar / top toolbar band contains `screenPoint`, in Z-order.
+    /// Finds another open reader window whose tab bar contains `screenPoint`, in Z-order.
     public func dropTargetWindowAndIndex(
         atScreenPoint screenPoint: NSPoint,
         excluding sourceSessionID: UUID
@@ -2965,6 +3020,7 @@ public final class AppStore: ObservableObject {
 
         if let selectedID {
             selectedTabID = selectedID
+            if tabsInSidebar { primarySession.sidebarPanel = .openDocuments }
         } else {
             selectHomeTab()
         }

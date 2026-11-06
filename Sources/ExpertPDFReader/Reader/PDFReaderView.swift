@@ -3,8 +3,8 @@ import PDFKit
 import SwiftUI
 
 /// The workspace of one document tab:
-/// the document sidebar, the primary `PDFReaderCanvasView`
-/// with its page indicator / page overview, the optional Split View comparison pane and the right search dock.
+/// the primary `PDFReaderCanvasView` with its page indicator / page overview,
+/// the optional Split View comparison pane and the right search dock.
 public struct PDFReaderView: View {
     @ObservedObject var store: AppStore
     @ObservedObject var tab: DocumentTabState
@@ -20,11 +20,6 @@ public struct PDFReaderView: View {
 
     public var body: some View {
         HStack(spacing: 0) {
-            if tab.isLeftSidebarVisible && !store.tabsInSidebar {
-                ReaderLeftSidebarView(store: store, tab: tab)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
-            }
-
             canvasArea
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityHidden(tab.isPageOverviewVisible)
@@ -43,7 +38,6 @@ public struct PDFReaderView: View {
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
-        .animation(AppAnimation.panel, value: tab.isLeftSidebarVisible)
         .animation(AppAnimation.panel, value: tab.isSearchVisible)
         .animation(AppAnimation.panel, value: tab.isPageOverviewVisible)
         .animation(AppAnimation.panel, value: tab.splitMode)

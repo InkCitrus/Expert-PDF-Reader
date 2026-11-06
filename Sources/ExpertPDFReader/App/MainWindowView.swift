@@ -9,7 +9,7 @@ public struct MainWindowView: View {
     @ObservedObject var store: AppStore
     @ObservedObject var session: ReaderWindowSession
     @Environment(\.colorScheme) private var colorScheme
-    @AppStorage("expertPDFReader.sidebarTabsWidth") private var sidebarWidth = Double(ReaderLeftSidebarView.width)
+    @AppStorage("expertPDFReader.sidebarTabsWidth") private var sidebarWidth: Double?
     @State private var sidebarResizeWidth: CGFloat?
     @State private var isDropTargeted = false
     private var isDark: Bool { colorScheme == .dark }
@@ -29,23 +29,7 @@ public struct MainWindowView: View {
                     .transaction { $0.animation = nil }
             }
             GeometryReader { geometry in
-                HStack(spacing: 0) {
-                    if store.tabsInSidebar, let panel = session.sidebarPanel {
-                        sidebarColumn(panel, windowWidth: geometry.size.width)
-                            .transition(.move(edge: .leading).combined(with: .opacity))
-                    }
-                    ZStack {
-                        if let tab = session.activeDocumentTab {
-                            PDFReaderView(store: store, tab: tab).id(tab.id)
-                        } else {
-                            HomeTabRootView(store: store, session: session)
-                        }
-                    }
-                    // Keep heavyweight PDFViews from overlapping during rapid tab switching.
-                    .transaction { $0.animation = nil }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .clipped()
-                }
+                windowContent(windowWidth: geometry.size.width)
             }
         }
         .background(AppPalette.homeContentBackground(isDark), ignoresSafeAreaEdges: [])
@@ -130,56 +114,81 @@ public struct MainWindowView: View {
         store.selectHomeTab(in: session.id)
     }
 
-    private func sidebarColumn(_ panel: SidebarPanel, windowWidth: CGFloat) -> some View {
+    private func windowContent(windowWidth: CGFloat) -> some View {
+        let showsSidebar = store.isLeftPanelVisible(in: session)
+        let defaultWidth = !store.tabsInSidebar && session.activeDocumentTab == nil
+            ? HomeTabRootView.sidebarWidth : ReaderLeftSidebarView.width
+        let preferredWidth = sidebarWidth.map { CGFloat($0) } ?? defaultWidth
         let minimumWidth: CGFloat = 180
         let maximumWidth = max(minimumWidth, min(480, windowWidth - 360))
+        let gripWidth: CGFloat = 12
         func boundedWidth(_ width: CGFloat) -> CGFloat {
             min(max(width, minimumWidth), maximumWidth)
         }
-        let width = boundedWidth(sidebarResizeWidth ?? CGFloat(sidebarWidth))
+        let width = boundedWidth(sidebarResizeWidth ?? preferredWidth)
 
-        return VStack(spacing: 0) {
-            sidebarHeader(panel)
-            Rectangle()
-                .fill(AppPalette.panelSeparator(isDark))
-                .frame(height: 1)
-            Group {
-                switch panel {
-                case .openDocuments:
-                    TabBarView(store: store, session: session, isDark: isDark, isSidebar: true)
-                case .navigation:
-                    if let tab = session.activeDocumentTab {
-                        ReaderLeftSidebarView(store: store, tab: tab, panelWidth: width)
-                            .id(tab.id)
+        return HStack(spacing: 0) {
+            if showsSidebar {
+                sidebarColumn(width: width)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+            }
+            ZStack {
+                if let tab = session.activeDocumentTab {
+                    PDFReaderView(store: store, tab: tab).id(tab.id)
+                } else {
+                    HomeTabRootView(store: store, session: session)
+                }
+            }
+            // Keep heavyweight PDFViews from overlapping during rapid tab switching.
+            .transaction { $0.animation = nil }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
+        }
+        .overlay(alignment: .leading) {
+            if showsSidebar {
+                ReaderResizeHandle(axis: .horizontal, length: width) { newWidth, ended in
+                    let bounded = boundedWidth(newWidth)
+                    if ended {
+                        if bounded != boundedWidth(preferredWidth) {
+                            sidebarWidth = Double(bounded)
+                        }
+                        sidebarResizeWidth = nil
                     } else {
-                        HomeTabSidebarView(store: store, session: session)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        sidebarResizeWidth = bounded
                     }
                 }
+                .frame(width: gripWidth)
+                .overlay {
+                    AppPalette.panelHairline(isDark)
+                        .frame(width: 1)
+                        .allowsHitTesting(false)
+                }
+                // The resize target straddles the line so either side is easy to grab.
+                .offset(x: width - gripWidth / 2)
+                .onDisappear { sidebarResizeWidth = nil }
+            }
+        }
+    }
+
+    private func sidebarColumn(width: CGFloat) -> some View {
+        let panel = store.tabsInSidebar ? session.sidebarPanel : nil
+        return VStack(spacing: 0) {
+            if let panel {
+                sidebarHeader(panel)
+                AppPalette.panelSeparator(isDark).frame(height: 1)
+            }
+            if panel == .openDocuments {
+                TabBarView(store: store, session: session, isDark: isDark, isSidebar: true)
+            } else if let tab = session.activeDocumentTab {
+                ReaderLeftSidebarView(store: store, tab: tab, panelWidth: width)
+                    .id(tab.id)
+            } else {
+                HomeTabSidebarView(store: store, session: session)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .frame(width: width)
         .background(AppPalette.panelBackground(isDark), ignoresSafeAreaEdges: [])
-        .overlay(alignment: .trailing) {
-            AppPalette.panelHairline(isDark)
-                .frame(width: 1)
-                .allowsHitTesting(false)
-        }
-        .overlay(alignment: .trailing) {
-            ReaderResizeHandle(axis: .horizontal, length: width) { newWidth, ended in
-                let bounded = boundedWidth(newWidth)
-                if ended {
-                    if bounded != boundedWidth(CGFloat(sidebarWidth)) {
-                        sidebarWidth = Double(bounded)
-                    }
-                    sidebarResizeWidth = nil
-                } else {
-                    sidebarResizeWidth = bounded
-                }
-            }
-            .frame(width: 8)
-            .onDisappear { sidebarResizeWidth = nil }
-        }
     }
 
     private func sidebarHeader(_ panel: SidebarPanel) -> some View {

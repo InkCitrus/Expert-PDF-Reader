@@ -585,13 +585,6 @@ public struct ReaderLeftSidebarView: View {
             .frame(width: panelWidth)
             .frame(maxHeight: .infinity)
             .background(AppPalette.panelBackground(isDark), ignoresSafeAreaEdges: [])
-            .overlay(alignment: .trailing) {
-                if !store.tabsInSidebar {
-                    AppPalette.panelHairline(isDark)
-                        .frame(width: 1)
-                        .allowsHitTesting(false)
-                }
-            }
             .accessibilityElement(children: .contain)
             .accessibilityLabel(Text(tab.activeSidebarTab.title))
     }

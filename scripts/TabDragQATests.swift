@@ -246,14 +246,39 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         return view.subviews.lazy.compactMap { self.resizeHandle(in: $0, axis: axis) }.first
     }
 
-    func resizeSplit(in view: ReaderResizeHandle.Handle, by offset: NSPoint) async {
-        let start = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+    func dragDivider(in view: ReaderResizeHandle.Handle, by offset: NSPoint, from point: NSPoint? = nil) async {
+        let start = view.convert(point ?? NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
         let end = NSPoint(x: start.x + offset.x, y: start.y + offset.y)
         for (type, point) in [(NSEvent.EventType.leftMouseDown, start), (.leftMouseDragged, end), (.leftMouseUp, end)] {
             NSApp.postEvent(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
                 context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!, atStart: false)
         }
+        await settle()
+    }
+
+    func checkTopTabsSidebarResize(_ primary: ReaderWindowSession) async {
+        let selectedID = primary.selectedTabID
+        guard let handle = resizeHandle(in: window.contentView!, axis: .horizontal) else {
+            check(false, "the document sidebar has a resize handle with tabs in the titlebar")
+            return
+        }
+        let originalWidth = handle.length
+        let documentSide = NSPoint(x: handle.bounds.midX + 2, y: handle.bounds.midY)
+        await dragDivider(in: handle, by: NSPoint(x: 48, y: 0), from: documentSide)
+        check(abs(handle.length - originalWidth - 48) < 1,
+              "the titlebar-tab document sidebar resizes from the document side of the divider")
+
+        store.selectHomeTab(in: primary.id)
+        await settle()
+        if let homeHandle = resizeHandle(in: window.contentView!, axis: .horizontal) {
+            check(abs(homeHandle.length - originalWidth - 48) < 1, "Home shares the new sidebar width")
+            await dragDivider(in: homeHandle, by: NSPoint(x: -48, y: 0))
+            check(abs(homeHandle.length - originalWidth) < 1, "the Home sidebar can also be dragged")
+        } else {
+            check(false, "the Home sidebar has a resize handle with tabs in the titlebar")
+        }
+        primary.selectedTabID = selectedID
         await settle()
     }
 
@@ -271,7 +296,7 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
             return
         }
         let initialWidth = pane.bounds.width
-        await resizeSplit(in: handle, by: NSPoint(x: 105, y: 0))
+        await dragDivider(in: handle, by: NSPoint(x: 105, y: 0))
         let comparisonWidth = pane.bounds.width
         check(comparisonWidth < initialWidth - 80, "dragging the vertical divider resizes the comparison pane")
 
@@ -311,7 +336,7 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         await settle()
         if let pane = alpha.comparisonDropView, let handle = resizeHandle(in: window.contentView!, axis: .vertical) {
             let initialHeight = pane.bounds.height
-            await resizeSplit(in: handle, by: NSPoint(x: 0, y: -70))
+            await dragDivider(in: handle, by: NSPoint(x: 0, y: -70))
             let resizedPane = alpha.comparisonDropView ?? pane
             let newHeight = resizedPane.bounds.height
             check(newHeight < initialHeight - 55, "dragging the horizontal divider resizes the comparison pane (\(initialHeight) → \(newHeight))")
@@ -415,6 +440,7 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
                       "cross-window dragging keeps reading state without creating a closed-tab record")
             }
             await checkSidebarTabs(primary)
+            await checkTopTabsSidebarResize(primary)
             await checkSplitComparison(primary)
             let renamed = fixtureDirectory.appendingPathComponent("Alpha-renamed.pdf")
             let active = primary.activeDocumentTab!

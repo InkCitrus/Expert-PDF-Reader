@@ -2,8 +2,8 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The Home tab, laid out like PDF Expert 3's Home: opaque `216pt` sidebar, large page title, dashed drop
-/// area and card sections (reading themes, Recents, Favorites).
+/// The Home tab content: large page title, dashed drop area and card sections
+/// for reading themes, Recents and Favorites.
 public struct HomeTabRootView: View {
     @ObservedObject var store: AppStore
     @ObservedObject var session: ReaderWindowSession
@@ -35,36 +35,27 @@ public struct HomeTabRootView: View {
     }
 
     public var body: some View {
-        HStack(spacing: 0) {
-            if !isStandaloneSplitPane && !store.tabsInSidebar && session.isHomeSidebarVisible {
-                HomeTabSidebarView(store: store, session: session)
-                    .frame(width: Self.sidebarWidth)
-                    .frame(maxHeight: .infinity)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
+        pageContent
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(AppPalette.homeContentBackground(isDark), ignoresSafeAreaEdges: [])
+            .overlay {
+                // Drag-and-Drop Overlay (DropOverlayView)
+                if isDropTargeted {
+                    DropOverlayView(isDark: isDark)
+                        .padding(14)
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                }
             }
-
-            pageContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(AppPalette.homeContentBackground(isDark), ignoresSafeAreaEdges: [])
-        }
-        .overlay {
-            // Drag-and-Drop Overlay (DropOverlayView)
-            if isDropTargeted {
-                DropOverlayView(isDark: isDark)
-                    .padding(14)
-                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            .animation(AppAnimation.snappy, value: isDropTargeted)
+            .onAppear {
+                store.pruneMissingDocuments()
             }
-        }
-        .animation(AppAnimation.snappy, value: isDropTargeted)
-        .onAppear {
-            store.pruneMissingDocuments()
-        }
-        .onChange(of: session.homeCurrentPage) { _, _ in
-            store.pruneMissingDocuments()
-        }
-        .onDrop(of: [.fileURL, .pdf], isTargeted: $isDropTargeted) { providers in
-            handleDrop(providers: providers)
-        }
+            .onChange(of: session.homeCurrentPage) { _, _ in
+                store.pruneMissingDocuments()
+            }
+            .onDrop(of: [.fileURL, .pdf], isTargeted: $isDropTargeted) { providers in
+                handleDrop(providers: providers)
+            }
     }
 
     private var pageContent: some View {

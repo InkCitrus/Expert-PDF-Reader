@@ -324,7 +324,7 @@
 "标签页|||Tabs" = "タブ";
 "Tabs" = "タブ";
 "阅读与导航|||Navigation" = "移動とナビゲーション";
-"Navigation" = "移動とナビゲーション";
+"Navigation" = "ナビゲーション";
 "视图与缩放|||View & Zoom" = "表示とズーム";
 "View & Zoom" = "表示とズーム";
 "搜索与书签|||Search & Bookmarks" = "検索とブックマーク";
@@ -414,3 +414,16 @@
 "No text was recognized on this page." = "このページで文字を認識できませんでした。";
 "已复制|||Copied" = "コピーしました";
 "Copied" = "コピーしました";
+
+/* Layout and library confirmation */
+"布局|||Layout" = "レイアウト";
+"Layout" = "レイアウト";
+"导航|||Navigation" = "ナビゲーション";
+"同步|||Sync" = "同期";
+"Sync" = "同期";
+"清空最近打开记录？|||Clear Recent Documents?" = "最近使った書類の履歴を消去しますか？";
+"Clear Recent Documents?" = "最近使った書類の履歴を消去しますか？";
+"清空收藏夹？|||Clear Favorites?" = "お気に入りをすべて消去しますか？";
+"Clear Favorites?" = "お気に入りをすべて消去しますか？";
+"PDF 文件会保留在原来的位置。|||Your PDF files will stay where they are." = "PDF ファイルは元の場所に残ります。";
+"Your PDF files will stay where they are." = "PDF ファイルは元の場所に残ります。";

@@ -16,9 +16,9 @@ A native macOS PDF reader built for reading: tabs, Split View, and Day / Sepia /
   - Pages stay sharp at every zoom level: the color matrix is applied above `NSClipView`'s magnification, so PDFKit's tiles render at full Retina resolution.
 - **12 Languages**: **简体中文**, **繁體中文**, **English**, **日本語**, **한국어**, **Français**, **Deutsch**, **Español**, **Italiano**, **Português**, **Русский** and **Українська**, or Follow System; switchable live from Settings (`⌘,`) or the View menu. The built-in Reading Guide PDF is localized too.
 - **Interface**
-  - **Unified title bar**: native window controls alongside the tabs, icon-only Home tab, document tabs (close on hover, context menu) and `+` to open files.
-  - **Toolbar**: Document Summary / Page Overview / View Settings toggles, zoom pop-up with presets and `−` / `+`, theme switcher, Clear Margins, Rotate, Share, Bookmark and a search field.
-  - **Left dock (240pt)**: Thumbnails / Outline (highlights the section you are reading) / Bookmarks, or the View Settings panel (page layout, split view, reading theme, clear margins, rotation, appearance).
+  - **Title bar**: Sidebar and Home stay beside the native window controls in either tab layout. **Open File…** follows the tab list.
+  - **Toolbar**: zoom, a Layout menu for page layout, Page Overview and split view, reading theme, Clear Margins, rotation, Share, Bookmark, and search.
+  - **Left sidebar**: Thumbnails, Outline, and Bookmarks. In sidebar tab mode, the sidebar header switches between open tabs and navigation. Press `⌘B` to hide or restore the last panel.
   - **Right search dock**, bottom-right **page counter** (click or `⌥⌘G` → Go to Page) and a **Page Overview** grid (`⌃⌘1`).
   - Tab strip, toolbar and panels follow the **System / Light / Dark** appearance.
 - **Home Tab**: sidebar with Home, Recents and Favorites (plus Open File…, Shortcuts & Tips, Reading Guide and Settings; Help › Reading Guide, `⌘?`, opens the guide from anywhere), a drag-and-drop area, reading-theme cards, and document grids with locale-aware dates.

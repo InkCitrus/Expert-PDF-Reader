@@ -18,10 +18,11 @@ public struct ReaderToolbarView: View {
 
     public static let height: CGFloat = 40
 
-    /// How much of the toolbar fits: narrower windows first drop the zoom stepper and shorten the search
-    /// field, then fold the four reading theme buttons into one menu button
+    /// Narrower windows shorten search, then collapse menu labels and the zoom stepper.
     enum Density: String {
         case regular, compact, minimal
+
+        var iconWidth: CGFloat { self == .minimal ? 28 : 34 }
     }
 
     public var body: some View {
@@ -47,73 +48,29 @@ public struct ReaderToolbarView: View {
 
     private func toolbarContent(_ density: Density) -> some View {
         HStack(spacing: 2) {
-            // Left Group: Document Summary / Page Overview / View Settings + Zoom (PDFZoomToolbarItemView)
-            if !store.tabsInSidebar {
-                ToolbarIconButton(
-                    icon: "sidebar.left",
-                    tooltip: L10n.tr("文档概要：缩略图、大纲与书签 (⌘B)", "Document Summary: Thumbnails, Outline & Bookmarks (⌘B)"),
-                    isActive: tab.isLeftSidebarVisible && tab.leftPanel == .documentSummary,
-                    isDark: isDark
-                ) {
-                    withAnimation(AppAnimation.panel) {
-                        tab.toggleLeftPanel(.documentSummary)
-                    }
-                }
-                ToolbarIconButton(
-                    icon: "square.grid.2x2",
-                    tooltip: L10n.tr("页面概览 (⌃⌘1)", "Page Overview (⌃⌘1)"),
-                    isActive: tab.isPageOverviewVisible,
-                    isDark: isDark
-                ) {
-                    withAnimation(AppAnimation.panel) {
-                        tab.isPageOverviewVisible.toggle()
-                    }
-                }
-
-                ToolbarIconButton(
-                    icon: "book",
-                    tooltip: L10n.tr("显示选项：页面布局、分屏与阅读主题", "View Settings: Page Layout, Split View & Reading Theme"),
-                    isActive: tab.isLeftSidebarVisible && tab.leftPanel == .viewSettings,
-                    isDark: isDark
-                ) {
-                    withAnimation(AppAnimation.panel) {
-                        tab.toggleLeftPanel(.viewSettings)
-                    }
-                }
-            }
-
             zoomControls(density)
-                .padding(.leading, store.tabsInSidebar ? 0 : 8)
 
-            Spacer(minLength: 16)
+            ToolbarDivider(isDark: isDark)
+            let layoutIcon = tab.isPageOverviewVisible ? "square.grid.2x2"
+                : (tab.splitMode == .disabled ? tab.layoutMode.iconName : tab.splitMode.iconName)
+            toolbarMenuButton("layout", density, icon: layoutIcon,
+                              tooltip: L10n.tr("页面布局", "Page Layout"),
+                              title: L10n.tr("布局", "Layout"), items: layoutMenuItems)
 
-            // Center Group: Follow System / Day / Sepia / Night + Page Tools
+            Spacer(minLength: density == .minimal ? 6 : 16)
+
+            // Reading theme and page tools
             HStack(spacing: 2) {
-                if density == .minimal {
-                    let themeAnchor = anchors.anchor("theme", density)
+                ForEach(PDFReadingThemeMode.allCases) { mode in
                     ToolbarIconButton(
-                        icon: store.readingThemeMode.toolbarIconName,
-                        tooltip: "\(L10n.tr("阅读主题", "Reading Theme")): \(store.readingThemeMode.title)",
-                        isActive: true,
+                        icon: mode.toolbarIconName,
+                        tooltip: "\(L10n.tr("阅读主题", "Reading Theme")): \(mode.title)",
+                        isActive: store.readingThemeMode == mode,
                         activeTint: AppPalette.accentBlue,
+                        iconWidth: density.iconWidth,
                         isDark: isDark
                     ) {
-                        presentThemeMenu(below: themeAnchor)
-                    }
-                    .background(ViewAnchorRepresentable(anchor: themeAnchor).allowsHitTesting(false))
-                } else {
-                    ForEach(PDFReadingThemeMode.allCases) { mode in
-                        ToolbarIconButton(
-                            icon: mode.toolbarIconName,
-                            tooltip: "\(L10n.tr("阅读主题", "Reading Theme")): \(mode.title)",
-                            isActive: store.readingThemeMode == mode,
-                            activeTint: AppPalette.accentBlue,
-                            isDark: isDark
-                        ) {
-                            withAnimation(.easeInOut(duration: 0.16)) {
-                                store.readingThemeMode = mode
-                            }
-                        }
+                        withAnimation(.easeInOut(duration: 0.16)) { store.readingThemeMode = mode }
                     }
                 }
 
@@ -123,6 +80,7 @@ public struct ReaderToolbarView: View {
                     icon: "crop",
                     tooltip: tab.isClearMarginsEnabled ? L10n.tr("恢复页面空白边 (⇧⌘M)", "Restore Page Margins (⇧⌘M)") : L10n.tr("清除空白边 (⇧⌘M)", "Clear Margins (⇧⌘M)"),
                     isActive: tab.isClearMarginsEnabled,
+                    iconWidth: density.iconWidth,
                     isDark: isDark
                 ) {
                     tab.isClearMarginsEnabled.toggle()
@@ -131,20 +89,30 @@ public struct ReaderToolbarView: View {
 
                 ToolbarIconButton(
                     icon: "rotate.left",
-                    tooltip: L10n.tr("向左旋转当前页面", "Rotate Current Page Left"),
+                    tooltip: L10n.tr("向左旋转", "Rotate Left"),
+                    iconWidth: density.iconWidth,
                     isDark: isDark
                 ) {
                     tab.rotateCurrentPage(clockwise: false)
                 }
+                ToolbarIconButton(
+                    icon: "rotate.right",
+                    tooltip: L10n.tr("向右旋转", "Rotate Right"),
+                    iconWidth: density.iconWidth,
+                    isDark: isDark
+                ) {
+                    tab.rotateCurrentPage(clockwise: true)
+                }
             }
 
-            Spacer(minLength: 16)
+            Spacer(minLength: density == .minimal ? 6 : 16)
 
             // Right Group: Share + Bookmark + Search Field (PDFSearchToolbarItemView)
             let shareAnchor = anchors.anchor("share", density)
             ToolbarIconButton(
                 icon: "square.and.arrow.up",
                 tooltip: L10n.tr("分享", "Share"),
+                iconWidth: density.iconWidth,
                 isDark: isDark
             ) {
                 presentSharingPicker(from: shareAnchor)
@@ -157,36 +125,71 @@ public struct ReaderToolbarView: View {
                 tooltip: isBookmarked ? L10n.tr("移除当前页书签 (⌘D)", "Remove Bookmark for Current Page (⌘D)") : L10n.tr("为当前页添加书签 (⌘D)", "Add Bookmark for Current Page (⌘D)"),
                 isActive: isBookmarked,
                 activeTint: AppPalette.systemRed,
+                iconWidth: density.iconWidth,
                 isDark: isDark
             ) {
                 store.toggleBookmark(pageIndex: tab.currentPageIndex, in: tab.documentID)
             }
 
             searchField
-                .frame(width: density == .regular ? 176 : 132)
+                .frame(width: density == .regular ? 176 : (density == .compact ? 132 : 90))
                 .padding(.leading, 6)
         }
         .padding(.horizontal, 8)
     }
 
-    private func presentThemeMenu(below anchor: NSViewAnchor) {
-        var items = PDFReadingThemeMode.allCases.map { mode in
-            NativeMenuItem.action(mode.title, isChecked: store.readingThemeMode == mode) {
-                store.readingThemeMode = mode
+    private func toolbarMenuButton(
+        _ name: String, _ density: Density, icon: String, tooltip: String, title: String? = nil,
+        items: @escaping () -> [NativeMenuItem]
+    ) -> some View {
+        let anchor = anchors.anchor(name, density)
+        return ToolbarIconButton(icon: icon, tooltip: tooltip, title: density == .minimal ? nil : title,
+                                 showsMenuIndicator: true, iconWidth: density.iconWidth, isDark: isDark) {
+            NativeMenu.popUp(items(), below: anchor.view)
+        }
+        .background(ViewAnchorRepresentable(anchor: anchor).allowsHitTesting(false))
+    }
+
+    private func layoutMenuItems() -> [NativeMenuItem] {
+        var items = ReaderLayoutMode.allCases.enumerated().map { index, mode in
+            NativeMenuItem.action(mode.title, keyEquivalent: String(index + 1),
+                                  isChecked: !tab.isPageOverviewVisible && tab.layoutMode == mode) {
+                tab.showReadingLayout(mode)
             }
         }
-        items.append(.separator)
-        items.append(.action(L10n.tr("浅色时使用纸质替代日间", "Use Sepia Instead of Day in Light Mode"), isChecked: store.useSepiaForLightSystemTheme, isEnabled: store.readingThemeMode == .system) {
-            store.useSepiaForLightSystemTheme.toggle()
-        })
-        NativeMenu.popUp(items, below: anchor.view)
+        items += [
+            .action(L10n.tr("页面概览", "Page Overview"), keyEquivalent: "1", keyModifiers: [.control, .command],
+                    isChecked: tab.isPageOverviewVisible) {
+                withAnimation(AppAnimation.panel) { tab.isPageOverviewVisible.toggle() }
+            },
+            .separator
+        ]
+        let splitModes = ReaderSplitMode.allCases.filter { $0 != .disabled || tab.splitMode != .disabled }
+        items += splitModes.map { mode in
+            NativeMenuItem.action(mode.title,
+                                  isChecked: !tab.isPageOverviewVisible && mode != .disabled && tab.splitMode == mode) {
+                tab.showSplitMode(mode)
+            }
+        }
+        if tab.splitMode != .disabled {
+            items += [
+                .separator,
+                .action(L10n.tr("对比文档…", "Compare…")) {
+                    withAnimation(AppAnimation.snappy) {
+                        tab.isPageOverviewVisible = false
+                        tab.showSplitDocumentPicker = true
+                    }
+                }
+            ]
+        }
+        return items
     }
 
     // MARK: Zoom (percentage pop-up + − / + stepper)
 
     private func zoomControls(_ density: Density) -> some View {
         let zoomAnchor = anchors.anchor("zoom", density)
-        let roundedPercent = Int((tab.zoomScale * 100).rounded())
+        let roundedPercent = Int((tab.activeZoomScale * 100).rounded())
         return HStack(spacing: 6) {
             Button {
                 presentZoomMenu(below: zoomAnchor)
@@ -202,7 +205,7 @@ public struct ReaderToolbarView: View {
                         .foregroundColor(AppPalette.labelTertiary(isDark))
                 }
                 .foregroundColor(AppPalette.toolbarIcon(isDark))
-                .frame(width: 72, height: 28)
+                .frame(width: density == .minimal ? 62 : 72, height: 28)
                 .background(
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
                         .fill(AppPalette.toolbarControlFill(isDark))
@@ -214,7 +217,7 @@ public struct ReaderToolbarView: View {
             .help(L10n.tr("缩放比例 (⌘8 适应宽度 · ⌘0 实际大小)", "Zoom Level (⌘8 Fit Width · ⌘0 Actual Size)"))
             .accessibilityLabel(Text("\(L10n.tr("缩放比例", "Zoom Level")) \(roundedPercent)%"))
 
-            if density == .regular {
+            if density != .minimal {
                 HStack(spacing: 0) {
                     ZoomStepButton(icon: "minus", tooltip: L10n.tr("缩小 (⌘-)", "Zoom Out (⌘-)"), isDark: isDark) {
                         tab.triggerZoom(.zoomOut)
@@ -235,15 +238,15 @@ public struct ReaderToolbarView: View {
     }
 
     private func presentZoomMenu(below zoomAnchor: NSViewAnchor) {
-        let currentPercent = Int((tab.zoomScale * 100).rounded())
+        let currentPercent = Int((tab.activeZoomScale * 100).rounded())
         var items: [NativeMenuItem] = [
-            .action(L10n.tr("缩放至适应宽度", "Zoom to Fit Width"), keyEquivalent: "8", isChecked: tab.isAutoScaling) { tab.triggerZoom(.fitWidth) },
+            .action(L10n.tr("缩放至适应宽度", "Zoom to Fit Width"), keyEquivalent: "8", isChecked: tab.activePaneFitsWidth) { tab.triggerZoom(.fitWidth) },
             .action(L10n.tr("缩放至适应页面", "Zoom to Fit Page"), keyEquivalent: "9") { tab.triggerZoom(.fitPage) },
             .action(L10n.tr("实际大小", "Actual Size"), keyEquivalent: "0") { tab.triggerZoom(.actualSize) },
             .separator
         ]
         for percent in [50, 75, 100, 125, 150, 200, 300, 400] {
-            items.append(.action("\(percent)%", isChecked: !tab.isAutoScaling && percent == currentPercent) {
+            items.append(.action("\(percent)%", isChecked: !tab.activePaneFitsWidth && percent == currentPercent) {
                 tab.triggerZoom(.scale(CGFloat(percent) / 100))
             })
         }
@@ -342,6 +345,8 @@ struct ToolbarIconButton: View {
     var isActive: Bool = false
     var isDisabled: Bool = false
     var activeTint: Color?
+    var iconWidth: CGFloat = 34
+    var fillsRow = false
     let isDark: Bool
     let action: () -> Void
 
@@ -364,8 +369,9 @@ struct ToolbarIconButton: View {
                 }
             }
                 .foregroundColor(foregroundColor)
-                .padding(.horizontal, title == nil ? 0 : 8)
-                .frame(width: title == nil ? 34 : nil, height: 28)
+                .padding(.horizontal, fillsRow ? 14 : (title == nil ? 0 : 8))
+                .frame(width: title == nil ? iconWidth + (showsMenuIndicator ? 6 : 0) : nil, height: fillsRow ? 40 : 28)
+                .frame(maxWidth: fillsRow ? .infinity : nil, alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
                         .fill(backgroundColor)
@@ -563,38 +569,31 @@ enum NativeMenu {
 
 // MARK: - Left Panel (PanelViewsDockViewController)
 
-/// `240pt` left dock hosting either the Document Summary (thumbnails / outline / bookmarks) or the
-/// View Settings panel — PDF Expert 3's two left toolbar toggles share this dock.
+/// The document navigation sidebar (thumbnails, outline and bookmarks).
 public struct ReaderLeftSidebarView: View {
     @ObservedObject var store: AppStore
     @ObservedObject var tab: DocumentTabState
-    var panel: ReaderLeftPanel? = nil
+    var panelWidth: CGFloat = ReaderLeftSidebarView.width
 
     @Environment(\.colorScheme) private var colorScheme
     private var isDark: Bool { colorScheme == .dark }
-    private var activePanel: ReaderLeftPanel { panel ?? tab.leftPanel }
 
     public static let width: CGFloat = 240
 
     public var body: some View {
-        Group {
-            switch activePanel {
-            case .documentSummary:
-                documentSummary
-            case .viewSettings:
-                DocumentViewSettingsPanel(store: store, tab: tab, isDark: isDark)
+        documentSummary
+            .frame(width: panelWidth)
+            .frame(maxHeight: .infinity)
+            .background(AppPalette.panelBackground(isDark), ignoresSafeAreaEdges: [])
+            .overlay(alignment: .trailing) {
+                if !store.tabsInSidebar {
+                    AppPalette.panelHairline(isDark)
+                        .frame(width: 1)
+                        .allowsHitTesting(false)
+                }
             }
-        }
-        .frame(width: Self.width)
-        .frame(maxHeight: .infinity)
-        .background(AppPalette.panelBackground(isDark), ignoresSafeAreaEdges: [])
-        .overlay(alignment: .trailing) {
-            Rectangle()
-                .fill(AppPalette.panelHairline(isDark))
-                .frame(width: 1)
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(Text(activePanel == .documentSummary ? tab.activeSidebarTab.title : L10n.tr("显示选项", "View Settings")))
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(Text(tab.activeSidebarTab.title))
     }
 
     private var documentSummary: some View {
@@ -628,7 +627,7 @@ public struct ReaderLeftSidebarView: View {
             Group {
                 switch tab.activeSidebarTab {
                 case .thumbnails:
-                    PDFPageThumbnailsPanel(store: store, tab: tab, isDark: isDark)
+                    PDFPageThumbnailsPanel(store: store, tab: tab, panelWidth: panelWidth, isDark: isDark)
                 case .outline:
                     PDFOutlinePanel(tab: tab, isDark: isDark)
                 case .bookmarks:
@@ -643,7 +642,7 @@ public struct ReaderLeftSidebarView: View {
     private var headerAccessory: some View {
         switch tab.activeSidebarTab {
         case .thumbnails:
-            Text(L10n.pageCountText(tab.pageCount))
+            Text(L10n.pageCountText(tab.activeThumbnailSource.document.pageCount))
                 .font(.system(size: 11))
                 .monospacedDigit()
                 .foregroundColor(AppPalette.labelTertiary(isDark))
@@ -738,43 +737,6 @@ struct PanelHeaderIconButton: View {
     }
 }
 
-struct PanelTextButton: View {
-    let title: String
-    let icon: String
-    let isDark: Bool
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: icon)
-                    .font(.system(size: 11, weight: .medium))
-                Text(title)
-                    .font(.system(size: 11.5, weight: .medium))
-                    .lineLimit(1)
-            }
-            .foregroundColor(AppPalette.labelPrimary(isDark))
-            .frame(maxWidth: .infinity)
-            .frame(height: 26)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(isHovered ? AppPalette.rowHover(isDark) : AppPalette.panelListBackground(isDark))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(AppPalette.panelSeparator(isDark), lineWidth: 1)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text(title))
-        .onHover { isHovered = $0 }
-    }
-}
-
 struct PanelEmptyState: View {
     let icon: String
     let title: String
@@ -806,21 +768,28 @@ struct PanelEmptyState: View {
 struct PDFPageThumbnailsPanel: View {
     @ObservedObject var store: AppStore
     @ObservedObject var tab: DocumentTabState
+    let panelWidth: CGFloat
     let isDark: Bool
 
     var body: some View {
+        let source = tab.activeThumbnailSource
+        let scale = panelWidth / ReaderLeftSidebarView.width
+        // Reuse nearby resolutions during a drag instead of rendering on every point of movement.
+        let renderScale = (scale * 4).rounded(.up) / 4
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 14) {
-                    ForEach(0..<tab.pageCount, id: \.self) { pageIdx in
+                    ForEach(0..<source.document.pageCount, id: \.self) { pageIdx in
                         PageThumbnailCell(
                             store: store,
                             tab: tab,
+                            source: source,
                             pageIndex: pageIdx,
-                            maxSize: CGSize(width: 148, height: 192),
+                            maxSize: CGSize(width: 148 * scale, height: 192 * scale),
+                            renderSize: CGSize(width: 296 * renderScale, height: 384 * renderScale),
                             isDark: isDark
                         ) {
-                            tab.navigateToPage(pageIdx)
+                            tab.navigateToThumbnail(pageIdx)
                         }
                         .id(pageIdx)
                     }
@@ -829,14 +798,15 @@ struct PDFPageThumbnailsPanel: View {
                 .frame(maxWidth: .infinity)
             }
             .onAppear {
-                proxy.scrollTo(tab.currentPageIndex, anchor: .center)
+                proxy.scrollTo(source.pageIndex, anchor: .center)
             }
-            .onChange(of: tab.currentPageIndex) { _, newIdx in
+            .onChange(of: source.pageIndex) { _, newIdx in
                 withAnimation(.easeInOut(duration: 0.2)) {
                     proxy.scrollTo(newIdx, anchor: .center)
                 }
             }
         }
+        .id(ObjectIdentifier(source.document))
     }
 }
 
@@ -844,8 +814,10 @@ struct PDFPageThumbnailsPanel: View {
 struct PageThumbnailCell: View {
     @ObservedObject var store: AppStore
     @ObservedObject var tab: DocumentTabState
+    let source: ReaderThumbnailSource
     let pageIndex: Int
     let maxSize: CGSize
+    var renderSize: CGSize? = nil
     let isDark: Bool
     let action: () -> Void
 
@@ -859,18 +831,20 @@ struct PageThumbnailCell: View {
     }
 
     var body: some View {
-        let isCurrent = (tab.currentPageIndex == pageIndex)
-        let isBookmarked = store.isPageBookmarked(pageIndex: pageIndex, in: tab.documentID)
-        let page = tab.pdfDocument.page(at: pageIndex)
+        let isCurrent = source.pageIndex == pageIndex
+        let isBookmarked = store.isPageBookmarked(pageIndex: pageIndex, in: source.documentID)
+        let page = source.document.page(at: pageIndex)
+        let pageLabel = tab.thumbnailPageNumber(at: pageIndex, in: source.document)
 
         Button(action: action) {
             VStack(spacing: 7) {
                 if let page {
                     let request = PDFThumbnailCache.ThumbnailRequest(
-                        tab: tab,
+                        source: source,
                         pageIndex: pageIndex,
+                        rotation: page.rotation,
                         theme: store.resolvedPDFTheme(isDark: isDark),
-                        size: CGSize(width: maxSize.width * 2, height: maxSize.height * 2)
+                        size: renderSize ?? CGSize(width: maxSize.width * 2, height: maxSize.height * 2)
                     )
                     Group {
                         if let image = PDFThumbnailCache.shared.cachedThumbnail(for: request) ?? thumbnail {
@@ -887,7 +861,9 @@ struct PageThumbnailCell: View {
                     }
                     .frame(maxWidth: maxSize.width, maxHeight: maxSize.height)
                     .task(id: request) {
-                        thumbnail = await PDFThumbnailCache.shared.thumbnail(for: request) ?? thumbnail
+                        if let image = await PDFThumbnailCache.shared.thumbnail(for: request), !Task.isCancelled {
+                            thumbnail = image
+                        }
                     }
                         .overlay(
                             Rectangle()
@@ -916,7 +892,7 @@ struct PageThumbnailCell: View {
                         )
                 }
 
-                Text(tab.displayPageNumber(at: pageIndex))
+                Text(pageLabel)
                     .font(.system(size: 11, weight: isCurrent ? .semibold : .regular))
                     .monospacedDigit()
                     .foregroundColor(isCurrent ? .white : AppPalette.labelSecondary(isDark))
@@ -931,12 +907,12 @@ struct PageThumbnailCell: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text(L10n.pageTitle(tab.displayPageNumber(at: pageIndex))))
+        .accessibilityLabel(Text(L10n.pageTitle(pageLabel)))
         .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : [.isButton])
         .onHover { isHovered = $0 }
         .contextMenu {
             Button(isBookmarked ? L10n.tr("移除书签", "Remove Bookmark") : L10n.tr("添加书签", "Add Bookmark")) {
-                store.toggleBookmark(pageIndex: pageIndex, in: tab.documentID)
+                store.toggleBookmark(pageIndex: pageIndex, in: source.documentID)
             }
         }
     }
@@ -1268,250 +1244,6 @@ struct BookmarkRowView: View {
             Divider()
             Button(L10n.tr("删除书签", "Delete Bookmark"), role: .destructive, action: onDelete)
         }
-    }
-}
-
-// MARK: - 4. DocumentViewSettingsPanel ("Layout options")
-
-struct DocumentViewSettingsPanel: View {
-    @ObservedObject var store: AppStore
-    @ObservedObject var tab: DocumentTabState
-    let isDark: Bool
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                Text(L10n.tr("显示选项", "View Settings"))
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(AppPalette.labelPrimary(isDark))
-
-                // 1. Page Layout Mode (Single / Two Pages / Cover)
-                settingsSection(L10n.tr("页面布局", "Page Layout")) {
-                    HStack(spacing: 6) {
-                        ForEach(ReaderLayoutMode.allCases) { mode in
-                            OptionTile(icon: mode.iconName, title: mode.shortTitle, isSelected: tab.layoutMode == mode, isDark: isDark) {
-                                tab.layoutMode = mode
-                            }
-                        }
-                    }
-                }
-
-                // 2. Split View Mode
-                settingsSection(L10n.tr("分屏视图", "Split View")) {
-                    HStack(spacing: 6) {
-                        ForEach(ReaderSplitMode.allCases) { mode in
-                            OptionTile(icon: mode.iconName, title: mode.shortTitle, isSelected: tab.splitMode == mode, isDark: isDark) {
-                                withAnimation(.easeInOut(duration: 0.18)) {
-                                    tab.splitMode = mode
-                                }
-                            }
-                        }
-                    }
-
-                    if tab.splitMode != .disabled {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Toggle(L10n.tr("同步滚动和缩放", "Sync Scroll & Zoom"), isOn: $tab.syncScrollAndZoom)
-                                .toggleStyle(.switch)
-                                .controlSize(.mini)
-                                .font(.system(size: 12))
-                                .foregroundColor(AppPalette.labelPrimary(isDark))
-
-                            HStack(spacing: 6) {
-                                PanelTextButton(title: L10n.tr("对调位置", "Swap Panes"), icon: "arrow.left.arrow.right", isDark: isDark) {
-                                    tab.isSplitSwapped.toggle()
-                                }
-                                PanelTextButton(title: L10n.tr("对比文档…", "Compare…"), icon: "doc.on.doc", isDark: isDark) {
-                                    tab.showSplitDocumentPicker = true
-                                }
-                            }
-                        }
-                        .padding(.top, 4)
-                    }
-                }
-
-                // 3. Page Reading Theme (Follow System / Day / Sepia / Night + Light Sepia option)
-                settingsSection(L10n.tr("阅读主题", "Reading Theme")) {
-                    HStack(spacing: 6) {
-                        ForEach(PDFReadingThemeMode.allCases) { mode in
-                            ThemeModePreviewTile(
-                                mode: mode,
-                                useSepiaInLight: store.useSepiaForLightSystemTheme,
-                                isSelected: store.readingThemeMode == mode,
-                                isDark: isDark
-                            ) {
-                                withAnimation(.easeInOut(duration: 0.16)) {
-                                    store.readingThemeMode = mode
-                                }
-                            }
-                        }
-                    }
-
-                    Toggle(isOn: $store.useSepiaForLightSystemTheme) {
-                        Text(L10n.tr("浅色时使用纸质替代日间", "Use Sepia Instead of Day in Light Mode"))
-                            .font(.system(size: 11.5))
-                            .foregroundColor(AppPalette.labelPrimary(isDark))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                    .padding(.top, 2)
-                    .disabled(store.readingThemeMode != .system)
-                }
-
-                // 4. Page Tools (Clear Margins + Rotation)
-                settingsSection(L10n.tr("页面", "Page")) {
-                    Toggle(isOn: Binding(
-                        get: { tab.isClearMarginsEnabled },
-                        set: { newValue in
-                            tab.isClearMarginsEnabled = newValue
-                            tab.applyClearMarginsIfNeeded()
-                        }
-                    )) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(L10n.tr("清除空白边", "Clear Margins"))
-                                .font(.system(size: 12.5))
-                                .foregroundColor(AppPalette.labelPrimary(isDark))
-                            Text(L10n.tr("识别内容边界并裁切页边距", "Detect content bounds and crop page margins"))
-                                .font(.system(size: 10.5))
-                                .foregroundColor(AppPalette.labelTertiary(isDark))
-                        }
-                    }
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-
-                    HStack(spacing: 6) {
-                        PanelTextButton(title: L10n.tr("向左旋转", "Rotate Left"), icon: "rotate.left", isDark: isDark) {
-                            tab.rotateCurrentPage(clockwise: false)
-                        }
-                        PanelTextButton(title: L10n.tr("向右旋转", "Rotate Right"), icon: "rotate.right", isDark: isDark) {
-                            tab.rotateCurrentPage(clockwise: true)
-                        }
-                    }
-                }
-
-                // 5. App UI Appearance (Follow System / Light / Dark), styled like Page Layout and Split View
-                settingsSection(L10n.tr("界面外观", "App Appearance")) {
-                    HStack(spacing: 6) {
-                        ForEach(AppAppearanceMode.allCases) { mode in
-                            OptionTile(icon: mode.iconName, title: mode.title, isSelected: store.appearanceMode == mode, isDark: isDark) {
-                                store.appearanceMode = mode
-                            }
-                        }
-                    }
-                }
-            }
-            .padding(14)
-        }
-    }
-
-    private func settingsSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.system(size: 10.5, weight: .semibold))
-                .foregroundColor(AppPalette.labelTertiary(isDark))
-            content()
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(Text(title))
-    }
-}
-
-struct OptionTile: View {
-    let icon: String
-    let title: String
-    let isSelected: Bool
-    let isDark: Bool
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 5) {
-                Image(systemName: icon)
-                    .font(.system(size: 17, weight: .light))
-                    .frame(height: 24)
-                // Two lines fit names such as Follow System or Suivre le système in a narrow tile
-                Text(title)
-                    .font(.system(size: 11, weight: isSelected ? .medium : .regular))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-                    .minimumScaleFactor(0.8)
-            }
-            .foregroundColor(isSelected ? AppPalette.accentBlue : AppPalette.labelSecondary(isDark))
-            .frame(maxWidth: .infinity)
-            .frame(height: 58)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isSelected ? AppPalette.panelListBackground(isDark) : (isHovered ? AppPalette.rowHover(isDark) : Color.clear))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(isSelected ? AppPalette.accentBlue.opacity(0.6) : Color.clear, lineWidth: 1.5)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text(title))
-        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : [.isButton])
-        .onHover { isHovered = $0 }
-    }
-}
-
-struct ThemeModePreviewTile: View {
-    let mode: PDFReadingThemeMode
-    let useSepiaInLight: Bool
-    let isSelected: Bool
-    let isDark: Bool
-    let action: () -> Void
-
-    var body: some View {
-        let previewTheme = mode.resolvedTheme(isDark: isDark, useSepiaInLight: useSepiaInLight)
-        let lightPreviewTheme: PDFViewTheme = useSepiaInLight ? .sepia : .day
-
-        Button(action: action) {
-            VStack(spacing: 6) {
-                ZStack {
-                    if mode == .system {
-                        HStack(spacing: 0) {
-                            lightPreviewTheme.documentBackgroundColor(isDarkUI: false)
-                            PDFViewTheme.night.documentBackgroundColor(isDarkUI: true)
-                        }
-                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-
-                        SplitMiniPagePreview(leftTheme: lightPreviewTheme, rightTheme: .night)
-                            .frame(width: 24, height: 32)
-                    } else {
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(previewTheme.documentBackgroundColor(isDarkUI: isDark))
-                        MiniPagePreview(theme: previewTheme)
-                            .frame(width: 24, height: 32)
-                    }
-                }
-                .frame(height: 46)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .stroke(isSelected ? AppPalette.accentBlue : AppPalette.panelSeparator(isDark), lineWidth: isSelected ? 2 : 1)
-                )
-
-                // The full name, as on the Home tab and in Settings; two lines are reserved so the tiles stay aligned
-                Text(mode.title)
-                    .font(.system(size: 10.5, weight: isSelected ? .semibold : .regular))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-                    .minimumScaleFactor(0.8)
-                    .frame(height: 26, alignment: .top)
-                    .foregroundColor(isSelected ? AppPalette.accentBlue : AppPalette.labelSecondary(isDark))
-            }
-            .frame(maxWidth: .infinity)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text(mode.title))
-        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : [.isButton])
-        .help("\(L10n.tr("阅读主题", "Reading Theme")): \(mode.title)")
     }
 }
 

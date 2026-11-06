@@ -305,7 +305,7 @@ struct ReaderMenuCommands: Commands {
                     Divider()
                 }
                 Button(L10n.tr("清除菜单", "Clear Menu")) {
-                    store.clearAllRecents()
+                    store.confirmClearRecents()
                 }
                 .disabled(store.recentDocuments.isEmpty)
             }
@@ -341,25 +341,13 @@ struct ReaderMenuCommands: Commands {
             Toggle(L10n.tr("在侧边栏显示标签页", "Show Tabs in Sidebar"), isOn: $store.tabsInSidebar)
             Divider()
 
-            let showNavigationTitle = store.activeSession.sidebarPanel == .navigation
-                ? L10n.tr("隐藏导航", "Hide Navigation") : L10n.tr("显示导航", "Show Navigation")
-            let showLeftPanelTitle = store.activeDocumentTab?.isLeftSidebarVisible == true
+            let isLeftPanelVisible = store.isLeftPanelVisible(in: store.activeSession)
+            let showLeftPanelTitle = isLeftPanelVisible
                 ? L10n.tr("隐藏左边面板", "Hide Left Panel") : L10n.tr("显示左边面板", "Show Left Panel")
-            Button(store.tabsInSidebar ? showNavigationTitle : showLeftPanelTitle) {
-                withAnimation(AppAnimation.panel) {
-                    if store.tabsInSidebar {
-                        store.activeSession.toggleSidebar(.navigation)
-                    } else if let tab = store.activeDocumentTab {
-                        if tab.isLeftSidebarVisible {
-                            tab.isLeftSidebarVisible = false
-                        } else {
-                            tab.toggleLeftPanel(.documentSummary)
-                        }
-                    }
-                }
+            Button(showLeftPanelTitle) {
+                store.toggleLeftPanel(in: store.activeSession)
             }
             .keyboardShortcut("b", modifiers: [.command])
-            .disabled(!store.tabsInSidebar && store.activeDocumentTab == nil)
 
             Button(store.activeDocumentTab?.isPageOverviewVisible == true ? L10n.tr("关闭页面概览", "Close Page Overview") : L10n.tr("页面概览", "Page Overview")) {
                 withAnimation(AppAnimation.panel) {
@@ -393,30 +381,23 @@ struct ReaderMenuCommands: Commands {
             .keyboardShortcut("4", modifiers: [.control, .command])
             .disabled(store.activeDocumentTab == nil)
 
-            Button(L10n.tr("显示选项", "View Settings")) {
-                withAnimation(AppAnimation.panel) {
-                    store.toggleViewSettings(in: store.activeSession)
-                }
-            }
-            .disabled(store.activeDocumentTab == nil)
-
             Divider()
 
             // Page Layout Modes
             Button(L10n.tr("单页", "Single Page")) {
-                store.activeDocumentTab?.layoutMode = .singlePage
+                store.activeDocumentTab?.showReadingLayout(.singlePage)
             }
             .keyboardShortcut("1", modifiers: [.command])
             .disabled(store.activeDocumentTab == nil)
 
             Button(L10n.tr("双页", "Two Pages")) {
-                store.activeDocumentTab?.layoutMode = .twoPages
+                store.activeDocumentTab?.showReadingLayout(.twoPages)
             }
             .keyboardShortcut("2", modifiers: [.command])
             .disabled(store.activeDocumentTab == nil)
 
             Button(L10n.tr("双页（首屏单页显示）", "Two Pages (Single Cover)")) {
-                store.activeDocumentTab?.layoutMode = .twoPagesCover
+                store.activeDocumentTab?.showReadingLayout(.twoPagesCover)
             }
             .keyboardShortcut("3", modifiers: [.command])
             .disabled(store.activeDocumentTab == nil)
@@ -445,13 +426,13 @@ struct ReaderMenuCommands: Commands {
             // Split View Submenu
             Menu(L10n.tr("分屏视图", "Split View")) {
                 Button(L10n.tr("禁用分屏视图", "Disable Split View")) {
-                    store.activeDocumentTab?.splitMode = .disabled
+                    store.activeDocumentTab?.showSplitMode(.disabled)
                 }
                 Button(L10n.tr("垂直分屏（左右）", "Vertical Split (Left/Right)")) {
-                    store.activeDocumentTab?.splitMode = .vertical
+                    store.activeDocumentTab?.showSplitMode(.vertical)
                 }
                 Button(L10n.tr("水平分屏（上下）", "Horizontal Split (Top/Bottom)")) {
-                    store.activeDocumentTab?.splitMode = .horizontal
+                    store.activeDocumentTab?.showSplitMode(.horizontal)
                 }
                 Divider()
                 Button(L10n.tr("对调位置", "Swap Panes")) {
@@ -510,11 +491,6 @@ struct ReaderMenuCommands: Commands {
                 }
                 .pickerStyle(.inline)
                 .labelsHidden()
-
-                Divider()
-
-                Toggle(L10n.tr("浅色时使用纸质替代日间", "Use Sepia Instead of Day in Light Mode"), isOn: $store.useSepiaForLightSystemTheme)
-                    .disabled(store.readingThemeMode != .system)
             }
             .id("theme.\(store.appLanguage.rawValue)")
 

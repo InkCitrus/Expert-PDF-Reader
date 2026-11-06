@@ -21,7 +21,7 @@ public enum SamplePDFGenerator {
         public let pages: [(title: String, subtitle: String, sections: [(heading: String, body: String)])]
     }
 
-    public static let guideDirectoryName = "Guides_v10"
+    public static let guideDirectoryName = "Guides_v12"
 
     public static func supportDirectory() -> URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -634,7 +634,7 @@ public enum SamplePDFGenerator {
                         subtitle: "原生 macOS 高清 PDF 阅读器与 GPU 实时阅读主题",
                         sections: [
                             ("欢迎使用 Expert PDF Reader", "专注纯粹、丝滑的 macOS 原生 PDF 阅读体验。支持多标签页管理、带“最近打开”与“收藏夹”的主页、跟随系统的浅色 / 深色外观，以及由 GPU 实时渲染的日间 / 纸质 / 夜间阅读主题。"),
-                            ("四种阅读主题模式：跟随系统 / 日间 / 纸质 / 夜间", "点击顶部工具栏中央的主题按钮或在左侧「显示选项」面板中自由切换。当设为「跟随系统」时，浅色外观默认使用日间主题（可开启“浅色时使用纸质替代日间”），深色外观下自动切换为夜间护眼模式。")
+                            ("四种阅读主题模式：跟随系统 / 日间 / 纸质 / 夜间", "用工具栏上的四个主题按钮切换。选择「跟随系统」时，浅色外观默认使用日间主题，可在应用设置中改用纸质主题。深色外观会自动使用夜间主题。")
                         ]
                     ),
                     (
@@ -702,7 +702,7 @@ public enum SamplePDFGenerator {
                         subtitle: "原生 macOS 高清 PDF 閱讀器與 GPU 即時閱讀主題",
                         sections: [
                             ("歡迎使用 Expert PDF Reader", "專注純粹、流暢的 macOS 原生 PDF 閱讀體驗。支援多分頁管理、含「最近打開」與「收藏夾」的首頁、跟隨系統的淺色 / 深色外觀，以及由 GPU 即時渲染的日間 / 紙質 / 夜間閱讀主題。"),
-                            ("四種閱讀主題模式：跟隨系統 / 日間 / 紙質 / 夜間", "點按頂部工具列中央的主題按鈕或在左側「顯示選項」面板中自由切換。當設為「跟隨系統」時，淺色外觀預設使用日間主題（可開啟「淺色時使用紙質替代日間」），深色外觀下自動切換為夜間護眼模式。")
+                            ("四種閱讀主題模式：跟隨系統 / 日間 / 紙質 / 夜間", "使用工具列上的四個主題按鈕切換。選擇「跟隨系統」時，淺色外觀預設使用日間主題，可在應用程式設定中改用紙質主題。深色外觀會自動使用夜間主題。")
                         ]
                     ),
                     (
@@ -770,7 +770,7 @@ public enum SamplePDFGenerator {
                         subtitle: "macOS ネイティブ PDF リーダー＆ GPU リアルタイム読書テーマ",
                         sections: [
                             ("Expert PDF Reader へようこそ", "不要な編集機能や課金ウォールを省き、快適で鮮明な PDF 読書体験に特化した macOS ネイティブアプリです。マルチタブ、「最近の項目」と「お気に入り」を備えたホーム画面、ライト / ダークの外観、GPU で描画する昼 / セピア / 夜の読書テーマを搭載しています。"),
-                            ("4つの読書テーマモード：システムに合わせる / 昼 / セピア / 夜", "ツールバー中央または左パネルの「表示設定」から切り替え可能です。「システムに合わせる」を選択すると、ライト時は昼（設定オン時はセピア）、ダーク時は夜モードに自動切り替えされます。")
+                            ("4つの読書テーマモード：システムに合わせる / 昼 / セピア / 夜", "ツールバーのテーマボタンで切り替えられます。「システムに合わせる」を選択すると、ライト時は昼（設定オン時はセピア）、ダーク時は夜モードに自動切り替えされます。")
                         ]
                     ),
                     (
@@ -838,7 +838,7 @@ public enum SamplePDFGenerator {
                         subtitle: "macOS 네이티브 고화질 PDF 리더 및 실시간 GPU 읽기 테마",
                         sections: [
                             ("Expert PDF Reader에 오신 것을 환영합니다", "불필요한 편집 기능 없이 빠르고 선명한 PDF 읽기에 집중한 macOS 네이티브 앱입니다. 멀티 탭, ‘최근 항목’과 ‘즐겨찾기’가 있는 홈 화면, 라이트 / 다크 모드, GPU로 렌더링하는 주간 / 세피아 / 야간 읽기 테마를 제공합니다."),
-                            ("네 가지 읽기 테마: 시스템 설정 따르기 / 주간 / 세피아 / 야간", "도구 모음 중앙 또는 왼쪽 '보기 옵션'에서 전환할 수 있습니다. '시스템 설정 따르기'를 선택하면 라이트 모드에서는 주간(또는 옵션 활성화 시 세피아), 다크 모드에서는 야간 테마로 자동 전환됩니다.")
+                            ("네 가지 읽기 테마: 시스템 설정 따르기 / 주간 / 세피아 / 야간", "도구 모음의 테마 버튼에서 전환할 수 있습니다. '시스템 설정 따르기'를 선택하면 라이트 모드에서는 주간(또는 설정에서 활성화한 경우 세피아), 다크 모드에서는 야간 테마로 자동 전환됩니다.")
                         ]
                     ),
                     (
@@ -1382,7 +1382,7 @@ public enum SamplePDFGenerator {
                         subtitle: "Native macOS PDF Reader with Real-Time GPU Reading Themes",
                         sections: [
                             ("Welcome to Expert PDF Reader", "Built for a fast, crystal-clear native macOS reading experience—featuring tabs, a Home screen with Recents and Favorites, light and dark appearance, and GPU-rendered Day / Sepia / Night reading themes."),
-                            ("Four Reading Theme Modes: Follow System, Day, Sepia & Night", "Switch themes anytime from the top toolbar or View Settings panel. When set to Follow System, Light appearance uses Day (or Sepia when 'Use Sepia in Light Mode' is enabled) and Dark appearance automatically switches to Night with full Retina sharpness.")
+                            ("Four Reading Theme Modes: Follow System, Day, Sepia & Night", "Switch themes using the four buttons in the toolbar. With Follow System selected, Light appearance uses Day, or Sepia if you enable it in Settings. Dark appearance uses Night.")
                         ]
                     ),
                     (

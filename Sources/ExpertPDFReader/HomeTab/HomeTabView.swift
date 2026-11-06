@@ -36,10 +36,11 @@ public struct HomeTabRootView: View {
 
     public var body: some View {
         HStack(spacing: 0) {
-            if !isStandaloneSplitPane && !store.tabsInSidebar {
+            if !isStandaloneSplitPane && !store.tabsInSidebar && session.isHomeSidebarVisible {
                 HomeTabSidebarView(store: store, session: session)
                     .frame(width: Self.sidebarWidth)
                     .frame(maxHeight: .infinity)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
             }
 
             pageContent
@@ -105,18 +106,9 @@ public struct HomeTabRootView: View {
             // Reading Themes card row
             if !isStandaloneSplitPane {
                 VStack(alignment: .leading, spacing: 14) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(L10n.tr("阅读主题", "Reading Theme"))
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundColor(AppPalette.labelPrimary(isDark))
-                        Spacer()
-                        Toggle(L10n.tr("浅色时使用纸质替代日间", "Use Sepia Instead of Day in Light Mode"), isOn: $store.useSepiaForLightSystemTheme)
-                            .toggleStyle(.switch)
-                            .controlSize(.mini)
-                            .font(.system(size: 12))
-                            .foregroundColor(AppPalette.labelSecondary(isDark))
-                            .disabled(store.readingThemeMode != .system)
-                    }
+                    Text(L10n.tr("阅读主题", "Reading Theme"))
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(AppPalette.labelPrimary(isDark))
                     HStack(spacing: 12) {
                         ForEach(PDFReadingThemeMode.allCases) { mode in
                             HomeThemeModeCard(
@@ -141,7 +133,7 @@ public struct HomeTabRootView: View {
                 title: L10n.tr("最近打开", "Recents"),
                 items: store.recentDocuments,
                 actions: isStandaloneSplitPane ? [] : [
-                    HomeSectionAction(title: L10n.tr("清除全部", "Clear All")) { store.clearAllRecents() },
+                    HomeSectionAction(title: L10n.tr("清除全部", "Clear All")) { store.confirmClearRecents(in: session.id) },
                     HomeSectionAction(title: L10n.tr("查看全部", "See All")) {
                         withAnimation(AppAnimation.panel) {
                             session.homeCurrentPage = .recents
@@ -201,7 +193,7 @@ public struct HomeTabRootView: View {
                 Spacer()
                 if !store.recentDocuments.isEmpty {
                     HomeLinkButton(title: L10n.tr("清除全部", "Clear All")) {
-                        store.clearAllRecents()
+                        store.confirmClearRecents(in: session.id)
                     }
                 }
             }
@@ -230,7 +222,7 @@ public struct HomeTabRootView: View {
                 Spacer()
                 if !store.favoriteDocuments.isEmpty {
                     HomeLinkButton(title: L10n.tr("清空收藏夹", "Clear Favorites")) {
-                        store.clearAllFavorites()
+                        store.confirmClearFavorites(in: session.id)
                     }
                 }
             }

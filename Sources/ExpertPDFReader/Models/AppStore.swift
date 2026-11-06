@@ -173,6 +173,24 @@ public enum ReaderLayoutMode: String, CaseIterable, Identifiable, Codable {
 }
 
 extension ReaderLayoutMode {
+    /// The page or spread containing this index.
+    func visiblePageIndices(at index: Int, pageCount: Int) -> [Int] {
+        guard (0..<pageCount).contains(index) else { return [] }
+        let partner: Int
+        switch self {
+        case .singlePage:
+            return [index]
+        case .twoPages:
+            partner = index ^ 1
+        case .twoPagesCover:
+            // The first page stands alone, then (2, 3), (4, 5)…
+            guard index != 0 else { return [index] }
+            partner = index % 2 == 1 ? index + 1 : index - 1
+        }
+        guard (0..<pageCount).contains(partner) else { return [index] }
+        return [min(index, partner), max(index, partner)]
+    }
+
     /// Step between complete visible spreads, regardless of which page PDFKit reports as current.
     public func pageIndex(afterStepping direction: Int, from index: Int, pageCount: Int) -> Int {
         guard pageCount > 0 else { return 0 }
@@ -220,16 +238,11 @@ public enum ReaderSplitMode: String, CaseIterable, Identifiable, Codable {
     }
 }
 
-/// Content of the left dock: PDF Expert 3 swaps "Document Summary" and "Layout options" in the same panel.
-public enum ReaderLeftPanel: String, Codable {
-    case documentSummary = "documentSummary"
-    case viewSettings = "viewSettings"
-}
-
-enum SidebarPanel {
+enum SidebarPanel: CaseIterable, Hashable, Identifiable {
     case openDocuments
     case navigation
-    case viewSettings
+
+    var id: Self { self }
 }
 
 public enum ReaderSidebarTab: String, CaseIterable, Identifiable, Codable {
@@ -642,22 +655,63 @@ public final class DocumentTabState: ObservableObject, Identifiable {
 
     // Left Sidebar state
     @Published public var isLeftSidebarVisible: Bool = true
-    @Published public var leftPanel: ReaderLeftPanel = .documentSummary
     @Published public var activeSidebarTab: ReaderSidebarTab = .thumbnails
 
-    // Page Overview grid (toolbar "Page Management" button, read-only here)
+    // Page Overview grid
     @Published public var isPageOverviewVisible: Bool = false
 
     // Split View state
-    @Published public var splitMode: ReaderSplitMode = .disabled
+    @Published public var splitMode: ReaderSplitMode = .disabled {
+        didSet {
+            if splitMode == .disabled {
+                activatePane(isSecondary: false)
+                if showSplitDocumentPicker { showSplitDocumentPicker = false }
+            }
+        }
+    }
+    @Published var splitDividerFractions: [ReaderSplitMode: CGFloat] = [:]
+    weak var comparisonDropView: ComparisonDropView?
     @Published public var isSplitSwapped: Bool = false
     @Published public var syncScrollAndZoom: Bool = false
-    @Published public var secondaryDocumentURL: URL?
+    @Published private var secondaryDocumentID: DocumentID?
+    public var secondaryDocumentURL: URL? { secondaryDocumentID?.url }
+    private var secondaryDocumentPassword: String?
     @Published public var secondaryPDFDocument: PDFDocument?
     @Published public var secondaryPageIndex: Int = 0
     @Published public var secondaryZoomScale: CGFloat = 1.0
     @Published public var secondaryIsAutoScaling: Bool = true
     @Published public var showSplitDocumentPicker: Bool = false
+    @Published private var isSecondaryPaneActive = false
+
+    private var hasSecondaryCanvas: Bool {
+        splitMode != .disabled && !showSplitDocumentPicker && secondaryPDFDocument != nil
+    }
+
+    var targetsSecondaryPane: Bool { hasSecondaryCanvas && isSecondaryPaneActive }
+    var activeZoomScale: CGFloat { targetsSecondaryPane ? secondaryZoomScale : zoomScale }
+    var activePaneFitsWidth: Bool { targetsSecondaryPane ? secondaryIsAutoScaling : isAutoScaling }
+
+    var activeThumbnailSource: ReaderThumbnailSource {
+        if targetsSecondaryPane, let document = secondaryPDFDocument, let id = secondaryDocumentID {
+            let password = document === pdfDocument ? self.password : secondaryDocumentPassword
+            return ReaderThumbnailSource(documentID: id, document: document, password: password,
+                                         pageIndex: secondaryPageIndex)
+        }
+        return ReaderThumbnailSource(documentID: documentID, document: pdfDocument, password: password,
+                                     pageIndex: currentPageIndex)
+    }
+
+    func thumbnailPageNumber(at index: Int, in document: PDFDocument) -> String {
+        document === pdfDocument ? displayPageNumber(at: index) : "\(index + 1)"
+    }
+
+    func navigateToThumbnail(_ index: Int) {
+        if targetsSecondaryPane {
+            navigateSecondaryPane(to: index)
+        } else {
+            navigateToPage(index)
+        }
+    }
 
     // Navigation History (Go Back / Go Forward)
     @Published public private(set) var backStack: [Int] = []
@@ -676,7 +730,10 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     // Action triggers for PDFView imperative commands
     @Published public var zoomCommandToken: Int = 0
     @Published public var pendingZoomAction: ZoomAction?
+    @Published private(set) var secondaryZoomCommandToken: Int = 0
+    private(set) var pendingSecondaryZoomAction: ZoomAction?
     @Published public var pageJumpToken: Int = 0
+    @Published private(set) var secondaryPageJumpToken: Int = 0
     /// Bumped when crop boxes change after layout (Clear Margins finishing in the background)
     @Published public var clearMarginsLayoutToken: Int = 0
     /// Bumped by Go › Go to Page… (⌥⌘G) to open the page counter's Go to Page popover
@@ -706,12 +763,13 @@ public final class DocumentTabState: ObservableObject, Identifiable {
 
     public init(url: URL, pdfDocument: PDFDocument, password: String? = nil) {
         ScannedPageCache.install(on: pdfDocument)
-        self.documentID = DocumentID(url: url)
+        let id = DocumentID(url: url)
+        self.documentID = id
         self.pdfDocument = pdfDocument
         self.password = password
         self.title = url.deletingPathExtension().lastPathComponent
         // Default secondary pane to same document so split comparison works out-of-the-box
-        self.secondaryDocumentURL = url
+        self.secondaryDocumentID = id
         self.secondaryPDFDocument = pdfDocument
         self.declaresRightToLeft = pdfDocument.declaresRightToLeft
         // Takes the crop boxes before anything (two-page layouts, Clear Margins) changes them
@@ -729,8 +787,8 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         documentID = DocumentID(url: url)
         title = url.deletingPathExtension().lastPathComponent
         primaryCropper.url = url
-        if secondaryDocumentURL.map(DocumentID.init(url:)) == previousID {
-            secondaryDocumentURL = url
+        if secondaryDocumentID == previousID {
+            secondaryDocumentID = documentID
         }
         pageScanTask?.cancel()
         pageScanTask = nil
@@ -781,19 +839,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
 
     /// The pages shown side by side with the current one: its spread in two-page layouts
     public var visiblePageIndices: [Int] {
-        let index = currentPageIndex
-        let partner: Int?
-        switch layoutMode {
-        case .singlePage:
-            partner = nil
-        case .twoPages:
-            partner = index ^ 1
-        case .twoPagesCover:
-            // The first page stands alone, then (2, 3), (4, 5)…
-            partner = index == 0 ? nil : (index % 2 == 1 ? index + 1 : index - 1)
-        }
-        guard let partner, partner >= 0, partner < pageCount else { return [index] }
-        return [min(index, partner), max(index, partner)]
+        layoutMode.visiblePageIndices(at: currentPageIndex, pageCount: pageCount)
     }
 
     public var pageCount: Int {
@@ -836,23 +882,27 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     }
 
     /// The page printed with this number; when numbering restarts per part, choose the nearest match.
-    public func pageIndex(forLabel label: String) -> Int? {
+    public func pageIndex(forLabel label: String, near pageIndex: Int? = nil) -> Int? {
         guard let number = PageNumberLabel.positiveNumber(label) else { return nil }
-        return pageIndicesByLabel[String(number)]?.min { abs($0 - currentPageIndex) < abs($1 - currentPageIndex) }
+        let current = pageIndex ?? currentPageIndex
+        return pageIndicesByLabel[String(number)]?.min { abs($0 - current) < abs($1 - current) }
     }
 
-    /// Bare numbers address book pages. Parenthesized numbers always address positions in the PDF.
-    public func pageIndex(forPageInput raw: String) -> Int? {
+    /// Bare numbers address book pages when available. Parentheses always address positions in the PDF.
+    public func pageIndex(forPageInput raw: String, inSecondaryPane: Bool = false) -> Int? {
+        let count = inSecondaryPane ? secondaryPDFDocument?.pageCount ?? 0 : pageCount
         let input = (raw.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? raw)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if input.hasPrefix("("), input.hasSuffix(")"), input.count > 2 {
             guard let position = PageNumberLabel.positiveNumber(String(input.dropFirst().dropLast())),
-                  (1...pageCount).contains(position) else { return nil }
+                  position <= count else { return nil }
             return position - 1
         }
-        guard let number = PageNumberLabel.positiveNumber(input) else { return nil }
-        if !pageIndicesByLabel.isEmpty { return pageIndex(forLabel: String(number)) }
-        return (1...pageCount).contains(number) ? number - 1 : nil
+        if (!inSecondaryPane || secondaryPDFDocument === pdfDocument), !pageIndicesByLabel.isEmpty {
+            return pageIndex(forLabel: input, near: inSecondaryPane ? secondaryPageIndex : currentPageIndex)
+        }
+        guard let number = PageNumberLabel.positiveNumber(input), number <= count else { return nil }
+        return number - 1
     }
 
     public var readingPosition: ReadingPosition {
@@ -886,19 +936,27 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         }
     }
 
-    /// Keeps `isAutoScaling` in sync with `PDFView.autoScales` (including native context-menu "Automatically Resize")
-    /// and clears any stale `pendingZoomAction` when auto-scaling is active so switching tabs never replays an old zoom.
+    /// Keeps `isAutoScaling` in sync with `PDFView.autoScales` (including native context-menu "Automatically Resize").
     public func updateAutoScalingFromView(_ autoScales: Bool) {
         if isAutoScaling != autoScales {
             isAutoScaling = autoScales
-        }
-        if autoScales {
-            pendingZoomAction = nil
         }
     }
 
     public func stepPage(by direction: Int) {
         navigateToPage(layoutMode.pageIndex(afterStepping: direction, from: currentPageIndex, pageCount: pageCount))
+    }
+
+    func showReadingLayout(_ mode: ReaderLayoutMode) {
+        isPageOverviewVisible = false
+        layoutMode = mode
+    }
+
+    func showSplitMode(_ mode: ReaderSplitMode) {
+        withAnimation(AppAnimation.panel) {
+            isPageOverviewVisible = false
+            splitMode = mode
+        }
     }
 
     public func navigateToPage(_ index: Int, recordHistory: Bool = true) {
@@ -914,6 +972,17 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         pageJumpToken &+= 1
         if syncScrollAndZoom && secondaryPDFDocument == pdfDocument {
             secondaryPageIndex = clamped
+        }
+    }
+
+    func navigateSecondaryPane(to index: Int) {
+        guard let document = secondaryPDFDocument, (0..<document.pageCount).contains(index),
+              index != secondaryPageIndex else { return }
+        secondaryReadingSpot = nil
+        secondaryPageIndex = index
+        secondaryPageJumpToken &+= 1
+        if syncScrollAndZoom && index < pageCount {
+            navigateToPage(index, recordHistory: false)
         }
     }
 
@@ -940,28 +1009,52 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         isNavigatingHistory = false
     }
 
-    public func triggerZoom(_ action: ZoomAction) {
-        if case .fitWidth = action {
-            isAutoScaling = true
-        } else {
-            isAutoScaling = false
+    func activatePane(isSecondary: Bool) {
+        if isSecondaryPaneActive != isSecondary {
+            isSecondaryPaneActive = isSecondary
         }
-        pendingZoomAction = action
-        zoomCommandToken &+= 1
     }
 
-    /// Toolbar toggles behave like PDF Expert's: clicking the active panel's button closes the dock.
-    public func toggleLeftPanel(_ panel: ReaderLeftPanel) {
-        if isLeftSidebarVisible && leftPanel == panel {
-            isLeftSidebarVisible = false
+    public func triggerZoom(_ action: ZoomAction) {
+        guard syncScrollAndZoom && hasSecondaryCanvas else {
+            sendZoom(action, toSecondaryPane: targetsSecondaryPane)
+            return
+        }
+        // A linked step starts from the active pane's zoom. Fit commands use each pane's own bounds.
+        let linkedAction: ZoomAction
+        switch action {
+        case .zoomIn: linkedAction = .scale(activeZoomScale * 1.2)
+        case .zoomOut: linkedAction = .scale(activeZoomScale / 1.2)
+        default: linkedAction = action
+        }
+        sendZoom(linkedAction, toSecondaryPane: false)
+        sendZoom(linkedAction, toSecondaryPane: true)
+    }
+
+    func syncManualZoom(_ scale: CGFloat, fromSecondaryPane: Bool) {
+        guard syncScrollAndZoom, hasSecondaryCanvas, targetsSecondaryPane == fromSecondaryPane else { return }
+        let otherScale = fromSecondaryPane ? zoomScale : secondaryZoomScale
+        let otherFitsWidth = fromSecondaryPane ? isAutoScaling : secondaryIsAutoScaling
+        if otherFitsWidth || abs(scale - otherScale) > 0.005 {
+            sendZoom(.scale(scale), toSecondaryPane: !fromSecondaryPane)
+        }
+    }
+
+    private func sendZoom(_ action: ZoomAction, toSecondaryPane: Bool) {
+        let fitsWidth: Bool
+        if case .fitWidth = action { fitsWidth = true } else { fitsWidth = false }
+        if toSecondaryPane {
+            secondaryIsAutoScaling = fitsWidth
+            pendingSecondaryZoomAction = action
+            secondaryZoomCommandToken &+= 1
         } else {
-            leftPanel = panel
-            isLeftSidebarVisible = true
+            isAutoScaling = fitsWidth
+            pendingZoomAction = action
+            zoomCommandToken &+= 1
         }
     }
 
     public func showSidebarTab(_ sidebarTab: ReaderSidebarTab) {
-        leftPanel = .documentSummary
         activeSidebarTab = sidebarTab
         isLeftSidebarVisible = true
     }
@@ -990,16 +1083,39 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     }
 
     public func setSecondaryDocument(url: URL) {
-        if let loaded = PDFDocumentLoader.load(url: url) {
-            self.secondaryDocumentURL = url
-            self.secondaryPDFDocument = loaded.document
-            self.secondaryPageIndex = 0
-            self.secondaryIsAutoScaling = true
-            self.showSplitDocumentPicker = false
-            secondaryCropper = makeCropper(for: loaded.document, url: url, password: loaded.password)
-            if isClearMarginsEnabled {
-                secondaryCropper?.apply(enabled: true, around: 0)
-            }
+        guard let loaded = PDFDocumentLoader.load(url: url) else { return }
+        setSecondaryDocument(loaded.document, id: DocumentID(url: url), password: loaded.password, pageIndex: 0)
+    }
+
+    func setSecondaryDocument(from source: DocumentTabState) {
+        if secondaryDocumentID == source.documentID {
+            showSplitDocumentPicker = false
+            activatePane(isSecondary: true)
+        } else if source === self {
+            setSecondaryDocument(pdfDocument, id: documentID, password: password, pageIndex: currentPageIndex)
+        } else if let document = PDFDocumentLoader.openCopy(of: source.documentID.url, password: source.password) {
+            // Keep page rotations and crop boxes independent from the source tab.
+            ScannedPageCache.install(on: document)
+            setSecondaryDocument(document, id: source.documentID, password: source.password,
+                                 pageIndex: source.currentPageIndex)
+        } else {
+            setSecondaryDocument(url: source.documentID.url)
+        }
+    }
+
+    private func setSecondaryDocument(_ document: PDFDocument, id: DocumentID, password: String?, pageIndex: Int) {
+        secondaryDocumentPassword = password
+        secondaryDocumentID = id
+        secondaryPageIndex = max(0, min(pageIndex, document.pageCount - 1))
+        secondaryReadingSpot = nil
+        secondaryReadingSpotBeforeCropChange = nil
+        secondaryIsAutoScaling = true
+        secondaryPDFDocument = document
+        showSplitDocumentPicker = false
+        activatePane(isSecondary: true)
+        secondaryCropper = document === pdfDocument ? nil : makeCropper(for: document, url: id.url, password: password)
+        if isClearMarginsEnabled {
+            secondaryCropper?.apply(enabled: true, around: secondaryPageIndex)
         }
     }
 
@@ -1264,7 +1380,6 @@ public struct ClosedTabRecord: Codable, Equatable {
     public let tabIndex: Int
     public let isClearMarginsEnabled: Bool
     public let isLeftSidebarVisible: Bool
-    public let leftPanel: ReaderLeftPanel
     public let activeSidebarTab: ReaderSidebarTab
 }
 
@@ -1276,18 +1391,19 @@ public final class ReaderWindowSession: ObservableObject, Identifiable {
         didSet { onTabsChanged?() }
     }
     @Published public var selectedTabID: UUID {
-        didSet {
-            if selectedTabID != oldValue && activeDocumentTab == nil {
-                sidebarPanel = .navigation
-            }
-            onTabsChanged?()
-        }
+        didSet { onTabsChanged?() }
     }
     var onTabsChanged: (() -> Void)?
     weak var tabStripView: NSView?
     let tabViews = NSMapTable<NSUUID, NSView>.strongToWeakObjects()
     @Published public var homeCurrentPage: HomeTabPage = .home
-    @Published var sidebarPanel: SidebarPanel?
+    @Published var isHomeSidebarVisible = true
+    @Published var sidebarPanel: SidebarPanel? {
+        didSet {
+            if let sidebarPanel { lastSidebarPanel = sidebarPanel }
+        }
+    }
+    private var lastSidebarPanel: SidebarPanel
     @Published public var isShortcutsSheetPresented: Bool = false
     @Published public var shortcutsInitialCategory: ShortcutGuideCategory = .all
     public weak var nsWindow: NSWindow?
@@ -1298,11 +1414,13 @@ public final class ReaderWindowSession: ObservableObject, Identifiable {
         self.isPrimary = isPrimary
         self.tabs = tabs
         self.selectedTabID = selectedTabID
-        self.sidebarPanel = tabs.contains { $0.id == selectedTabID && !$0.isHome } ? .openDocuments : .navigation
+        let initialPanel: SidebarPanel = tabs.contains { $0.id == selectedTabID && !$0.isHome } ? .openDocuments : .navigation
+        self.lastSidebarPanel = initialPanel
+        self.sidebarPanel = initialPanel
     }
 
-    func toggleSidebar(_ panel: SidebarPanel) {
-        sidebarPanel = sidebarPanel == panel ? nil : panel
+    func toggleSidebarVisibility() {
+        sidebarPanel = sidebarPanel == nil ? lastSidebarPanel : nil
     }
 
     public var activeDocumentTab: DocumentTabState? {
@@ -1315,6 +1433,13 @@ public final class ReaderWindowSession: ObservableObject, Identifiable {
 }
 
 // MARK: - Thumbnail Cache
+
+struct ReaderThumbnailSource {
+    let documentID: DocumentID
+    let document: PDFDocument
+    let password: String?
+    let pageIndex: Int
+}
 
 @MainActor
 public final class PDFThumbnailCache: ObservableObject {
@@ -1336,13 +1461,12 @@ public final class PDFThumbnailCache: ObservableObject {
         public let theme: PDFViewTheme
         public let size: CGSize
 
-        @MainActor
-        public init(tab: DocumentTabState, pageIndex: Int, theme: PDFViewTheme, size: CGSize) {
-            documentID = tab.documentID.id
-            documentURL = tab.documentID.url
-            password = tab.password
+        init(source: ReaderThumbnailSource, pageIndex: Int, rotation: Int, theme: PDFViewTheme, size: CGSize) {
+            documentID = source.documentID.id
+            documentURL = source.documentID.url
+            password = source.password
             self.pageIndex = pageIndex
-            rotation = tab.pdfDocument.page(at: pageIndex)?.rotation ?? 0
+            self.rotation = rotation
             self.theme = theme
             self.size = size
         }
@@ -1589,6 +1713,23 @@ public final class AppStore: ObservableObject {
         allWindowSessions.first(where: { $0.id == activeWindowSessionID }) ?? primarySession
     }
 
+    func isLeftPanelVisible(in session: ReaderWindowSession) -> Bool {
+        if tabsInSidebar { return session.sidebarPanel != nil }
+        return session.activeDocumentTab?.isLeftSidebarVisible ?? session.isHomeSidebarVisible
+    }
+
+    func toggleLeftPanel(in session: ReaderWindowSession) {
+        withAnimation(AppAnimation.panel) {
+            if tabsInSidebar {
+                session.toggleSidebarVisibility()
+            } else if let tab = session.activeDocumentTab {
+                tab.isLeftSidebarVisible.toggle()
+            } else {
+                session.isHomeSidebarVisible.toggle()
+            }
+        }
+    }
+
     func showSidebarTab(_ sidebarTab: ReaderSidebarTab) {
         let session = activeSession
         guard let tab = session.activeDocumentTab else { return }
@@ -1597,15 +1738,6 @@ public final class AppStore: ObservableObject {
             session.sidebarPanel = .navigation
         } else {
             tab.showSidebarTab(sidebarTab)
-        }
-    }
-
-    func toggleViewSettings(in session: ReaderWindowSession) {
-        guard let tab = session.activeDocumentTab else { return }
-        if tabsInSidebar {
-            session.toggleSidebar(.viewSettings)
-        } else {
-            tab.toggleLeftPanel(.viewSettings)
         }
     }
 
@@ -1950,9 +2082,6 @@ public final class AppStore: ObservableObject {
         pruneMissingDocuments()
         let targetSession = session(withID: sessionID)
         performAnimated(AppAnimation.tab) {
-            if tabsInSidebar {
-                targetSession.sidebarPanel = .navigation
-            }
             if let existing = targetSession.tabs.first(where: { $0.isHome }) {
                 targetSession.selectedTabID = existing.id
             } else {
@@ -2325,25 +2454,18 @@ public final class AppStore: ObservableObject {
         saveOpenTabs()
     }
 
-    /// Finds another open reader window whose tab bar contains `screenPoint`, in Z-order.
-    public func dropTargetWindowAndIndex(
-        atScreenPoint screenPoint: NSPoint,
-        excluding sourceSessionID: UUID
-    ) -> (session: ReaderWindowSession, documentIndex: Int)? {
-        let orderedWindows = NSApp?.orderedWindows ?? []
-        let candidateSessions = allWindowSessions.filter {
-            $0.id != sourceSessionID && ($0.nsWindow?.isVisible == true)
-        }
-        let sortedSessions = candidateSessions.sorted { a, b in
-            let ia = orderedWindows.firstIndex(where: { $0 === a.nsWindow }) ?? Int.max
-            let ib = orderedWindows.firstIndex(where: { $0 === b.nsWindow }) ?? Int.max
-            return ia < ib
-        }
-
-        for candidate in sortedSessions {
-            guard let win = candidate.nsWindow else { continue }
-            guard !win.isMiniaturized, candidate.containsTabStrip(screenPoint) else { continue }
-            return (candidate, candidate.documentInsertionIndex(at: screenPoint))
+    func tabDropTarget(at point: NSPoint) -> ReaderTabDropTarget? {
+        let sessions = allWindowSessions
+        for window in NSApp.orderedWindows where window.isVisible && !window.isMiniaturized {
+            guard let session = sessions.first(where: { $0.nsWindow === window }) else { continue }
+            if session.containsTabStrip(point) { return .tabStrip(session) }
+            guard window.frame.contains(point) else { continue }
+            if let tab = session.activeDocumentTab, tab.splitMode != .disabled, !tab.isPageOverviewVisible,
+               let pane = tab.comparisonDropView, pane.window === window, pane.containsScreenPoint(point) {
+                return .comparison(tab)
+            }
+            // Don't drop through a reader window into one behind it.
+            break
         }
         return nil
     }
@@ -2399,7 +2521,6 @@ public final class AppStore: ObservableObject {
                     tabIndex: item.index,
                     isClearMarginsEnabled: state.isClearMarginsEnabled,
                     isLeftSidebarVisible: state.isLeftSidebarVisible,
-                    leftPanel: state.leftPanel,
                     activeSidebarTab: state.activeSidebarTab
                 )
             )
@@ -2440,7 +2561,6 @@ public final class AppStore: ObservableObject {
             }
             state.isClearMarginsEnabled = record.isClearMarginsEnabled
             state.isLeftSidebarVisible = record.isLeftSidebarVisible
-            state.leftPanel = record.leftPanel
             state.activeSidebarTab = record.activeSidebarTab
             if record.isClearMarginsEnabled {
                 state.applyClearMarginsIfNeeded()
@@ -2541,7 +2661,21 @@ public final class AppStore: ObservableObject {
         rebuildFileWatchers()
     }
 
-    public func clearAllRecents() {
+    func confirmClearRecents(in sessionID: UUID? = nil) {
+        guard !recentDocumentIDs.isEmpty else { return }
+        confirmClearing(title: L10n.tr("清空最近打开记录？", "Clear Recent Documents?"), in: sessionID) { [weak self] in
+            self?.clearAllRecents()
+        }
+    }
+
+    func confirmClearFavorites(in sessionID: UUID? = nil) {
+        guard !favoriteDocumentIDs.isEmpty else { return }
+        confirmClearing(title: L10n.tr("清空收藏夹？", "Clear Favorites?"), in: sessionID) { [weak self] in
+            self?.clearAllFavorites()
+        }
+    }
+
+    private func clearAllRecents() {
         performAnimated(AppAnimation.snappy) {
             recentDocumentIDs.removeAll()
             documents.removeAll(where: { !favoriteDocumentIDs.contains($0.documentID) })
@@ -2550,7 +2684,7 @@ public final class AppStore: ObservableObject {
         rebuildFileWatchers()
     }
 
-    public func clearAllFavorites() {
+    private func clearAllFavorites() {
         performAnimated(AppAnimation.snappy) {
             favoriteDocumentIDs.removeAll()
             for idx in documents.indices {
@@ -2560,6 +2694,27 @@ public final class AppStore: ObservableObject {
         }
         savePersistedState()
         rebuildFileWatchers()
+    }
+
+    private func confirmClearing(title: String, in sessionID: UUID?, clear: @escaping @MainActor () -> Void) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = L10n.tr("PDF 文件会保留在原来的位置。", "Your PDF files will stay where they are.")
+        let cancel = alert.addButton(withTitle: L10n.tr("取消", "Cancel"))
+        let confirm = alert.addButton(withTitle: L10n.tr("清除全部", "Clear All"))
+        confirm.hasDestructiveAction = true
+        confirm.keyEquivalent = ""
+        alert.layout()
+        alert.window.defaultButtonCell = cancel.cell as? NSButtonCell
+        cancel.keyEquivalent = "\u{1b}"
+        if let window = session(withID: sessionID).nsWindow {
+            guard window.attachedSheet == nil else { return }
+            alert.beginSheetModal(for: window) { response in
+                if response == .alertSecondButtonReturn { clear() }
+            }
+        } else if alert.runModal() == .alertSecondButtonReturn {
+            clear()
+        }
     }
 
     /// Removes remembered documents whose original files were deleted or moved to Trash, and updates
@@ -2593,7 +2748,6 @@ public final class AppStore: ObservableObject {
                     tabIndex: record.tabIndex,
                     isClearMarginsEnabled: record.isClearMarginsEnabled,
                     isLeftSidebarVisible: record.isLeftSidebarVisible,
-                    leftPanel: record.leftPanel,
                     activeSidebarTab: record.activeSidebarTab
                 )
             }
@@ -2740,7 +2894,6 @@ public final class AppStore: ObservableObject {
                 newState.layoutMode = oldState.layoutMode
                 newState.isClearMarginsEnabled = oldState.isClearMarginsEnabled
                 newState.isLeftSidebarVisible = oldState.isLeftSidebarVisible
-                newState.leftPanel = oldState.leftPanel
                 newState.activeSidebarTab = oldState.activeSidebarTab
                 if newState.isClearMarginsEnabled {
                     newState.applyClearMarginsIfNeeded()
@@ -2862,7 +3015,6 @@ public final class AppStore: ObservableObject {
                     tabIndex: record.tabIndex,
                     isClearMarginsEnabled: record.isClearMarginsEnabled,
                     isLeftSidebarVisible: record.isLeftSidebarVisible,
-                    leftPanel: record.leftPanel,
                     activeSidebarTab: record.activeSidebarTab
                 )
             }

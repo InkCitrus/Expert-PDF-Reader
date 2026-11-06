@@ -414,3 +414,16 @@
 "No text was recognized on this page." = "Nessun testo riconosciuto in questa pagina.";
 "已复制|||Copied" = "Copiato";
 "Copied" = "Copiato";
+
+/* Layout and library confirmation */
+"布局|||Layout" = "Layout";
+"Layout" = "Layout";
+"导航|||Navigation" = "Navigazione";
+"同步|||Sync" = "Sincronizza";
+"Sync" = "Sincronizza";
+"清空最近打开记录？|||Clear Recent Documents?" = "Cancellare l’elenco dei documenti recenti?";
+"Clear Recent Documents?" = "Cancellare l’elenco dei documenti recenti?";
+"清空收藏夹？|||Clear Favorites?" = "Svuotare i preferiti?";
+"Clear Favorites?" = "Svuotare i preferiti?";
+"PDF 文件会保留在原来的位置。|||Your PDF files will stay where they are." = "I file PDF rimarranno nella posizione attuale.";
+"Your PDF files will stay where they are." = "I file PDF rimarranno nella posizione attuale.";

@@ -61,10 +61,10 @@ final class TabInteractionView: NSView {
         let start = window.convertPoint(toScreen: event.locationInWindow)
         let frame = window.convertToScreen(convert(bounds, to: nil))
         let grabOffset = NSPoint(x: start.x - frame.minX, y: frame.maxY - start.y)
-        // Keep callbacks alive even if SwiftUI replaces this view after selection or reordering.
+        // Keep the currently displayed comparison open until we know this is a click.
+        let select = onSelect
         let changed = onDragChanged
         let ended = onDragEnded
-        onSelect?()
         var isDragging = false
         while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp, .keyDown],
                                           until: .distantFuture, inMode: .eventTracking, dequeue: true) {
@@ -78,7 +78,11 @@ final class TabInteractionView: NSView {
             let point = window.convertPoint(toScreen: next.locationInWindow)
             let location = TabDragLocation(screenPoint: point, grabOffset: grabOffset, tabSize: frame.size)
             if next.type == .leftMouseUp {
-                if isDragging { ended?(location) }
+                if isDragging {
+                    ended?(location)
+                } else if frame.contains(point) {
+                    select?()
+                }
                 return
             }
             if !isDragging && hypot(point.x - start.x, point.y - start.y) < 5 { continue }
@@ -87,6 +91,40 @@ final class TabInteractionView: NSView {
             changed?(location)
         }
         if isDragging { ended?(nil) }
+    }
+}
+
+enum ReaderTabDropTarget {
+    case tabStrip(ReaderWindowSession)
+    case comparison(DocumentTabState)
+}
+
+struct ComparisonDropArea: NSViewRepresentable {
+    let tab: DocumentTabState
+
+    func makeNSView(context: Context) -> ComparisonDropView {
+        ComparisonDropView()
+    }
+
+    func updateNSView(_ view: ComparisonDropView, context: Context) {
+        tab.comparisonDropView = view
+    }
+}
+
+final class ComparisonDropView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func isAccessibilityElement() -> Bool { false }
+
+    func containsScreenPoint(_ point: NSPoint) -> Bool {
+        guard let window else { return false }
+        return bounds.intersection(visibleRect).contains(convert(window.convertPoint(fromScreen: point), from: nil))
+    }
+
+    func highlight(_ highlighted: Bool) {
+        if highlighted { wantsLayer = true }
+        layer?.backgroundColor = highlighted ? NSColor.controlAccentColor.withAlphaComponent(0.10).cgColor : nil
+        layer?.borderColor = NSColor.controlAccentColor.cgColor
+        layer?.borderWidth = highlighted ? 2 : 0
     }
 }
 
@@ -203,8 +241,9 @@ extension ReaderWindowSession {
     private var panel: NSPanel?
     private var label: NSTextField?
     private weak var markedSession: ReaderWindowSession?
+    private weak var markedComparison: ComparisonDropView?
 
-    func update(title: String, isDark: Bool, at location: TabDragLocation, target: ReaderWindowSession?) {
+    func update(title: String, isDark: Bool, at location: TabDragLocation, target: ReaderTabDropTarget?) {
         if panel == nil {
             let panel = NSPanel(contentRect: location.previewFrame,
                                 styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -239,14 +278,28 @@ extension ReaderWindowSession {
         label?.stringValue = title
         panel?.setFrame(location.previewFrame, display: true)
         panel?.orderFront(nil)
-        if markedSession !== target { markedSession?.showTabInsertion(at: nil) }
-        markedSession = target
-        target?.showTabInsertion(at: location.screenPoint)
+        let session: ReaderWindowSession?
+        let comparison: ComparisonDropView?
+        switch target {
+        case .tabStrip(let targetSession): (session, comparison) = (targetSession, nil)
+        case .comparison(let tab): (session, comparison) = (nil, tab.comparisonDropView)
+        case nil: (session, comparison) = (nil, nil)
+        }
+        if markedSession !== session { markedSession?.showTabInsertion(at: nil) }
+        if markedComparison !== comparison {
+            markedComparison?.highlight(false)
+            comparison?.highlight(true)
+        }
+        markedSession = session
+        markedComparison = comparison
+        session?.showTabInsertion(at: location.screenPoint)
     }
 
     func end() {
         markedSession?.showTabInsertion(at: nil)
         markedSession = nil
+        markedComparison?.highlight(false)
+        markedComparison = nil
         panel?.orderOut(nil)
     }
 }

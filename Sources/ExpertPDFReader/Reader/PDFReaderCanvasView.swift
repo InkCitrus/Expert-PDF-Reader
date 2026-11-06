@@ -36,6 +36,9 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
     public let initialReadingSpot: DocumentTabState.ReadingSpot?
     /// The primary pane also turns pages when the keyboard focus is outside every PDF view
     public let handlesUnfocusedArrowKeys: Bool
+    public let isInteractive: Bool
+    public let onPaneActivation: (() -> Void)?
+    public let onManualZoom: ((CGFloat) -> Void)?
     public let onAutoScalesChange: ((Bool) -> Void)?
     public let onStepPage: ((Int) -> Void)?
     /// Page index and reading line (page space) while scrolling; only the primary pane reports it
@@ -62,6 +65,9 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         readingSpot: DocumentTabState.ReadingSpot? = nil,
         initialReadingSpot: DocumentTabState.ReadingSpot? = nil,
         handlesUnfocusedArrowKeys: Bool = true,
+        isInteractive: Bool = true,
+        onPaneActivation: (() -> Void)? = nil,
+        onManualZoom: ((CGFloat) -> Void)? = nil,
         onAutoScalesChange: ((Bool) -> Void)? = nil,
         onStepPage: ((Int) -> Void)? = nil,
         onReadingLocationChange: ((Int, CGFloat) -> Void)? = nil,
@@ -85,6 +91,9 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         self.readingSpot = readingSpot
         self.initialReadingSpot = initialReadingSpot
         self.handlesUnfocusedArrowKeys = handlesUnfocusedArrowKeys
+        self.isInteractive = isInteractive
+        self.onPaneActivation = onPaneActivation
+        self.onManualZoom = onManualZoom
         self.onAutoScalesChange = onAutoScalesChange
         self.onStepPage = onStepPage
         self.onReadingLocationChange = onReadingLocationChange
@@ -266,6 +275,8 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         // 2. Theme Background & Viewport Shader Filtering
         if let themed = pdfView as? ThemedPDFView {
             themed.onStepPage = onStepPage
+            themed.onPaneActivation = onPaneActivation
+            themed.isInteractive = isInteractive
             themed.handlesUnfocusedArrowKeys = handlesUnfocusedArrowKeys
             themed.readsRightToLeft = readsRightToLeft
             themed.currentTheme = pdfTheme
@@ -335,6 +346,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                 DispatchQueue.main.async {
                     guard Coordinator.isLive(pdfView) else { return }
                     self.zoomScale = pdfView.scaleFactor
+                    self.onAutoScalesChange?(pdfView.autoScales)
                 }
             }
         }
@@ -470,6 +482,9 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                 guard let self = self, let pdfView = pdfView, Self.isLive(pdfView) else { return }
                 if abs(pdfView.scaleFactor - self.parent.zoomScale) > 0.005 {
                     self.parent.zoomScale = pdfView.scaleFactor
+                    if (pdfView as? ThemedPDFView)?.isApplyingConfiguration == false && !pdfView.autoScales {
+                        self.parent.onManualZoom?(pdfView.scaleFactor)
+                    }
                 }
                 self.parent.onAutoScalesChange?(pdfView.autoScales)
                 (pdfView as? ThemedPDFView)?.applyThemeLayers()
@@ -517,12 +532,28 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                         self?.lastDestination = pdfView.currentDestination
                     }
                 }
+                let liveScrollObs = nc.addObserver(
+                    forName: NSScrollView.didLiveScrollNotification,
+                    object: scrollView,
+                    queue: .main
+                ) { [weak self, weak pdfView] _ in
+                    guard let self, let themed = pdfView as? ThemedPDFView,
+                          themed.isInteractive, Self.isLive(themed) else { return }
+                    // Momentum from the previous gesture should not steal focus after a click.
+                    if let event = NSApp.currentEvent, event.type == .scrollWheel, !event.momentumPhase.isEmpty {
+                        return
+                    }
+                    self.parent.onPaneActivation?()
+                }
                 let magnifyObs = nc.addObserver(
                     forName: NSScrollView.willStartLiveMagnifyNotification,
                     object: scrollView,
                     queue: .main
                 ) { [weak self, weak pdfView] _ in
                     guard let self, let pdfView, Self.isLive(pdfView) else { return }
+                    if (pdfView as? ThemedPDFView)?.isInteractive == true {
+                        self.parent.onPaneActivation?()
+                    }
                     if pdfView.autoScales {
                         let themed = pdfView as? ThemedPDFView
                         themed?.wantsAutoScales = false
@@ -532,19 +563,20 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                         self.parent.onAutoScalesChange?(false)
                     }
                 }
-                observers.append(contentsOf: [scrollObs, magnifyObs])
+                observers.append(contentsOf: [scrollObs, liveScrollObs, magnifyObs])
             }
 
             reportReadingLocation(of: pdfView)
 
-            // Local keyDown monitor so ←/→ turn pages even when a toolbar control has the focus;
-            // `ThemedPDFView.pageStep(for:)` decides which pane (if any) handles the key.
+            // Route arrow keys even when a toolbar control has focus.
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak pdfView] event in
-                guard let themed = pdfView as? ThemedPDFView,
-                      let delta = themed.pageStep(for: event),
-                      let stepHandler = themed.onStepPage else {
+                guard let themed = pdfView as? ThemedPDFView, let window = themed.window, event.window === window else {
                     return event
                 }
+                if !themed.isInteractive {
+                    return themed.isHiddenPaneNavigationKey(event) ? nil : event
+                }
+                guard let delta = themed.pageStep(for: event), let stepHandler = themed.onStepPage else { return event }
                 stepHandler(delta)
                 return nil
             }
@@ -603,9 +635,15 @@ final class ThemedPDFView: PDFView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        guard isInteractive else { return nil }
+        let location = convert(point, from: superview)
+        let eventType = NSApp.currentEvent?.type
+        if (eventType == .leftMouseDown || eventType == .rightMouseDown), bounds.contains(location) {
+            onPaneActivation?()
+        }
         if ocrSelectionOverlay.superview != nil,
-           let target = ocrSelectionOverlay.hitTest(convert(point, from: superview)) { return target }
-        if NSApp.currentEvent?.type == .leftMouseDown, bounds.contains(convert(point, from: superview)) {
+           let target = ocrSelectionOverlay.hitTest(location) { return target }
+        if eventType == .leftMouseDown, bounds.contains(location) {
             ocrSelectionOverlay.clear()
             if window?.firstResponder === ocrSelectionOverlay { window?.makeFirstResponder(self) }
         }
@@ -614,7 +652,9 @@ final class ThemedPDFView: PDFView {
     var currentTheme: PDFViewTheme = .day
     var isDarkUI: Bool = false
     var onStepPage: ((Int) -> Void)?
+    var onPaneActivation: (() -> Void)?
     var handlesUnfocusedArrowKeys = true
+    var isInteractive = true
     var readsRightToLeft = false
     var wantsAutoScales = true
     var isApplyingConfiguration = false
@@ -730,6 +770,18 @@ final class ThemedPDFView: PDFView {
             return
         }
         super.keyDown(with: event)
+    }
+
+    /// Keep the PDF's previous viewport when keyboard focus is still inside it beneath the grid.
+    func isHiddenPaneNavigationKey(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown,
+              event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+              let focused = window?.firstResponder as? NSView,
+              Self.enclosingPDFView(of: focused) === self else { return false }
+        switch event.keyCode {
+        case 49, 115, 116, 119, 121, 123...126: return true // Space, Home, End, Page Up/Down, arrows
+        default: return false
+        }
     }
 
     /// `-1` / `1` when an unmodified ←/→ should turn the page in this view, `nil` to leave the key alone:

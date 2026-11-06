@@ -414,3 +414,16 @@
 "No text was recognized on this page." = "На этой странице текст не распознан.";
 "已复制|||Copied" = "Скопировано";
 "Copied" = "Скопировано";
+
+/* Layout and library confirmation */
+"布局|||Layout" = "Макет";
+"Layout" = "Макет";
+"导航|||Navigation" = "Навигация";
+"同步|||Sync" = "Синхр.";
+"Sync" = "Синхр.";
+"清空最近打开记录？|||Clear Recent Documents?" = "Очистить список недавних документов?";
+"Clear Recent Documents?" = "Очистить список недавних документов?";
+"清空收藏夹？|||Clear Favorites?" = "Очистить избранное?";
+"Clear Favorites?" = "Очистить избранное?";
+"PDF 文件会保留在原来的位置。|||Your PDF files will stay where they are." = "Ваши PDF-файлы останутся на прежнем месте.";
+"Your PDF files will stay where they are." = "Ваши PDF-файлы останутся на прежнем месте.";

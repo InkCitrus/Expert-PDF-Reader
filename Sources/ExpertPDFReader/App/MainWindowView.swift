@@ -9,8 +9,9 @@ public struct MainWindowView: View {
     @ObservedObject var store: AppStore
     @ObservedObject var session: ReaderWindowSession
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("expertPDFReader.sidebarTabsWidth") private var sidebarWidth = Double(ReaderLeftSidebarView.width)
+    @State private var sidebarResizeWidth: CGFloat?
     @State private var isDropTargeted = false
-    @State private var viewMenuAnchor = NSViewAnchor()
     private var isDark: Bool { colorScheme == .dark }
 
     public static let tabStripHeight: CGFloat = 40
@@ -27,22 +28,24 @@ public struct MainWindowView: View {
                     .id(tab.id)
                     .transaction { $0.animation = nil }
             }
-            HStack(spacing: 0) {
-                if store.tabsInSidebar, let panel = session.sidebarPanel {
-                    sidebarColumn(panel)
-                        .transition(.move(edge: .leading).combined(with: .opacity))
-                }
-                ZStack {
-                    if let tab = session.activeDocumentTab {
-                        PDFReaderView(store: store, tab: tab).id(tab.id)
-                    } else {
-                        HomeTabRootView(store: store, session: session)
+            GeometryReader { geometry in
+                HStack(spacing: 0) {
+                    if store.tabsInSidebar, let panel = session.sidebarPanel {
+                        sidebarColumn(panel, windowWidth: geometry.size.width)
+                            .transition(.move(edge: .leading).combined(with: .opacity))
                     }
+                    ZStack {
+                        if let tab = session.activeDocumentTab {
+                            PDFReaderView(store: store, tab: tab).id(tab.id)
+                        } else {
+                            HomeTabRootView(store: store, session: session)
+                        }
+                    }
+                    // Keep heavyweight PDFViews from overlapping during rapid tab switching.
+                    .transaction { $0.animation = nil }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
                 }
-                // Keep heavyweight PDFViews from overlapping during rapid tab switching.
-                .transaction { $0.animation = nil }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipped()
             }
         }
         .background(AppPalette.homeContentBackground(isDark), ignoresSafeAreaEdges: [])
@@ -89,37 +92,34 @@ public struct MainWindowView: View {
         )
     }
 
-    @ViewBuilder private var titlebarContent: some View {
-        if store.tabsInSidebar {
-            sidebarTitlebar
-        } else {
-            TabBarView(store: store, session: session, isDark: isDark)
-        }
-    }
-
-    private var sidebarTitlebar: some View {
+    private var titlebarContent: some View {
         let homeTitle = L10n.tr("主页", "Home")
-        let viewTitle = L10n.tr("视图", "View")
-        let controlsWidth: CGFloat = 180
-        return ZStack(alignment: .leading) {
-            Text(store.windowTitle(for: session))
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(AppPalette.labelPrimary(isDark))
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .padding(.horizontal, controlsWidth)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-
+        let sidebarVisible = store.isLeftPanelVisible(in: session)
+        let sidebarTitle = sidebarVisible
+            ? L10n.tr("隐藏左边面板", "Hide Left Panel") : L10n.tr("显示左边面板", "Show Left Panel")
+        let controlsWidth: CGFloat = 88
+        return HStack(spacing: 0) {
             HStack(spacing: 4) {
-                ToolbarIconButton(icon: "house.fill", tooltip: homeTitle, title: homeTitle,
+                ToolbarIconButton(icon: "sidebar.left", tooltip: "\(sidebarTitle) (⌘B)",
+                                  isActive: sidebarVisible, isDark: isDark) {
+                    store.toggleLeftPanel(in: session)
+                }
+                ToolbarIconButton(icon: "house.fill", tooltip: homeTitle,
                                   isActive: session.activeDocumentTab == nil, isDark: isDark, action: goHome)
                     .overlay { WindowDragArea(onClick: goHome) }
-                ToolbarIconButton(icon: "sidebar.left", tooltip: viewTitle, title: viewTitle,
-                                  showsMenuIndicator: true, isDark: isDark, action: showViewMenu)
-                    .background(ViewAnchorRepresentable(anchor: viewMenuAnchor).allowsHitTesting(false))
             }
-            .padding(.leading, 8)
-            .frame(maxWidth: controlsWidth, alignment: .leading)
+            .frame(width: controlsWidth)
+            if store.tabsInSidebar {
+                Text(store.windowTitle(for: session))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(AppPalette.labelPrimary(isDark))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.trailing, controlsWidth)
+            } else {
+                TabBarView(store: store, session: session, isDark: isDark)
+            }
         }
         .background(WindowDragArea())
         .background(AppPalette.tabStripBackground(isDark))
@@ -127,58 +127,141 @@ public struct MainWindowView: View {
 
     private func goHome() {
         store.activateWindowSession(session.id)
-        store.openNewHomeTab(in: session.id)
+        store.selectHomeTab(in: session.id)
     }
 
-    private func showViewMenu() {
-        let tab = session.activeDocumentTab
-        let navigationTitle = tab == nil
-            ? L10n.tr("主页导航栏", "Home Sidebar") : L10n.tr("页面导航", "Page Navigation")
-        var items: [NativeMenuItem] = [
-            .action(L10n.tr("打开的文档", "Open Documents"), isChecked: session.sidebarPanel == .openDocuments) {
-                withAnimation(AppAnimation.panel) { session.sidebarPanel = .openDocuments }
-            },
-            .action(navigationTitle, isChecked: session.sidebarPanel == .navigation) {
-                withAnimation(AppAnimation.panel) { session.sidebarPanel = .navigation }
-            },
-            .action(L10n.tr("隐藏左边面板", "Hide Left Panel"), isEnabled: session.sidebarPanel != nil) {
-                withAnimation(AppAnimation.panel) { session.sidebarPanel = nil }
-            }
-        ]
-        if let tab {
-            items += [
-                .separator,
-                .action(L10n.tr("页面概览", "Page Overview"), isChecked: tab.isPageOverviewVisible) {
-                    withAnimation(AppAnimation.panel) { tab.isPageOverviewVisible.toggle() }
-                },
-                .action(L10n.tr("显示选项", "View Settings"), isChecked: session.sidebarPanel == .viewSettings) {
-                    withAnimation(AppAnimation.panel) { session.sidebarPanel = .viewSettings }
-                }
-            ]
+    private func sidebarColumn(_ panel: SidebarPanel, windowWidth: CGFloat) -> some View {
+        let minimumWidth: CGFloat = 180
+        let maximumWidth = max(minimumWidth, min(480, windowWidth - 360))
+        func boundedWidth(_ width: CGFloat) -> CGFloat {
+            min(max(width, minimumWidth), maximumWidth)
         }
-        NativeMenu.popUp(items, below: viewMenuAnchor.view)
-    }
+        let width = boundedWidth(sidebarResizeWidth ?? CGFloat(sidebarWidth))
 
-    private func sidebarColumn(_ panel: SidebarPanel) -> some View {
-        Group {
-            switch panel {
-            case .openDocuments:
-                TabBarView(store: store, session: session, isDark: isDark, isSidebar: true)
-            case .navigation, .viewSettings:
-                if let tab = session.activeDocumentTab {
-                    ReaderLeftSidebarView(store: store, tab: tab,
-                                          panel: panel == .viewSettings ? .viewSettings : .documentSummary)
-                        .id(tab.id)
-                } else {
-                    HomeTabSidebarView(store: store, session: session)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        return VStack(spacing: 0) {
+            sidebarHeader(panel)
+            Rectangle()
+                .fill(AppPalette.panelSeparator(isDark))
+                .frame(height: 1)
+            Group {
+                switch panel {
+                case .openDocuments:
+                    TabBarView(store: store, session: session, isDark: isDark, isSidebar: true)
+                case .navigation:
+                    if let tab = session.activeDocumentTab {
+                        ReaderLeftSidebarView(store: store, tab: tab, panelWidth: width)
+                            .id(tab.id)
+                    } else {
+                        HomeTabSidebarView(store: store, session: session)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
                 }
             }
         }
-        .frame(width: ReaderLeftSidebarView.width)
+        .frame(width: width)
         .background(AppPalette.panelBackground(isDark), ignoresSafeAreaEdges: [])
         .overlay(alignment: .trailing) {
-            AppPalette.panelHairline(isDark).frame(width: 1).allowsHitTesting(false)
+            AppPalette.panelHairline(isDark)
+                .frame(width: 1)
+                .allowsHitTesting(false)
+        }
+        .overlay(alignment: .trailing) {
+            ReaderResizeHandle(axis: .horizontal, length: width) { newWidth, ended in
+                let bounded = boundedWidth(newWidth)
+                if ended {
+                    if bounded != boundedWidth(CGFloat(sidebarWidth)) {
+                        sidebarWidth = Double(bounded)
+                    }
+                    sidebarResizeWidth = nil
+                } else {
+                    sidebarResizeWidth = bounded
+                }
+            }
+            .frame(width: 8)
+            .onDisappear { sidebarResizeWidth = nil }
+        }
+    }
+
+    private func sidebarHeader(_ panel: SidebarPanel) -> some View {
+        let selection = Binding(get: { session.sidebarPanel ?? panel }, set: { session.sidebarPanel = $0 })
+        return PanelSegmentedControl(items: SidebarPanel.allCases, selection: selection, isDark: isDark) { item, _ in
+            let isTabs = item == .openDocuments
+            Text(isTabs ? L10n.tr("标签页", "Tabs") : L10n.tr("导航", "Navigation"))
+                .font(.system(size: 11.5, weight: .medium))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .accessibilityLabel(Text(isTabs
+                    ? L10n.tr("打开的文档", "Open Documents")
+                    : L10n.tr("导航", "Navigation")))
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+    }
+}
+
+struct ReaderResizeHandle: NSViewRepresentable {
+    let axis: Axis
+    let length: CGFloat
+    let onResize: (CGFloat, Bool) -> Void
+
+    func makeNSView(context: Context) -> Handle { Handle() }
+
+    func updateNSView(_ view: Handle, context: Context) {
+        view.axis = axis
+        view.length = length
+        view.onResize = onResize
+    }
+
+    final class Handle: NSView {
+        var axis: Axis = .horizontal {
+            didSet {
+                if axis != oldValue { window?.invalidateCursorRects(for: self) }
+            }
+        }
+        var length: CGFloat = 0
+        var onResize: ((CGFloat, Bool) -> Void)?
+        private var dragStart: (position: CGFloat, length: CGFloat)?
+        private var cursorTrackingArea: NSTrackingArea?
+        private var resizeCursor: NSCursor { axis == .horizontal ? .resizeLeftRight : .resizeUpDown }
+
+        override var mouseDownCanMoveWindow: Bool { false }
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        override func resetCursorRects() {
+            addCursorRect(bounds, cursor: resizeCursor)
+        }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            if let cursorTrackingArea { removeTrackingArea(cursorTrackingArea) }
+            let area = NSTrackingArea(rect: .zero, options: [.cursorUpdate, .activeInKeyWindow, .inVisibleRect],
+                                      owner: self, userInfo: nil)
+            addTrackingArea(area)
+            cursorTrackingArea = area
+        }
+
+        override func cursorUpdate(with event: NSEvent) {
+            resizeCursor.set()
+        }
+
+        private func position(_ event: NSEvent) -> CGFloat {
+            axis == .horizontal ? event.locationInWindow.x : -event.locationInWindow.y
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            dragStart = (position(event), length)
+            resizeCursor.set()
+        }
+
+        override func mouseDragged(with event: NSEvent) {
+            guard let dragStart else { return }
+            onResize?(dragStart.length + position(event) - dragStart.position, false)
+        }
+
+        override func mouseUp(with event: NSEvent) {
+            guard let dragStart else { return }
+            self.dragStart = nil
+            onResize?(dragStart.length + position(event) - dragStart.position, true)
         }
     }
 }
@@ -193,8 +276,6 @@ struct TabBarView: View {
 
     @Namespace private var tabBarNamespace
     @State private var hoveredTabID: UUID?
-    @State private var isHomeHovered = false
-    @State private var isNewTabHovered = false
     @State private var isAllTabsHovered = false
     @State private var isShortcutsHelpHovered = false
     @State private var allTabsAnchor = NSViewAnchor()
@@ -202,8 +283,6 @@ struct TabBarView: View {
     @State private var draggingTabID: UUID?
     @State private var dragFeedback = TabDragFeedback()
 
-    private static let homeTabWidth: CGFloat = 46
-    private static let newTabButtonWidth: CGFloat = 36
     private static let allTabsButtonWidth: CGFloat = 30
     private static let shortcutsHelpButtonWidth: CGFloat = 34
     private static let minimumTabWidth: CGFloat = 168
@@ -213,6 +292,16 @@ struct TabBarView: View {
     private static let reservedTrailingWidth: CGFloat = 48
 
     var body: some View {
+        VStack(spacing: 0) {
+            tabStrip
+            if isSidebar {
+                AppPalette.panelSeparator(isDark).frame(height: 1)
+                openFileButton
+            }
+        }
+    }
+
+    private var tabStrip: some View {
         Group {
             if isSidebar { sidebarTabs }
             else { topTabs }
@@ -259,31 +348,17 @@ struct TabBarView: View {
 
     private var sidebarTabs: some View {
         let tabs = documentTabs
-        return VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                Text(L10n.tr("打开的文档", "Open Documents"))
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(AppPalette.labelPrimary(isDark))
-                Spacer(minLength: 8)
-                newTabButton
-            }
-            .padding(.leading, 14)
-            .padding(.trailing, 6)
-            .frame(height: MainWindowView.tabStripHeight)
-
-            scrollingTabs(.vertical) {
-                VStack(spacing: 2) {
-                    ForEach(tabs) { state in
-                        tabItem(state, count: tabs.count)
-                            .frame(height: Self.sidebarRowHeight)
-                            .id(state.id)
-                            .transition(.opacity)
-                    }
+        return scrollingTabs(.vertical) {
+            VStack(spacing: 2) {
+                ForEach(tabs) { state in
+                    tabItem(state, count: tabs.count)
+                        .frame(height: Self.sidebarRowHeight)
+                        .id(state.id)
+                        .transition(.opacity)
                 }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 6)
-                .animation(AppAnimation.tab, value: tabs.map(\.id))
             }
+            .padding(6)
+            .animation(AppAnimation.tab, value: tabs.map(\.id))
         }
     }
 
@@ -291,13 +366,15 @@ struct TabBarView: View {
         GeometryReader { proxy in
             let documentTabs = self.documentTabs
             let showsAllTabsMenu = documentTabs.count >= 2
-            let trailingControlsWidth = Self.newTabButtonWidth
+            let openWidth = min(156, ceil((openFileTitle as NSString).size(
+                withAttributes: [.font: NSFont.systemFont(ofSize: 12, weight: .medium)]
+            ).width) + 50)
+            let trailingControlsWidth = openWidth
                 + (showsAllTabsMenu ? Self.allTabsButtonWidth : 0)
                 + Self.shortcutsHelpButtonWidth
-            let leadingInset: CGFloat = 8
             let available = max(
                 0,
-                proxy.size.width - leadingInset - Self.homeTabWidth - trailingControlsWidth - Self.reservedTrailingWidth - 2
+                proxy.size.width - trailingControlsWidth - Self.reservedTrailingWidth - 1
             )
             let fitWidth = documentTabs.isEmpty
                 ? Self.maximumTabWidth
@@ -305,10 +382,6 @@ struct TabBarView: View {
             let tabWidth = min(Self.maximumTabWidth, max(Self.minimumTabWidth, fitWidth))
 
             HStack(spacing: 0) {
-                Color.clear.frame(width: leadingInset)
-
-                tabSeparator
-                homeTabButton
                 tabSeparator
 
                 if fitWidth < Self.minimumTabWidth {
@@ -321,7 +394,7 @@ struct TabBarView: View {
                         .animation(AppAnimation.tab, value: documentTabs.count)
                 }
 
-                newTabButton
+                openFileButton.frame(width: openWidth)
 
                 if showsAllTabsMenu {
                     allTabsButton(documentTabs: documentTabs)
@@ -383,10 +456,8 @@ struct TabBarView: View {
                 hoveredTabID = hovering ? state.id : (hoveredTabID == state.id ? nil : hoveredTabID)
             },
             onDragChanged: { location in
-                let point = location.screenPoint
                 draggingTabID = state.id
-                let target = store.dropTargetWindowAndIndex(atScreenPoint: point, excluding: session.id)?.session
-                    ?? (session.containsTabStrip(point) ? session : nil)
+                let target = store.tabDropTarget(at: location.screenPoint)
                 dragFeedback.update(title: state.title, isDark: isDark, at: location, target: target)
             },
             onDragEnded: { location in
@@ -394,18 +465,27 @@ struct TabBarView: View {
                 dragFeedback.end()
                 guard let location else { return }
                 let point = location.screenPoint
-                if let target = store.dropTargetWindowAndIndex(atScreenPoint: point, excluding: session.id) {
-                    store.moveTab(id: state.id, from: session.id, to: target.session.id, atDocumentIndex: target.documentIndex)
-                } else if session.containsTabStrip(point) {
-                    if let index = session.nearestDocumentIndex(at: point) {
-                        store.moveDocumentTab(id: state.id, toDocumentIndex: index, in: session.id)
+                switch store.tabDropTarget(at: point) {
+                case .tabStrip(let target):
+                    if target === session {
+                        if let index = session.nearestDocumentIndex(at: point) {
+                            store.moveDocumentTab(id: state.id, toDocumentIndex: index, in: session.id)
+                            session.selectedTabID = state.id
+                        }
+                    } else {
+                        store.moveTab(id: state.id, from: session.id, to: target.id,
+                                      atDocumentIndex: target.documentInsertionIndex(at: point))
                     }
-                } else if store.canDetachTab(id: state.id, in: session.id) {
-                    store.detachTabToNewWindow(id: state.id, from: session.id,
-                                              screenDropPoint: point, tabGrabOffset: location.grabOffset)
-                } else if !session.isPrimary, let window = session.nsWindow {
-                    window.contentView?.layoutSubtreeIfNeeded()
-                    session.positionWindowForTabDrop(tabID: state.id, grabOffset: location.grabOffset, at: point)
+                case .comparison(let tab):
+                    tab.setSecondaryDocument(from: state)
+                case nil:
+                    if store.canDetachTab(id: state.id, in: session.id) {
+                        store.detachTabToNewWindow(id: state.id, from: session.id,
+                                                   screenDropPoint: point, tabGrabOffset: location.grabOffset)
+                    } else if !session.isPrimary, let window = session.nsWindow {
+                        window.contentView?.layoutSubtreeIfNeeded()
+                        session.positionWindowForTabDrop(tabID: state.id, grabOffset: location.grabOffset, at: point)
+                    }
                 }
             }
         )
@@ -417,71 +497,18 @@ struct TabBarView: View {
             .frame(width: 1)
     }
 
-    // Home stays pinned before the document tabs.
-    private var homeTabButton: some View {
-        let homeID = session.tabs.first(where: { $0.isHome })?.id
-        let isHomeSelected = homeID != nil && session.selectedTabID == homeID
-        let isHovered = isHomeHovered && draggingTabID == nil
-        return Button {
-            store.activateWindowSession(session.id)
-            store.selectHomeTab(in: session.id)
-        } label: {
-            Image(systemName: "house.fill")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(isHomeSelected ? AppPalette.labelPrimary(isDark) : AppPalette.labelTertiary(isDark))
-                .frame(width: Self.homeTabWidth)
-                .frame(maxHeight: .infinity)
-                .background(tabFill(isSelected: isHomeSelected, isHovered: isHovered))
-                .overlay(alignment: .top) {
-                    if isHomeSelected {
-                        Rectangle()
-                            .fill(AppPalette.accentBlue)
-                            .frame(height: 2.5)
-                            .matchedGeometryEffect(id: "activeTabAccent", in: tabBarNamespace)
-                    }
-                }
-                .contentShape(Rectangle())
-                .animation(AppAnimation.micro, value: isHovered)
-        }
-        .buttonStyle(.plain)
-        .overlay {
-            WindowDragArea {
-                store.activateWindowSession(session.id)
-                store.selectHomeTab(in: session.id)
-            }
-        }
-        .help(L10n.tr("主页", "Home"))
-        .accessibilityLabel(Text(L10n.tr("主页", "Home")))
-        .accessibilityAddTraits(isHomeSelected ? .isSelected : [])
-        .onHover { hovering in
-            isHomeHovered = hovering
-        }
-    }
+    private var openFileTitle: String { L10n.tr("打开文件…", "Open File…") }
 
-    // "+" Button to Open Document
-    private var newTabButton: some View {
-        Button {
+    private var openFileButton: some View {
+        ToolbarIconButton(
+            icon: "plus",
+            tooltip: L10n.tr("打开 PDF 文档 (⌘O)", "Open PDF Document (⌘O)"),
+            title: openFileTitle,
+            fillsRow: true,
+            isDark: isDark
+        ) {
             store.activateWindowSession(session.id)
             store.openFilePicker(in: session.id)
-        } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 13, weight: .regular))
-                .foregroundColor(AppPalette.labelSecondary(isDark))
-                .frame(width: 28, height: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(isNewTabHovered ? AppPalette.tabHoverBackground(isDark) : Color.clear)
-                )
-                .frame(width: Self.newTabButtonWidth)
-                .frame(maxHeight: .infinity)
-                .contentShape(Rectangle())
-                .animation(AppAnimation.micro, value: isNewTabHovered)
-        }
-        .buttonStyle(.plain)
-        .help(L10n.tr("打开 PDF 文档 (⌘O)", "Open PDF Document (⌘O)"))
-        .accessibilityLabel(Text(L10n.tr("打开 PDF 文档", "Open PDF Document")))
-        .onHover { hovering in
-            isNewTabHovered = hovering
         }
     }
 
@@ -579,12 +606,6 @@ struct TabBarView: View {
         NativeMenu.popUp(items, below: allTabsAnchor.view)
     }
 
-    private func tabFill(isSelected: Bool, isHovered: Bool) -> Color {
-        if isSelected {
-            return AppPalette.tabSelectedBackground(isDark)
-        }
-        return isHovered ? AppPalette.tabHoverBackground(isDark) : Color.clear
-    }
 }
 
 // MARK: - DocumentTabItemView (TabView)

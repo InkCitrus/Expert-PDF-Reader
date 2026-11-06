@@ -91,7 +91,7 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
     }
 
     func drag(_ title: String, from session: ReaderWindowSession, to point: NSPoint,
-              grabFraction: CGFloat = 0.5) async {
+              grabFraction: CGFloat = 0.5, onMove: ((TabDragLocation) -> Void)? = nil) async {
         let sourceWindow = session.nsWindow!
         sourceWindow.makeKeyAndOrderFront(nil)
         let originalFrame = sourceWindow.frame
@@ -106,6 +106,7 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
             let changed = view.onDragChanged
             view.onDragChanged = { location in
                 changed?(location)
+                onMove?(location)
                 guard let panel = NSApp.windows.first(where: { $0 is NSPanel && $0.ignoresMouseEvents && $0.isVisible }) else {
                     anchored = false
                     return
@@ -149,6 +150,13 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         await settle()
     }
 
+    func checkHomePanel(_ session: ReaderWindowSession) {
+        let before = store.isLeftPanelVisible(in: session)
+        store.toggleLeftPanel(in: session)
+        check(store.isLeftPanelVisible(in: session) != before, "the sidebar switch also works on Home")
+        store.toggleLeftPanel(in: session)
+    }
+
     func homeDragView(in view: NSView) -> WindowDragView? {
         if let view = view as? WindowDragView, view.onClick != nil { return view }
         return view.subviews.lazy.compactMap { self.homeDragView(in: $0) }.first
@@ -182,24 +190,23 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
               "moving tabs into the sidebar preserves tab order and selection")
 
         store.activateWindowSession(primary.id)
-        primary.toggleSidebar(.openDocuments)
+        primary.toggleSidebarVisibility()
         store.showSidebarTab(.outline)
         await settle()
         check(primary.sidebarPanel == .navigation
               && originalTab?.activeSidebarTab == .outline && !tabsAreInSidebar(primary),
               "opening the outline from a hidden sidebar replaces the document list")
 
-        primary.toggleSidebar(.openDocuments)
+        primary.sidebarPanel = .openDocuments
         await settle()
         check(tabsAreInSidebar(primary) && primary.activeDocumentTab === originalTab,
               "returning to open documents keeps the selected PDF")
 
         store.openNewHomeTab(in: primary.id)
         await settle()
-        check(primary.activeDocumentTab == nil && primary.sidebarPanel == .navigation
-              && primary.tabStripView?.window == nil,
-              "going Home opens its navigation even when the document list was visible")
-        primary.toggleSidebar(.openDocuments)
+        check(primary.activeDocumentTab == nil && primary.sidebarPanel == .openDocuments && tabsAreInSidebar(primary),
+              "going Home leaves the sidebar tab list visible")
+        primary.sidebarPanel = .openDocuments
         if let originalTab { primary.selectedTabID = originalTab.id }
         await settle()
 
@@ -232,6 +239,94 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         await settle()
         check(tabsAreInContent(primary) && names(primary) == reordered && primary.activeDocumentTab === originalTab,
               "returning to the titlebar preserves the reordered tabs and reading state")
+    }
+
+    func resizeHandle(in view: NSView, axis: Axis) -> ReaderResizeHandle.Handle? {
+        if let handle = view as? ReaderResizeHandle.Handle, handle.axis == axis { return handle }
+        return view.subviews.lazy.compactMap { self.resizeHandle(in: $0, axis: axis) }.first
+    }
+
+    func resizeSplit(in view: ReaderResizeHandle.Handle, by offset: NSPoint) async {
+        let start = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+        let end = NSPoint(x: start.x + offset.x, y: start.y + offset.y)
+        for (type, point) in [(NSEvent.EventType.leftMouseDown, start), (.leftMouseDragged, end), (.leftMouseUp, end)] {
+            NSApp.postEvent(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!, atStart: false)
+        }
+        await settle()
+    }
+
+    func checkSplitComparison(_ primary: ReaderWindowSession) async {
+        let alpha = tab("Alpha", in: primary)
+        let beta = tab("Beta", in: primary)
+        window.setFrame(NSRect(x: 40, y: 75, width: 1100, height: 680), display: true)
+        primary.selectedTabID = alpha.id
+        beta.navigateToPage(2)
+        alpha.splitMode = .vertical
+        alpha.showSplitDocumentPicker = true
+        await settle()
+        guard let pane = alpha.comparisonDropView, let handle = resizeHandle(in: window.contentView!, axis: .horizontal) else {
+            check(false, "the vertical split has a divider and a comparison drop target")
+            return
+        }
+        let initialWidth = pane.bounds.width
+        await resizeSplit(in: handle, by: NSPoint(x: 105, y: 0))
+        let comparisonWidth = pane.bounds.width
+        check(comparisonWidth < initialWidth - 80, "dragging the vertical divider resizes the comparison pane")
+
+        let order = names(primary)
+        let dropPoint = window.convertPoint(toScreen: pane.convert(NSPoint(x: pane.bounds.midX, y: pane.bounds.midY), to: nil))
+        var keptPrimary = true
+        var highlighted = false
+        await drag("Beta", from: primary, to: dropPoint) { location in
+            keptPrimary = keptPrimary && primary.activeDocumentTab === alpha
+            if pane.containsScreenPoint(location.screenPoint), pane.layer?.borderWidth == 2 { highlighted = true }
+        }
+        check(keptPrimary && highlighted && primary.activeDocumentTab === alpha && names(primary) == order
+              && store.detachedSessions.isEmpty && alpha.secondaryDocumentURL == beta.documentID.url
+              && alpha.secondaryPageIndex == 2 && alpha.secondaryPDFDocument !== beta.pdfDocument,
+              "dragging an inactive tab highlights and fills the comparison without selecting or moving the tab")
+        check(alpha.comparisonDropView?.layer?.borderWidth != 2, "comparison drop feedback clears after release")
+        alpha.activatePane(isSecondary: false)
+        alpha.triggerZoom(.scale(1.35))
+        alpha.activatePane(isSecondary: true)
+        alpha.triggerZoom(.scale(0.9))
+        await settle()
+        let zooms = (alpha.zoomScale, alpha.secondaryZoomScale)
+        let comparisonPage = alpha.secondaryPageIndex
+        await click(primary.tabViews.object(forKey: beta.id as NSUUID)!)
+        check(primary.activeDocumentTab === beta, "releasing a tab without dragging still selects it")
+        await click(primary.tabViews.object(forKey: alpha.id as NSUUID)!)
+        let restoredWidth = alpha.comparisonDropView?.bounds.width ?? 0
+        check(primary.activeDocumentTab === alpha && abs(restoredWidth - comparisonWidth) <= 1,
+              "returning to a tab restores its split divider (\(comparisonWidth) → \(restoredWidth))")
+        check(abs(alpha.zoomScale - zooms.0) < 0.005 && abs(alpha.secondaryZoomScale - zooms.1) < 0.005
+              && alpha.secondaryPageIndex == comparisonPage,
+              "returning to a tab preserves its two zooms and comparison page")
+
+        alpha.splitMode = .horizontal
+        store.tabsInSidebar = true
+        primary.sidebarPanel = .openDocuments
+        await settle()
+        if let pane = alpha.comparisonDropView, let handle = resizeHandle(in: window.contentView!, axis: .vertical) {
+            let initialHeight = pane.bounds.height
+            await resizeSplit(in: handle, by: NSPoint(x: 0, y: -70))
+            let resizedPane = alpha.comparisonDropView ?? pane
+            let newHeight = resizedPane.bounds.height
+            check(newHeight < initialHeight - 55, "dragging the horizontal divider resizes the comparison pane (\(initialHeight) → \(newHeight))")
+            let point = window.convertPoint(toScreen: resizedPane.convert(
+                NSPoint(x: resizedPane.bounds.midX, y: resizedPane.bounds.midY), to: nil))
+            await drag("Gamma", from: primary, to: point)
+            check(primary.activeDocumentTab === alpha && names(primary) == order
+                  && alpha.secondaryDocumentURL == tab("Gamma", in: primary).documentID.url,
+                  "sidebar tabs can also be dropped onto an already loaded comparison")
+        } else {
+            check(false, "the horizontal split has a divider and a comparison drop target")
+        }
+        alpha.splitMode = .disabled
+        store.tabsInSidebar = false
+        await settle()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -271,6 +366,7 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
             await click(home)
             check(primary.activeDocumentTab == nil && window.frame == beforeHomeClick,
                   "Home click selects Home without moving the window")
+            checkHomePanel(primary)
             primary.selectedTabID = tab("Gamma", in: primary).id
             await settle()
             await checkHomeDrag(home, in: primary)
@@ -319,6 +415,7 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
                       "cross-window dragging keeps reading state without creating a closed-tab record")
             }
             await checkSidebarTabs(primary)
+            await checkSplitComparison(primary)
             let renamed = fixtureDirectory.appendingPathComponent("Alpha-renamed.pdf")
             let active = primary.activeDocumentTab!
             try! FileManager.default.moveItem(at: active.documentID.url, to: renamed)

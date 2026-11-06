@@ -414,3 +414,16 @@
 "No text was recognized on this page." = "이 페이지에서 텍스트를 인식하지 못했습니다.";
 "已复制|||Copied" = "복사됨";
 "Copied" = "복사됨";
+
+/* Layout and library confirmation */
+"布局|||Layout" = "레이아웃";
+"Layout" = "레이아웃";
+"导航|||Navigation" = "탐색";
+"同步|||Sync" = "동기화";
+"Sync" = "동기화";
+"清空最近打开记录？|||Clear Recent Documents?" = "최근 문서 목록을 지울까요?";
+"Clear Recent Documents?" = "최근 문서 목록을 지울까요?";
+"清空收藏夹？|||Clear Favorites?" = "즐겨찾기를 비울까요?";
+"Clear Favorites?" = "즐겨찾기를 비울까요?";
+"PDF 文件会保留在原来的位置。|||Your PDF files will stay where they are." = "PDF 파일은 원래 위치에 그대로 유지됩니다.";
+"Your PDF files will stay where they are." = "PDF 파일은 원래 위치에 그대로 유지됩니다.";

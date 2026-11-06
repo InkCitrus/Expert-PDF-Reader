@@ -324,7 +324,7 @@
 "标签页|||Tabs" = "分頁";
 "Tabs" = "分頁";
 "阅读与导航|||Navigation" = "閱讀與導覽";
-"Navigation" = "閱讀與導覽";
+"Navigation" = "導覽";
 "视图与缩放|||View & Zoom" = "檢視與縮放";
 "View & Zoom" = "檢視與縮放";
 "搜索与书签|||Search & Bookmarks" = "搜尋與書籤";
@@ -414,3 +414,16 @@
 "No text was recognized on this page." = "此頁未辨識出文字。";
 "已复制|||Copied" = "已複製";
 "Copied" = "已複製";
+
+/* Layout and library confirmation */
+"布局|||Layout" = "佈局";
+"Layout" = "佈局";
+"导航|||Navigation" = "導覽";
+"同步|||Sync" = "同步";
+"Sync" = "同步";
+"清空最近打开记录？|||Clear Recent Documents?" = "清空最近打開記錄？";
+"Clear Recent Documents?" = "清空最近打開記錄？";
+"清空收藏夹？|||Clear Favorites?" = "清空收藏夾？";
+"Clear Favorites?" = "清空收藏夾？";
+"PDF 文件会保留在原来的位置。|||Your PDF files will stay where they are." = "PDF 檔案會保留在原來的位置。";
+"Your PDF files will stay where they are." = "PDF 檔案會保留在原來的位置。";

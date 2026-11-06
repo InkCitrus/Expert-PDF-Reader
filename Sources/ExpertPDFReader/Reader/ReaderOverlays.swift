@@ -226,6 +226,7 @@ struct SearchResultRow: View {
 /// the page changes, reappears on hover and opens Go to Page when clicked.
 struct PageIndicatorOverlay: View {
     @ObservedObject var tab: DocumentTabState
+    var isSecondaryPane = false
 
     @State private var isVisible = true
     @State private var isHovered = false
@@ -234,7 +235,7 @@ struct PageIndicatorOverlay: View {
     @State private var hideTask: Task<Void, Never>?
 
     var body: some View {
-        let shown = isVisible || isHovered || showGoToPage
+        let shown = tab.splitMode != .disabled || isVisible || isHovered || showGoToPage
         Button {
             presentGoToPage()
         } label: {
@@ -274,11 +275,11 @@ struct PageIndicatorOverlay: View {
         .animation(AppAnimation.micro, value: isHovered)
         .onHover { isHovered = $0 }
         .onAppear(perform: flash)
-        .onChange(of: tab.currentPageIndex) { _, _ in
+        .onChange(of: pageIndex) { _, _ in
             flash()
         }
         .onChange(of: tab.goToPageRequestToken) { _, _ in
-            presentGoToPage()
+            if tab.targetsSecondaryPane == isSecondaryPane { presentGoToPage() }
         }
         .onChange(of: showGoToPage) { _, isShown in
             if !isShown {
@@ -307,21 +308,28 @@ struct PageIndicatorOverlay: View {
         }
     }
 
+    private var pageIndex: Int { isSecondaryPane ? tab.secondaryPageIndex : tab.currentPageIndex }
+    private var pageCount: Int { isSecondaryPane ? tab.secondaryPDFDocument?.pageCount ?? 0 : tab.pageCount }
+    private var usesBookNumbers: Bool { !isSecondaryPane || tab.secondaryPDFDocument === tab.pdfDocument }
+    private var pages: [Int] {
+        isSecondaryPane ? tab.layoutMode.visiblePageIndices(at: pageIndex, pageCount: pageCount) : tab.visiblePageIndices
+    }
+
     private var currentPageInput: String {
-        tab.displayPageNumber(at: tab.currentPageIndex)
+        usesBookNumbers ? tab.displayPageNumber(at: pageIndex) : "\(pageIndex + 1)"
     }
 
     private var goToPagePlaceholder: String {
-        let numbers = tab.pageIndicesByLabel.keys.compactMap(Int.init)
+        let numbers = usesBookNumbers ? tab.pageIndicesByLabel.keys.compactMap(Int.init) : []
         guard let first = numbers.min(), let last = numbers.max() else {
-            return "1–\(tab.pageCount)"
+            return "1–\(pageCount)"
         }
         return "\(first)–\(last)"
     }
 
     /// Show book numbers above PDF positions only when they differ; front matter uses "n / total".
     private var primaryLine: String {
-        let pages = tab.visiblePageIndices
+        guard usesBookNumbers else { return positionLine }
         let printed = pages.compactMap { tab.printedNumber(at: $0) }
         if !printed.isEmpty, printed != pages.map({ "\($0 + 1)" }) {
             return printed.joined(separator: ", ")
@@ -334,7 +342,7 @@ struct PageIndicatorOverlay: View {
     }
 
     private var positionLine: String {
-        "\(tab.visiblePageIndices.map { "\($0 + 1)" }.joined(separator: ", ")) / \(tab.pageCount)"
+        "\(pages.map { "\($0 + 1)" }.joined(separator: ", ")) / \(pageCount)"
     }
 
     private func flash() {
@@ -348,6 +356,7 @@ struct PageIndicatorOverlay: View {
     }
 
     private func presentGoToPage() {
+        tab.activatePane(isSecondary: isSecondaryPane)
         goToPageInput = currentPageInput
         // A popover can't be anchored to the faded-out counter: show the counter first (⌥⌘G, Go › Go to Page…)
         isVisible = true
@@ -358,14 +367,18 @@ struct PageIndicatorOverlay: View {
     }
 
     private func commitGoToPage() {
-        guard let target = tab.pageIndex(forPageInput: goToPageInput) else {
+        guard let target = tab.pageIndex(forPageInput: goToPageInput, inSecondaryPane: isSecondaryPane) else {
             NSSound.beep()
             return
         }
         // Close the popover first: navigating re-renders the canvas it is anchored to
         showGoToPage = false
         DispatchQueue.main.async {
-            tab.navigateToPage(target)
+            if isSecondaryPane {
+                tab.navigateSecondaryPane(to: target)
+            } else {
+                tab.navigateToPage(target)
+            }
         }
     }
 }
@@ -378,21 +391,23 @@ struct PageOverviewGridView: View {
     let isDark: Bool
 
     var body: some View {
+        let source = tab.activeThumbnailSource
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVGrid(
                     columns: [GridItem(.adaptive(minimum: 150, maximum: 190), spacing: 24, alignment: .top)],
                     spacing: 26
                 ) {
-                    ForEach(0..<tab.pageCount, id: \.self) { pageIdx in
+                    ForEach(0..<source.document.pageCount, id: \.self) { pageIdx in
                         PageThumbnailCell(
                             store: store,
                             tab: tab,
+                            source: source,
                             pageIndex: pageIdx,
                             maxSize: CGSize(width: 160, height: 208),
                             isDark: isDark
                         ) {
-                            tab.navigateToPage(pageIdx)
+                            tab.navigateToThumbnail(pageIdx)
                             withAnimation(.easeInOut(duration: 0.18)) {
                                 tab.isPageOverviewVisible = false
                             }
@@ -405,9 +420,11 @@ struct PageOverviewGridView: View {
             .task {
                 // Scrolling from onAppear runs before the lazy grid has a layout and is lost
                 try? await Task.sleep(nanoseconds: 60_000_000)
-                proxy.scrollTo(tab.currentPageIndex, anchor: .center)
+                guard !Task.isCancelled else { return }
+                proxy.scrollTo(source.pageIndex, anchor: .center)
             }
         }
+        .id(ObjectIdentifier(source.document))
         .background(store.resolvedPDFTheme(isDark: isDark).documentBackgroundColor(isDarkUI: isDark))
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Text(L10n.tr("页面概览", "Page Overview")))

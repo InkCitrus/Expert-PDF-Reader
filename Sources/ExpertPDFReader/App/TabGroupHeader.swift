@@ -22,22 +22,29 @@ struct TabGroupHeader: View {
                 if !isCompact {
                     Text(group.name).font(.system(size: isSidebar ? 12 : 11, weight: .semibold))
                         .lineLimit(1).truncationMode(.middle)
-                    Spacer(minLength: 2)
+                    if isSidebar { Spacer(minLength: 2) }
                 }
-                Image(systemName: group.isCollapsed ? "chevron.down" : "chevron.up")
-                    .font(.system(size: 10, weight: .semibold))
+                if isSidebar {
+                    Image(systemName: group.isCollapsed ? "chevron.down" : "chevron.up")
+                        .font(.system(size: 10, weight: .semibold))
+                }
             }
             .foregroundStyle(AppPalette.tabGroupLabel(group.color))
             .padding(.horizontal, isCompact ? 0 : 8)
             .frame(maxWidth: .infinity)
-            .frame(height: 28)
-            .background(RoundedRectangle(cornerRadius: 7)
+            .frame(height: isSidebar ? 28 : 20)
+            .background(RoundedRectangle(cornerRadius: isSidebar ? 7 : 5)
                 .fill(AppPalette.tabGroupFill(group.color, isDark)))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .padding(.horizontal, isSidebar ? 0 : 4)
         .frame(maxHeight: .infinity)
+        .overlay(alignment: .bottom) {
+            if !isSidebar && !group.isCollapsed {
+                AppPalette.tabGroupFill(group.color, isDark).frame(height: 2)
+            }
+        }
         .overlay {
             TabInteractionArea(session: session, tabID: group.id, toolTip: group.name,
                 excludedTrailingWidth: 0, isGroupHeader: true, isSidebar: isSidebar,
@@ -128,45 +135,21 @@ private struct TabGroupEditor: View {
             }
             .padding(6)
         }
-        .frame(width: 304)
-        .foregroundStyle(AppPalette.labelPrimary(isDark))
+        .modifier(TabContextMenuStyle(isDark: isDark, dismiss: dismiss))
         .onAppear {
             name = session.tabGroups.first { $0.id == groupID }?.name ?? ""
             isNameFocused = true
         }
         .onDisappear { saveName() }
-        .onExitCommand { dismiss() }
     }
 
     private func saveName() { store.renameTabGroup(groupID, name: name, in: session.id) }
 
     private func action(_ title: String, icon: String, perform: @escaping () -> Void) -> some View {
-        GroupEditorAction(title: title, icon: icon, isDark: isDark) {
+        TabContextMenuRow(title: title, icon: icon, isDark: isDark) {
             saveName()
             dismiss()
             perform()
         }
-    }
-}
-
-private struct GroupEditorAction: View {
-    let title: String
-    let icon: String
-    let isDark: Bool
-    let perform: () -> Void
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: perform) {
-            Label(title, systemImage: icon)
-                .font(.system(size: 13))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 10).padding(.vertical, 9)
-                .contentShape(Rectangle())
-                .background(RoundedRectangle(cornerRadius: 5)
-                    .fill(isHovered ? AppPalette.tabHoverBackground(isDark) : .clear))
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
     }
 }

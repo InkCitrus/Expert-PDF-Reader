@@ -100,7 +100,10 @@ final class TabInteractionView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
-        guard local.x < bounds.maxX - excludedTrailingWidth else { return nil }
+        let contextClick = NSApp.currentEvent.map {
+            $0.type == .rightMouseDown || ($0.type == .leftMouseDown && $0.modifierFlags.contains(.control))
+        } ?? false
+        guard contextClick || local.x < bounds.maxX - excludedTrailingWidth else { return nil }
         return super.hitTest(point)
     }
 

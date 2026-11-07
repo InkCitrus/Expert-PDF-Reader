@@ -289,6 +289,7 @@ public enum L10n {
 
     private static let catalog: [String: [String: String]] = [
         "zh-Hant": [
+            "显示菜单|||Show Menu": "顯示選單",
             "蓝色|||Blue": "藍色",
             "紫色|||Purple": "紫色",
             "粉色|||Pink": "粉紅色",
@@ -538,6 +539,7 @@ public enum L10n {
             "页码|||Page": "頁碼",
         ],
         "ja": [
+            "显示菜单|||Show Menu": "メニューを表示",
             "蓝色|||Blue": "ブルー",
             "紫色|||Purple": "パープル",
             "粉色|||Pink": "ピンク",
@@ -787,6 +789,7 @@ public enum L10n {
             "页码|||Page": "ページ",
         ],
         "ko": [
+            "显示菜单|||Show Menu": "메뉴 보기",
             "蓝色|||Blue": "파란색",
             "紫色|||Purple": "보라색",
             "粉色|||Pink": "분홍색",
@@ -1036,6 +1039,7 @@ public enum L10n {
             "页码|||Page": "페이지",
         ],
         "fr": [
+            "显示菜单|||Show Menu": "Afficher le menu",
             "蓝色|||Blue": "Bleu",
             "紫色|||Purple": "Violet",
             "粉色|||Pink": "Rose",
@@ -1285,6 +1289,7 @@ public enum L10n {
             "页码|||Page": "Page",
         ],
         "de": [
+            "显示菜单|||Show Menu": "Menü anzeigen",
             "蓝色|||Blue": "Blau",
             "紫色|||Purple": "Violett",
             "粉色|||Pink": "Rosa",
@@ -1534,6 +1539,7 @@ public enum L10n {
             "页码|||Page": "Seite",
         ],
         "es": [
+            "显示菜单|||Show Menu": "Mostrar menú",
             "蓝色|||Blue": "Azul",
             "紫色|||Purple": "Morado",
             "粉色|||Pink": "Rosa",
@@ -1783,6 +1789,7 @@ public enum L10n {
             "页码|||Page": "Página",
         ],
         "it": [
+            "显示菜单|||Show Menu": "Mostra menu",
             "蓝色|||Blue": "Blu",
             "紫色|||Purple": "Viola",
             "粉色|||Pink": "Rosa",
@@ -2032,6 +2039,7 @@ public enum L10n {
             "页码|||Page": "Pagina",
         ],
         "pt": [
+            "显示菜单|||Show Menu": "Mostrar menu",
             "蓝色|||Blue": "Azul",
             "紫色|||Purple": "Roxo",
             "粉色|||Pink": "Rosa",
@@ -2281,6 +2289,7 @@ public enum L10n {
             "页码|||Page": "Página",
         ],
         "ru": [
+            "显示菜单|||Show Menu": "Показать меню",
             "蓝色|||Blue": "Синий",
             "紫色|||Purple": "Фиолетовый",
             "粉色|||Pink": "Розовый",
@@ -2530,6 +2539,7 @@ public enum L10n {
             "页码|||Page": "Страница",
         ],
         "uk": [
+            "显示菜单|||Show Menu": "Показати меню",
             "蓝色|||Blue": "Синій",
             "紫色|||Purple": "Фіолетовий",
             "粉色|||Pink": "Рожевий",

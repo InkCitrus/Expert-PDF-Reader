@@ -72,6 +72,42 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         await settle()
     }
 
+    func checkSidebarExpansionStaysLevel(in session: ReaderWindowSession) async {
+        await hoverSidebar(false, in: session)
+        func frames() -> [UUID: NSRect] {
+            var result: [UUID: NSRect] = [:]
+            let rows = session.tabGroups.map { ($0.id, session.tabGroupViews.object(forKey: $0.id as NSUUID)) }
+                + session.tabs.filter { !$0.isHome && session.tabGroup(containing: $0.id)?.isCollapsed != true }
+                    .map { ($0.id, session.tabViews.object(forKey: $0.id as NSUUID)) }
+            for (id, view) in rows {
+                guard let view, let window = view.window else { continue }
+                result[id] = window.convertToScreen(view.convert(view.bounds, to: nil))
+            }
+            return result
+        }
+        let before = frames()
+        guard let hover = session.sidebarTabHoverView, let window = hover.window else {
+            check(false, "the sidebar expansion has a native hover region")
+            return
+        }
+        let event = NSEvent.enterExitEvent(with: .mouseEntered,
+            location: hover.convert(NSPoint(x: hover.bounds.midX, y: hover.bounds.midY), to: nil),
+            modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil)!
+        hover.mouseEntered(with: event)
+        var staysLevel = !before.isEmpty
+        for _ in 0..<12 {
+            try? await Task.sleep(nanoseconds: 35_000_000)
+            let current = frames()
+            for (id, initial) in before {
+                guard let frame = current[id] else { staysLevel = false; continue }
+                staysLevel = staysLevel && abs(frame.minY - initial.minY) < 1 && abs(frame.maxY - initial.maxY) < 1
+            }
+        }
+        await settle()
+        check(staysLevel, "expanding the sidebar keeps group, grouped-tab and ungrouped-tab rows at the same vertical positions throughout the animation")
+    }
+
     func tabIsVisible(_ tab: DocumentTabState, in session: ReaderWindowSession) -> Bool {
         guard let view = session.tabViews.object(forKey: tab.id as NSUUID), view.window != nil else { return false }
         let visible = view.bounds.intersection(view.visibleRect)
@@ -505,6 +541,7 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
             await settle()
             check(primary.tabGroup(containing: beta.id) == nil && primary.tabGroups[0].tabIDs.count == 2,
                   "\(sidebar ? "sidebar" : "top") removing a tab from a group keeps every document open")
+            if sidebar { await checkSidebarExpansionStaysLevel(in: primary) }
             await drag("Gamma", from: primary, to: center("Beta", in: primary))
             check(primary.tabGroup(containing: gamma.id) == nil && primary.tabGroup(containing: alpha.id)?.id == groupID,
                   "\(sidebar ? "sidebar" : "top") dropping onto ungrouped documents removes group membership")

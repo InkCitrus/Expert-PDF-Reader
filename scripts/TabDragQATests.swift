@@ -190,26 +190,26 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         check(tabsAreInSidebar(primary) && names(primary) == originalOrder && primary.activeDocumentTab === originalTab,
               "moving tabs into the sidebar preserves tab order and selection")
         check((primary.tabStripView?.bounds.width ?? 0) >= 180,
-              "pinning the sidebar keeps the document titles expanded")
+              "pinning the floating sidebar keeps the document titles expanded")
 
         store.activateWindowSession(primary.id)
-        primary.toggleSidebarVisibility()
+        store.toggleLeftPanel(in: primary)
         store.showSidebarTab(.outline)
         await settle()
-        check(primary.sidebarPanel == .navigation
-              && originalTab?.activeSidebarTab == .outline && !tabsAreInSidebar(primary),
-              "opening the outline from a hidden sidebar replaces the document list")
-
-        primary.sidebarPanel = .openDocuments
+        check(originalTab?.activeSidebarTab == .outline && store.isLeftPanelVisible(in: primary)
+              && tabsAreInSidebar(primary),
+              "opening the outline keeps the independent document tab rail visible")
+        store.toggleLeftPanel(in: primary)
         await settle()
-        check(tabsAreInSidebar(primary) && primary.activeDocumentTab === originalTab,
-              "returning to open documents keeps the selected PDF")
+        check(!store.isLeftPanelVisible(in: primary) && tabsAreInSidebar(primary)
+              && primary.activeDocumentTab === originalTab,
+              "hiding page navigation leaves the document tabs and selected PDF intact")
+        store.showSidebarTab(.outline)
 
         store.openNewHomeTab(in: primary.id)
         await settle()
-        check(primary.activeDocumentTab == nil && primary.sidebarPanel == .openDocuments && tabsAreInSidebar(primary),
-              "going Home leaves the sidebar tab list visible")
-        primary.sidebarPanel = .openDocuments
+        check(primary.activeDocumentTab == nil && tabsAreInSidebar(primary),
+              "going Home leaves the independent sidebar tab list visible")
         if let originalTab { primary.selectedTabID = originalTab.id }
         await settle()
 
@@ -335,7 +335,6 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
 
         alpha.splitMode = .horizontal
         store.tabsInSidebar = true
-        primary.sidebarPanel = .openDocuments
         await settle()
         if let pane = alpha.comparisonDropView, let handle = resizeHandle(in: window.contentView!, axis: .vertical) {
             let initialHeight = pane.bounds.height

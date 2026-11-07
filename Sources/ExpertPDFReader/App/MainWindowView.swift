@@ -3,7 +3,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// Main window:
-/// Document tabs live in the titlebar or share the left sidebar with page navigation.
+/// Document tabs live in the titlebar or an independent floating sidebar.
 /// Enforces a minimum window width of `600pt`.
 public struct MainWindowView: View {
     @ObservedObject var store: AppStore
@@ -125,25 +125,25 @@ public struct MainWindowView: View {
     }
 
     private func windowContent(windowWidth: CGFloat) -> some View {
-        let showsSidebar = store.isLeftPanelVisible(in: session)
-        let defaultWidth = !store.tabsInSidebar && session.activeDocumentTab == nil
+        let showsNavigation = store.isLeftPanelVisible(in: session)
+        let railWidth: CGFloat = store.tabsInSidebar ? 48 : 0
+        let defaultWidth = session.activeDocumentTab == nil
             ? HomeTabRootView.sidebarWidth : ReaderLeftSidebarView.width
         let preferredWidth = sidebarWidth.map { CGFloat($0) } ?? defaultWidth
         let minimumWidth: CGFloat = 180
-        let maximumWidth = max(minimumWidth, min(480, windowWidth - 360))
+        let maximumWidth = max(minimumWidth, min(480, windowWidth - railWidth - 360))
         let gripWidth: CGFloat = 12
         func boundedWidth(_ width: CGFloat) -> CGFloat {
             min(max(width, minimumWidth), maximumWidth)
         }
         let width = boundedWidth(sidebarResizeWidth ?? preferredWidth)
-        let canCollapse = store.tabsInSidebar && session.sidebarPanel == .openDocuments && !sidebarTabsPinned
-        let isCollapsed = canCollapse && !isSidebarHovered && !isSidebarDragging && !isSidebarMenuTracking
-        let railWidth: CGFloat = 48
-        let reservedWidth = canCollapse ? railWidth : width
+        let isCollapsed = !sidebarTabsPinned && !isSidebarHovered && !isSidebarDragging && !isSidebarMenuTracking
+        let popupWidth = min(520, max(360, windowWidth * 0.45))
 
         return HStack(spacing: 0) {
-            if showsSidebar {
-                Color.clear.frame(width: reservedWidth)
+            if store.tabsInSidebar { Color.clear.frame(width: railWidth) }
+            if showsNavigation {
+                navigationColumn(width: width)
             }
             ZStack {
                 if let tab = session.activeDocumentTab {
@@ -158,19 +158,7 @@ public struct MainWindowView: View {
             .clipped()
         }
         .overlay(alignment: .leading) {
-            if showsSidebar {
-                sidebarColumn(width: isCollapsed ? railWidth : width, isCollapsed: isCollapsed)
-                    .overlay(alignment: .trailing) {
-                        AppPalette.panelHairline(isDark).frame(width: 1).allowsHitTesting(false)
-                    }
-                    .shadow(color: .black.opacity(canCollapse && !isCollapsed ? (isDark ? 0.28 : 0.12) : 0),
-                            radius: 10, x: 4, y: 0)
-                    .onHover { isSidebarHovered = $0 }
-                    .animation(AppAnimation.snappy, value: isCollapsed)
-            }
-        }
-        .overlay(alignment: .leading) {
-            if showsSidebar && !isCollapsed {
+            if showsNavigation {
                 ReaderResizeHandle(axis: .horizontal, length: width) { newWidth, ended in
                     let bounded = boundedWidth(newWidth)
                     if ended {
@@ -188,38 +176,54 @@ public struct MainWindowView: View {
                         .frame(width: 1)
                         .allowsHitTesting(false)
                 }
-                // The resize target straddles the line so either side is easy to grab.
-                .offset(x: width - gripWidth / 2)
+                .offset(x: railWidth + width - gripWidth / 2)
                 .onDisappear { sidebarResizeWidth = nil }
+            }
+        }
+        .overlay(alignment: .leading) {
+            if store.tabsInSidebar {
+                sidebarTabsColumn(width: isCollapsed ? railWidth : popupWidth, isCollapsed: isCollapsed)
+                    .overlay(alignment: .trailing) {
+                        AppPalette.panelHairline(isDark).frame(width: 1).allowsHitTesting(false)
+                    }
+                    .shadow(color: .black.opacity(isCollapsed ? 0 : (isDark ? 0.28 : 0.12)), radius: 10, x: 4, y: 0)
+                    .onHover { isSidebarHovered = $0 }
+                    .animation(AppAnimation.snappy, value: isCollapsed)
             }
         }
     }
 
-    private func sidebarColumn(width: CGFloat, isCollapsed: Bool) -> some View {
-        let panel = store.tabsInSidebar ? session.sidebarPanel : nil
-        return VStack(spacing: 0) {
-            if let panel {
-                if isCollapsed {
-                    pinSidebarButton.frame(maxWidth: .infinity).frame(height: 42)
-                } else {
-                    HStack(spacing: 4) {
-                        sidebarHeader(panel)
-                        if panel == .openDocuments { pinSidebarButton }
-                    }
-                    .padding(.trailing, 8)
-                }
-                AppPalette.panelSeparator(isDark).frame(height: 1)
-            }
-            if panel == .openDocuments {
-                TabBarView(store: store, session: session, isDark: isDark, isSidebar: true,
-                           isCollapsed: isCollapsed, onDragActivityChanged: { isSidebarDragging = $0 })
-            } else if let tab = session.activeDocumentTab {
+    private func navigationColumn(width: CGFloat) -> some View {
+        Group {
+            if let tab = session.activeDocumentTab {
                 ReaderLeftSidebarView(store: store, tab: tab, panelWidth: width)
                     .id(tab.id)
             } else {
                 HomeTabSidebarView(store: store, session: session)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        }
+        .frame(width: width)
+        .background(AppPalette.panelBackground(isDark), ignoresSafeAreaEdges: [])
+    }
+
+    private func sidebarTabsColumn(width: CGFloat, isCollapsed: Bool) -> some View {
+        VStack(spacing: 0) {
+            HStack {
+                if !isCollapsed {
+                    Text(L10n.tr("打开的文档", "Open Documents"))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(AppPalette.labelSecondary(isDark))
+                    Spacer(minLength: 0)
+                }
+                pinSidebarButton
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 42)
+            .padding(.horizontal, isCollapsed ? 0 : 12)
+            AppPalette.panelSeparator(isDark).frame(height: 1)
+            TabBarView(store: store, session: session, isDark: isDark, isSidebar: true,
+                       isCollapsed: isCollapsed, onDragActivityChanged: { isSidebarDragging = $0 })
         }
         .frame(width: width)
         .background(AppPalette.panelBackground(isDark), ignoresSafeAreaEdges: [])
@@ -235,21 +239,7 @@ public struct MainWindowView: View {
         }
     }
 
-    private func sidebarHeader(_ panel: SidebarPanel) -> some View {
-        let selection = Binding(get: { session.sidebarPanel ?? panel }, set: { session.sidebarPanel = $0 })
-        return PanelSegmentedControl(items: SidebarPanel.allCases, selection: selection, isDark: isDark) { item, _ in
-            let isTabs = item == .openDocuments
-            Text(isTabs ? L10n.tr("标签页", "Tabs") : L10n.tr("导航", "Navigation"))
-                .font(.system(size: 11.5, weight: .medium))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .accessibilityLabel(Text(isTabs
-                    ? L10n.tr("打开的文档", "Open Documents")
-                    : L10n.tr("导航", "Navigation")))
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-    }
+
 }
 
 struct ReaderResizeHandle: NSViewRepresentable {

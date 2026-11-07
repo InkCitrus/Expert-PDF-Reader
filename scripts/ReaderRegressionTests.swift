@@ -92,6 +92,22 @@ struct ReaderRegressionTests {
         }
         do {
             let store = freshStore()
+            let tab = store.openDocument(at: alpha, interactive: false)!
+            let session = store.primarySession
+            store.tabsInSidebar = true
+            store.toggleLeftPanel(in: session)
+            check(!tab.isLeftSidebarVisible && store.tabsInSidebar && store.activeDocumentTab === tab,
+                  "page navigation visibility stays independent of sidebar tabs")
+            store.showSidebarTab(.outline)
+            check(tab.isLeftSidebarVisible && tab.activeSidebarTab == .outline && store.tabsInSidebar,
+                  "opening the outline never replaces the sidebar tab list")
+            store.selectHomeTab(in: session.id)
+            store.toggleLeftPanel(in: session)
+            check(!session.isHomeSidebarVisible && tab.isLeftSidebarVisible && store.tabsInSidebar,
+                  "Home navigation can be hidden without changing document navigation or sidebar tabs")
+        }
+        do {
+            let store = freshStore()
             let a = store.openDocument(at: alpha, interactive: false)!
             let b = store.openDocument(at: beta, interactive: false)!
             let spot = DocumentTabState.ReadingSpot(pageIndex: 2, point: CGPoint(x: 280, y: 420))

@@ -10,7 +10,11 @@ public struct MainWindowView: View {
     @ObservedObject var session: ReaderWindowSession
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("expertPDFReader.sidebarTabsWidth") private var sidebarWidth: Double?
+    @AppStorage("expertPDFReader.sidebarTabsPinned") private var sidebarTabsPinned = false
     @State private var sidebarResizeWidth: CGFloat?
+    @State private var isSidebarHovered = false
+    @State private var isSidebarDragging = false
+    @State private var isSidebarMenuTracking = false
     @State private var isDropTargeted = false
     private var isDark: Bool { colorScheme == .dark }
 
@@ -48,6 +52,12 @@ public struct MainWindowView: View {
             }
         }
         .frame(minWidth: 600, minHeight: 520)
+        .onReceive(NotificationCenter.default.publisher(for: NSMenu.didBeginTrackingNotification)) { _ in
+            isSidebarMenuTracking = isSidebarHovered
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSMenu.didEndTrackingNotification)) { _ in
+            isSidebarMenuTracking = false
+        }
         .toolbar {
             // Keep the compact native toolbar alive: SwiftUI removes an empty one and shrinks tabs to 32pt.
             // The titlebar accessory supplies the content of this 40pt row.
@@ -126,11 +136,14 @@ public struct MainWindowView: View {
             min(max(width, minimumWidth), maximumWidth)
         }
         let width = boundedWidth(sidebarResizeWidth ?? preferredWidth)
+        let canCollapse = store.tabsInSidebar && session.sidebarPanel == .openDocuments && !sidebarTabsPinned
+        let isCollapsed = canCollapse && !isSidebarHovered && !isSidebarDragging && !isSidebarMenuTracking
+        let railWidth: CGFloat = 48
+        let reservedWidth = canCollapse ? railWidth : width
 
         return HStack(spacing: 0) {
             if showsSidebar {
-                sidebarColumn(width: width)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
+                Color.clear.frame(width: reservedWidth)
             }
             ZStack {
                 if let tab = session.activeDocumentTab {
@@ -146,6 +159,18 @@ public struct MainWindowView: View {
         }
         .overlay(alignment: .leading) {
             if showsSidebar {
+                sidebarColumn(width: isCollapsed ? railWidth : width, isCollapsed: isCollapsed)
+                    .overlay(alignment: .trailing) {
+                        AppPalette.panelHairline(isDark).frame(width: 1).allowsHitTesting(false)
+                    }
+                    .shadow(color: .black.opacity(canCollapse && !isCollapsed ? (isDark ? 0.28 : 0.12) : 0),
+                            radius: 10, x: 4, y: 0)
+                    .onHover { isSidebarHovered = $0 }
+                    .animation(AppAnimation.snappy, value: isCollapsed)
+            }
+        }
+        .overlay(alignment: .leading) {
+            if showsSidebar && !isCollapsed {
                 ReaderResizeHandle(axis: .horizontal, length: width) { newWidth, ended in
                     let bounded = boundedWidth(newWidth)
                     if ended {
@@ -170,15 +195,24 @@ public struct MainWindowView: View {
         }
     }
 
-    private func sidebarColumn(width: CGFloat) -> some View {
+    private func sidebarColumn(width: CGFloat, isCollapsed: Bool) -> some View {
         let panel = store.tabsInSidebar ? session.sidebarPanel : nil
         return VStack(spacing: 0) {
             if let panel {
-                sidebarHeader(panel)
+                if isCollapsed {
+                    pinSidebarButton.frame(maxWidth: .infinity).frame(height: 42)
+                } else {
+                    HStack(spacing: 4) {
+                        sidebarHeader(panel)
+                        if panel == .openDocuments { pinSidebarButton }
+                    }
+                    .padding(.trailing, 8)
+                }
                 AppPalette.panelSeparator(isDark).frame(height: 1)
             }
             if panel == .openDocuments {
-                TabBarView(store: store, session: session, isDark: isDark, isSidebar: true)
+                TabBarView(store: store, session: session, isDark: isDark, isSidebar: true,
+                           isCollapsed: isCollapsed, onDragActivityChanged: { isSidebarDragging = $0 })
             } else if let tab = session.activeDocumentTab {
                 ReaderLeftSidebarView(store: store, tab: tab, panelWidth: width)
                     .id(tab.id)
@@ -189,6 +223,16 @@ public struct MainWindowView: View {
         }
         .frame(width: width)
         .background(AppPalette.panelBackground(isDark), ignoresSafeAreaEdges: [])
+    }
+
+    private var pinSidebarButton: some View {
+        ToolbarIconButton(icon: sidebarTabsPinned ? "pin.fill" : "pin",
+                          tooltip: sidebarTabsPinned
+                            ? L10n.tr("自动折叠标签栏", "Auto-Collapse Tab Sidebar")
+                            : L10n.tr("固定标签栏", "Pin Tab Sidebar"),
+                          isActive: sidebarTabsPinned, iconWidth: 28, isDark: isDark) {
+            sidebarTabsPinned.toggle()
+        }
     }
 
     private func sidebarHeader(_ panel: SidebarPanel) -> some View {
@@ -282,6 +326,8 @@ struct TabBarView: View {
     @ObservedObject var session: ReaderWindowSession
     let isDark: Bool
     var isSidebar = false
+    var isCollapsed = false
+    var onDragActivityChanged: ((Bool) -> Void)?
 
     @Namespace private var tabBarNamespace
     @State private var hoveredTabID: UUID?
@@ -460,17 +506,20 @@ struct TabBarView: View {
             isDragging: draggingTabID == state.id,
             isDark: isDark,
             isSidebar: isSidebar,
+            isCollapsed: isCollapsed,
             tabBarNamespace: tabBarNamespace,
             onHoverChanged: { hovering in
                 hoveredTabID = hovering ? state.id : (hoveredTabID == state.id ? nil : hoveredTabID)
             },
             onDragChanged: { location in
+                if draggingTabID == nil { onDragActivityChanged?(true) }
                 draggingTabID = state.id
                 let target = store.tabDropTarget(at: location.screenPoint)
                 dragFeedback.update(title: state.title, isDark: isDark, at: location, target: target)
             },
             onDragEnded: { location in
                 draggingTabID = nil
+                onDragActivityChanged?(false)
                 dragFeedback.end()
                 guard let location else { return }
                 let point = location.screenPoint
@@ -512,7 +561,7 @@ struct TabBarView: View {
         ToolbarIconButton(
             icon: "plus",
             tooltip: L10n.tr("打开 PDF 文档 (⌘O)", "Open PDF Document (⌘O)"),
-            title: openFileTitle,
+            title: isCollapsed ? nil : openFileTitle,
             fillsRow: true,
             isDark: isDark
         ) {
@@ -630,6 +679,7 @@ struct DocumentTabItemView: View {
     let isDragging: Bool
     let isDark: Bool
     let isSidebar: Bool
+    var isCollapsed = false
     let tabBarNamespace: Namespace.ID
     let onHoverChanged: (Bool) -> Void
     let onDragChanged: (TabDragLocation) -> Void
@@ -638,35 +688,43 @@ struct DocumentTabItemView: View {
     @State private var isCloseHovered = false
 
     private var showsCloseButton: Bool {
-        isSelected || isHovered
+        !isCollapsed && (isSelected || isHovered)
     }
 
     var body: some View {
         HStack(spacing: 5) {
-            HStack(spacing: 5) {
-                Text(state.title)
-                    .font(.system(size: 12, weight: isSelected ? .medium : .regular))
-                    .foregroundColor(isSelected ? AppPalette.labelPrimary(isDark) : AppPalette.labelSecondary(isDark))
-                    .lineLimit(isSidebar ? 2 : 1)
-                    .truncationMode(.middle)
+            if isCollapsed {
+                Image(systemName: "doc.text")
+                    .font(.system(size: 17))
+                    .foregroundStyle(isSelected ? AppPalette.accentBlue : AppPalette.labelSecondary(isDark))
+                    .frame(maxWidth: .infinity)
+                    .accessibilityHidden(true)
+            } else {
+                HStack(spacing: 5) {
+                    Text(state.title)
+                        .font(.system(size: 12, weight: isSelected ? .medium : .regular))
+                        .foregroundColor(isSelected ? AppPalette.labelPrimary(isDark) : AppPalette.labelSecondary(isDark))
+                        .lineLimit(isSidebar ? 2 : 1)
+                        .truncationMode(.middle)
 
-                if let disambiguatedFolder {
-                    Text(disambiguatedFolder)
-                        .font(.system(size: 10.5, weight: .regular))
-                        .foregroundColor(AppPalette.labelTertiary(isDark))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(
-                            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                .fill(AppPalette.segmentedTrack(isDark).opacity(isSelected ? 0.9 : 0.6))
-                        )
-                        .layoutPriority(-1)
+                    if let disambiguatedFolder {
+                        Text(disambiguatedFolder)
+                            .font(.system(size: 10.5, weight: .regular))
+                            .foregroundColor(AppPalette.labelTertiary(isDark))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .fill(AppPalette.segmentedTrack(isDark).opacity(isSelected ? 0.9 : 0.6))
+                            )
+                            .layoutPriority(-1)
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityHidden(true)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityHidden(true)
 
             if showsCloseButton {
                 Button {
@@ -689,8 +747,8 @@ struct DocumentTabItemView: View {
                 .transition(.opacity)
             }
         }
-        .padding(.leading, 12)
-        .padding(.trailing, showsCloseButton ? 8 : 12)
+        .padding(.leading, isCollapsed ? 0 : 12)
+        .padding(.trailing, isCollapsed ? 0 : (showsCloseButton ? 8 : 12))
         .frame(maxHeight: .infinity)
         .background {
             RoundedRectangle(cornerRadius: isSidebar ? 6 : 0)

@@ -431,3 +431,7 @@
 "Clear Favorites?" = "Limpar os favoritos?";
 "PDF 文件会保留在原来的位置。|||Your PDF files will stay where they are." = "Os seus ficheiros PDF permanecerão no local atual.";
 "Your PDF files will stay where they are." = "Os seus ficheiros PDF permanecerão no local atual.";
+"固定标签栏|||Pin Tab Sidebar" = "Fixar a barra lateral de abas";
+"Pin Tab Sidebar" = "Fixar a barra lateral de abas";
+"自动折叠标签栏|||Auto-Collapse Tab Sidebar" = "Recolher automaticamente a barra de abas";
+"Auto-Collapse Tab Sidebar" = "Recolher automaticamente a barra de abas";

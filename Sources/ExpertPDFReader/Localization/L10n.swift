@@ -289,6 +289,8 @@ public enum L10n {
 
     private static let catalog: [String: [String: String]] = [
         "zh-Hant": [
+            "固定标签栏|||Pin Tab Sidebar": "固定分頁側欄",
+            "自动折叠标签栏|||Auto-Collapse Tab Sidebar": "自動收合分頁側欄",
             "恢复标签页|||Restore Tabs": "還原分頁",
             "启动时恢复上次退出前打开的标签页。|||Reopen the tabs from your previous session when the app starts.": "啟動時還原上次結束前開啟的分頁。",
             "复制|||Copy": "複製",
@@ -517,6 +519,8 @@ public enum L10n {
             "页码|||Page": "頁碼",
         ],
         "ja": [
+            "固定标签栏|||Pin Tab Sidebar": "タブサイドバーを固定",
+            "自动折叠标签栏|||Auto-Collapse Tab Sidebar": "タブサイドバーを自動で折りたたむ",
             "恢复标签页|||Restore Tabs": "タブを復元",
             "启动时恢复上次退出前打开的标签页。|||Reopen the tabs from your previous session when the app starts.": "起動時に前回終了したときのタブを開き直します。",
             "复制|||Copy": "コピー",
@@ -745,6 +749,8 @@ public enum L10n {
             "页码|||Page": "ページ",
         ],
         "ko": [
+            "固定标签栏|||Pin Tab Sidebar": "탭 사이드바 고정",
+            "自动折叠标签栏|||Auto-Collapse Tab Sidebar": "탭 사이드바 자동 접기",
             "恢复标签页|||Restore Tabs": "탭 복원",
             "启动时恢复上次退出前打开的标签页。|||Reopen the tabs from your previous session when the app starts.": "앱을 시작할 때 이전에 열려 있던 탭을 다시 엽니다.",
             "复制|||Copy": "복사",
@@ -973,6 +979,8 @@ public enum L10n {
             "页码|||Page": "페이지",
         ],
         "fr": [
+            "固定标签栏|||Pin Tab Sidebar": "Épingler la barre latérale des onglets",
+            "自动折叠标签栏|||Auto-Collapse Tab Sidebar": "Replier automatiquement la barre des onglets",
             "恢复标签页|||Restore Tabs": "Restaurer les onglets",
             "启动时恢复上次退出前打开的标签页。|||Reopen the tabs from your previous session when the app starts.": "Rouvrir les onglets de la session précédente au démarrage de l’app.",
             "复制|||Copy": "Copier",
@@ -1201,6 +1209,8 @@ public enum L10n {
             "页码|||Page": "Page",
         ],
         "de": [
+            "固定标签栏|||Pin Tab Sidebar": "Tab-Seitenleiste anheften",
+            "自动折叠标签栏|||Auto-Collapse Tab Sidebar": "Tab-Seitenleiste automatisch einklappen",
             "恢复标签页|||Restore Tabs": "Tabs wiederherstellen",
             "启动时恢复上次退出前打开的标签页。|||Reopen the tabs from your previous session when the app starts.": "Beim Start der App die Tabs der letzten Sitzung erneut öffnen.",
             "复制|||Copy": "Kopieren",
@@ -1429,6 +1439,8 @@ public enum L10n {
             "页码|||Page": "Seite",
         ],
         "es": [
+            "固定标签栏|||Pin Tab Sidebar": "Fijar la barra lateral de pestañas",
+            "自动折叠标签栏|||Auto-Collapse Tab Sidebar": "Contraer automáticamente la barra de pestañas",
             "恢复标签页|||Restore Tabs": "Restaurar pestañas",
             "启动时恢复上次退出前打开的标签页。|||Reopen the tabs from your previous session when the app starts.": "Volver a abrir las pestañas de la sesión anterior al iniciar la app.",
             "复制|||Copy": "Copiar",
@@ -1657,6 +1669,8 @@ public enum L10n {
             "页码|||Page": "Página",
         ],
         "it": [
+            "固定标签栏|||Pin Tab Sidebar": "Fissa la barra laterale delle schede",
+            "自动折叠标签栏|||Auto-Collapse Tab Sidebar": "Comprimi automaticamente la barra delle schede",
             "恢复标签页|||Restore Tabs": "Ripristina schede",
             "启动时恢复上次退出前打开的标签页。|||Reopen the tabs from your previous session when the app starts.": "Riapri le schede della sessione precedente all’avvio dell’app.",
             "复制|||Copy": "Copia",
@@ -1885,6 +1899,8 @@ public enum L10n {
             "页码|||Page": "Pagina",
         ],
         "pt": [
+            "固定标签栏|||Pin Tab Sidebar": "Fixar a barra lateral de abas",
+            "自动折叠标签栏|||Auto-Collapse Tab Sidebar": "Recolher automaticamente a barra de abas",
             "恢复标签页|||Restore Tabs": "Restaurar abas",
             "启动时恢复上次退出前打开的标签页。|||Reopen the tabs from your previous session when the app starts.": "Reabrir as abas da sessão anterior ao iniciar o app.",
             "复制|||Copy": "Copiar",
@@ -2113,6 +2129,8 @@ public enum L10n {
             "页码|||Page": "Página",
         ],
         "ru": [
+            "固定标签栏|||Pin Tab Sidebar": "Закрепить панель вкладок",
+            "自动折叠标签栏|||Auto-Collapse Tab Sidebar": "Автоматически сворачивать панель вкладок",
             "恢复标签页|||Restore Tabs": "Восстанавливать вкладки",
             "启动时恢复上次退出前打开的标签页。|||Reopen the tabs from your previous session when the app starts.": "При запуске приложения открывать вкладки предыдущего сеанса.",
             "复制|||Copy": "Скопировать",
@@ -2341,6 +2359,8 @@ public enum L10n {
             "页码|||Page": "Страница",
         ],
         "uk": [
+            "固定标签栏|||Pin Tab Sidebar": "Закріпити панель вкладок",
+            "自动折叠标签栏|||Auto-Collapse Tab Sidebar": "Автоматично згортати панель вкладок",
             "恢复标签页|||Restore Tabs": "Відновлювати вкладки",
             "启动时恢复上次退出前打开的标签页。|||Reopen the tabs from your previous session when the app starts.": "Під час запуску програми відкривати вкладки попереднього сеансу.",
             "复制|||Copy": "Скопіювати",

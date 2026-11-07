@@ -431,3 +431,7 @@
 "Clear Favorites?" = "즐겨찾기를 비울까요?";
 "PDF 文件会保留在原来的位置。|||Your PDF files will stay where they are." = "PDF 파일은 원래 위치에 그대로 유지됩니다.";
 "Your PDF files will stay where they are." = "PDF 파일은 원래 위치에 그대로 유지됩니다.";
+"固定标签栏|||Pin Tab Sidebar" = "탭 사이드바 고정";
+"Pin Tab Sidebar" = "탭 사이드바 고정";
+"自动折叠标签栏|||Auto-Collapse Tab Sidebar" = "탭 사이드바 자동 접기";
+"Auto-Collapse Tab Sidebar" = "탭 사이드바 자동 접기";

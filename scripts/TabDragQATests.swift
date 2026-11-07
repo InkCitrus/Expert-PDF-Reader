@@ -184,10 +184,13 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
     func checkSidebarTabs(_ primary: ReaderWindowSession) async {
         let originalOrder = names(primary)
         let originalTab = primary.activeDocumentTab
+        UserDefaults.standard.set(true, forKey: "expertPDFReader.sidebarTabsPinned")
         store.tabsInSidebar = true
         await settle()
         check(tabsAreInSidebar(primary) && names(primary) == originalOrder && primary.activeDocumentTab === originalTab,
               "moving tabs into the sidebar preserves tab order and selection")
+        check((primary.tabStripView?.bounds.width ?? 0) >= 180,
+              "pinning the sidebar keeps the document titles expanded")
 
         store.activateWindowSession(primary.id)
         primary.toggleSidebarVisibility()

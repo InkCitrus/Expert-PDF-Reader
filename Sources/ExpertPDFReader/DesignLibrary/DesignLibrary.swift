@@ -238,16 +238,22 @@ public enum AppPalette {
     // Primary action blue (prominent buttons, links, selection rings)
     public static let accentBlue = Color(hex: 0x3A82F7)
 
-    public static func tabGroupAccent(_ color: TabGroupColor, _ isDark: Bool) -> Color {
+    public static func tabGroupFill(_ color: TabGroupColor, _ isDark: Bool) -> Color {
         switch color {
-        case .blue: Color(hex: isDark ? 0x76ADFF : 0x2F70D1)
-        case .green: Color(hex: isDark ? 0x6DCD99 : 0x2C8754)
-        case .orange: Color(hex: isDark ? 0xEFB57D : 0xB86A26)
-        case .purple: Color(hex: isDark ? 0xBA93EE : 0x8255B8)
-        case .pink: Color(hex: isDark ? 0xEC94C5 : 0xB74F87)
-        case .teal: Color(hex: isDark ? 0x70CCD1 : 0x23838B)
-        case .red: Color(hex: isDark ? 0xEF9191 : 0xBC5353)
+        case .blue: Color(hex: isDark ? 0x3A63C4 : 0x436BD4)
+        case .purple: Color(hex: isDark ? 0x8530C8 : 0x9135D7)
+        case .pink: Color(hex: isDark ? 0xAC008C : 0xBC0097)
+        case .red: Color(hex: isDark ? 0xCB1528 : 0xDE1427)
+        case .orange: Color(hex: isDark ? 0xF0A04B : 0xFF942F)
+        case .yellow: Color(hex: isDark ? 0xE8C640 : 0xFFD32D)
+        case .green: Color(hex: isDark ? 0x207A37 : 0x1B802E)
+        case .teal: Color(hex: isDark ? 0x00727C : 0x007E87)
+        case .gray: Color(hex: isDark ? 0x5E626A : 0x646970)
         }
+    }
+
+    public static func tabGroupLabel(_ color: TabGroupColor) -> Color {
+        color == .orange || color == .yellow ? Color(hex: 0x262218) : .white
     }
 
     // Window Chrome (tab strip + toolbar). PDF Expert always paints this chrome graphite; here every

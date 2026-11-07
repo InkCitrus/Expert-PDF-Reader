@@ -97,6 +97,14 @@ struct ReaderRegressionTests {
             check(session.tabGroups.map(\.id) == [groupID, second], "groups can move before another group without losing members")
             store.renameTabGroup(second, name: "Papers")
             check(session.tabGroups.allSatisfy { colors[$0.id] == $0.color }, "renaming and reordering preserve group colors")
+            store.setTabGroupColor(second, color: .teal)
+            check(session.tabGroups.first(where: { $0.id == second })?.color == .teal
+                  && session.tabGroups.first(where: { $0.id == groupID })?.color == colors[groupID],
+                  "choosing a group color updates only that group")
+            store.saveSession()
+            let recolored = AppStore()
+            check(recolored.primarySession.tabGroups.first(where: { $0.id == second })?.color == .teal,
+                  "a manually chosen group color survives session restoration")
             let closedOrder = session.tabs.filter { session.tabGroup(containing: $0.id)?.id == second }.map { $0.title }
             store.closeTabGroup(second)
             check(session.tabGroups.count == 1 && session.tabs.filter { !$0.isHome }.count == 1,
@@ -105,14 +113,14 @@ struct ReaderRegressionTests {
             store.reopenClosedTab()
             check(session.tabGroups.first(where: { $0.id == second })?.name == "Papers"
                   && session.tabGroups.first(where: { $0.id == second })?.tabIDs.count == 2
-                  && session.tabGroups.first(where: { $0.id == second })?.color == colors[second]
+                  && session.tabGroups.first(where: { $0.id == second })?.color == .teal
                   && session.tabs.filter { session.tabGroup(containing: $0.id)?.id == second }.map { $0.title } == closedOrder,
                   "reopening closed grouped tabs restores their shared group, color and original order")
             store.ungroupTabs(groupID)
             store.ungroupTabs(second)
             check(session.tabGroups.isEmpty && session.tabs.filter { !$0.isHome }.count == 3,
                   "ungrouping leaves every PDF open")
-            withExtendedLifetime(restored) {}
+            withExtendedLifetime((restored, recolored)) {}
         }
         do {
             let store = freshStore()

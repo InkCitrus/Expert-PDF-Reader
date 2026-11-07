@@ -14,6 +14,7 @@ public struct MainWindowView: View {
     @State private var isSidebarHovered = false
     @State private var isSidebarDragging = false
     @State private var isSidebarMenuTracking = false
+    @State private var isSidebarGroupEditorPresented = false
     @State private var isDropTargeted = false
     private var isDark: Bool { colorScheme == .dark }
 
@@ -136,7 +137,7 @@ public struct MainWindowView: View {
             min(max(width, minimumWidth), maximumWidth)
         }
         let width = boundedWidth(sidebarResizeWidth ?? preferredWidth)
-        let isCollapsed = !isSidebarHovered && !isSidebarDragging && !isSidebarMenuTracking
+        let isCollapsed = !isSidebarHovered && !isSidebarDragging && !isSidebarMenuTracking && !isSidebarGroupEditorPresented
         let popupWidth = min(520, max(360, windowWidth * 0.45))
 
         return HStack(spacing: 0) {
@@ -208,7 +209,8 @@ public struct MainWindowView: View {
 
     private func sidebarTabsColumn(width: CGFloat, isCollapsed: Bool) -> some View {
         TabBarView(store: store, session: session, isDark: isDark, isSidebar: true,
-                   isCollapsed: isCollapsed, onDragActivityChanged: { isSidebarDragging = $0 })
+                   isCollapsed: isCollapsed, onDragActivityChanged: { isSidebarDragging = $0 },
+                   onMenuActivityChanged: { isSidebarGroupEditorPresented = $0 })
         .frame(width: width)
         .background(AppPalette.panelBackground(isDark), ignoresSafeAreaEdges: [])
     }
@@ -291,6 +293,7 @@ struct TabBarView: View {
     var isSidebar = false
     var isCollapsed = false
     var onDragActivityChanged: ((Bool) -> Void)?
+    var onMenuActivityChanged: ((Bool) -> Void)?
 
     @Namespace private var tabBarNamespace
     @State private var hoveredTabID: UUID?
@@ -389,6 +392,7 @@ struct TabBarView: View {
     private func groupHeader(_ group: ReaderTabGroup) -> some View {
         TabGroupHeader(store: store, session: session, group: group,
                        isSidebar: isSidebar, isCompact: isCollapsed, isDark: isDark,
+                       onMenuActivityChanged: onMenuActivityChanged,
                        onDragChanged: { location in
                            if draggingGroupID == nil { onDragActivityChanged?(true) }
                            draggingGroupID = group.id
@@ -427,8 +431,6 @@ struct TabBarView: View {
                     }
                 }
                 .padding(2)
-                .background(RoundedRectangle(cornerRadius: 8)
-                    .fill(AppPalette.segmentedTrack(isDark).opacity(0.45)))
             }
             if showsUngroupedSection {
                 VStack(spacing: 2) {

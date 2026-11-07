@@ -2,7 +2,21 @@ import AppKit
 import Foundation
 
 public enum TabGroupColor: String, Codable, CaseIterable {
-    case blue, green, orange, purple, pink, teal, red
+    case blue, purple, pink, red, orange, yellow, green, teal, gray
+
+    var title: String {
+        switch self {
+        case .blue: L10n.tr("蓝色", "Blue")
+        case .purple: L10n.tr("紫色", "Purple")
+        case .pink: L10n.tr("粉色", "Pink")
+        case .red: L10n.tr("红色", "Red")
+        case .orange: L10n.tr("橙色", "Orange")
+        case .yellow: L10n.tr("黄色", "Yellow")
+        case .green: L10n.tr("绿色", "Green")
+        case .teal: L10n.tr("青色", "Teal")
+        case .gray: L10n.tr("灰色", "Gray")
+        }
+    }
 
     static func next(excluding colors: [TabGroupColor]) -> TabGroupColor {
         allCases.first { !colors.contains($0) } ?? allCases[colors.count % allCases.count]
@@ -107,6 +121,12 @@ extension AppStore {
         let name = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))
         guard !name.isEmpty, let index = session.tabGroups.firstIndex(where: { $0.id == id }) else { return }
         session.tabGroups[index].name = name
+    }
+
+    func setTabGroupColor(_ id: UUID, color: TabGroupColor, in sessionID: UUID? = nil) {
+        let session = session(withID: sessionID)
+        guard let index = session.tabGroups.firstIndex(where: { $0.id == id }) else { return }
+        session.tabGroups[index].color = color
     }
 
     func moveTab(_ tabID: UUID, intoGroup groupID: UUID?, in sessionID: UUID? = nil) {

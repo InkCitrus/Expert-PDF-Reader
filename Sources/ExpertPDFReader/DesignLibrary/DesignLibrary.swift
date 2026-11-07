@@ -238,6 +238,18 @@ public enum AppPalette {
     // Primary action blue (prominent buttons, links, selection rings)
     public static let accentBlue = Color(hex: 0x3A82F7)
 
+    public static func tabGroupAccent(_ color: TabGroupColor, _ isDark: Bool) -> Color {
+        switch color {
+        case .blue: Color(hex: isDark ? 0x76ADFF : 0x2F70D1)
+        case .green: Color(hex: isDark ? 0x6DCD99 : 0x2C8754)
+        case .orange: Color(hex: isDark ? 0xEFB57D : 0xB86A26)
+        case .purple: Color(hex: isDark ? 0xBA93EE : 0x8255B8)
+        case .pink: Color(hex: isDark ? 0xEC94C5 : 0xB74F87)
+        case .teal: Color(hex: isDark ? 0x70CCD1 : 0x23838B)
+        case .red: Color(hex: isDark ? 0xEF9191 : 0xBC5353)
+        }
+    }
+
     // Window Chrome (tab strip + toolbar). PDF Expert always paints this chrome graphite; here every
     // token is a light/dark pair so the title bar follows the appearance while keeping PDF Expert's
     // elevation order: tab strip < toolbar < selected tab.

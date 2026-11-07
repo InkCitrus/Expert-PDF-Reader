@@ -1376,6 +1376,7 @@ public struct ClosedTabRecord: Codable, Equatable {
     public let activeSidebarTab: ReaderSidebarTab
     public var tabGroupID: UUID? = nil
     public var tabGroupName: String? = nil
+    public var tabGroupColor: TabGroupColor? = nil
 }
 
 @MainActor
@@ -2509,7 +2510,8 @@ public final class AppStore: ObservableObject {
                     isLeftSidebarVisible: state.isLeftSidebarVisible,
                     activeSidebarTab: state.activeSidebarTab,
                     tabGroupID: group?.id,
-                    tabGroupName: group?.name
+                    tabGroupName: group?.name,
+                    tabGroupColor: group?.color
                 )
             )
         }
@@ -2553,7 +2555,8 @@ public final class AppStore: ObservableObject {
             if let groupID = record.tabGroupID, let name = record.tabGroupName {
                 let target = session(withID: sessionID)
                 if !target.tabGroups.contains(where: { $0.id == groupID }) {
-                    target.tabGroups.append(ReaderTabGroup(id: groupID, name: name, tabIDs: [state.id]))
+                    target.tabGroups.append(ReaderTabGroup(id: groupID, name: name, tabIDs: [state.id],
+                        color: record.tabGroupColor ?? .next(excluding: target.tabGroups.map(\.color))))
                 } else {
                     let members = target.tabs.indices.filter { target.tabGroup(containing: target.tabs[$0].id)?.id == groupID }
                     let inserted = target.tabs.firstIndex { $0.id == state.id }!
@@ -2766,7 +2769,8 @@ public final class AppStore: ObservableObject {
                     isLeftSidebarVisible: record.isLeftSidebarVisible,
                     activeSidebarTab: record.activeSidebarTab,
                     tabGroupID: record.tabGroupID,
-                    tabGroupName: record.tabGroupName
+                    tabGroupName: record.tabGroupName,
+                    tabGroupColor: record.tabGroupColor
                 )
             }
             for tab in allOpenDocumentTabs {
@@ -3035,7 +3039,8 @@ public final class AppStore: ObservableObject {
                     isLeftSidebarVisible: record.isLeftSidebarVisible,
                     activeSidebarTab: record.activeSidebarTab,
                     tabGroupID: record.tabGroupID,
-                    tabGroupName: record.tabGroupName
+                    tabGroupName: record.tabGroupName,
+                    tabGroupColor: record.tabGroupColor
                 )
             }
         }
@@ -3175,7 +3180,7 @@ public final class AppStore: ObservableObject {
                     paths: session.tabs.compactMap { tab in
                         guard case .document(let state) = tab, group.tabIDs.contains(tab.id) else { return nil }
                         return state.documentID.normalizedPath
-                    }, isCollapsed: group.isCollapsed)
+                    }, isCollapsed: group.isCollapsed, color: group.color)
             }
         }
         if let data = try? JSONEncoder().encode(groups) { defaults.set(data, forKey: Keys.tabGroups) }
@@ -3206,13 +3211,16 @@ public final class AppStore: ObservableObject {
         }
         if let data = defaults.data(forKey: Keys.tabGroups),
            let groups = try? JSONDecoder().decode([SavedTabGroup].self, from: data) {
+            var restoredColors: [TabGroupColor] = []
             primarySession.tabGroups = groups.compactMap { group in
                 let ids = Set(group.paths.compactMap { path -> UUID? in
                     let resolved = resolveFileURL(path: path).map { DocumentID(url: $0).normalizedPath } ?? path
                     return allOpenDocumentTabs.first { $0.documentID.normalizedPath == resolved }?.id
                 })
                 guard !ids.isEmpty else { return nil }
-                return ReaderTabGroup(id: group.id, name: group.name, tabIDs: ids, isCollapsed: group.isCollapsed)
+                let color = group.color ?? .next(excluding: restoredColors)
+                restoredColors.append(color)
+                return ReaderTabGroup(id: group.id, name: group.name, tabIDs: ids, isCollapsed: group.isCollapsed, color: color)
             }
         }
         primarySession.normalizeTabGroupOrder()

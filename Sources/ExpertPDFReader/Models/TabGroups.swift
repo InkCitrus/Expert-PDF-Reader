@@ -1,11 +1,20 @@
 import AppKit
 import Foundation
 
+public enum TabGroupColor: String, Codable, CaseIterable {
+    case blue, green, orange, purple, pink, teal, red
+
+    static func next(excluding colors: [TabGroupColor]) -> TabGroupColor {
+        allCases.first { !colors.contains($0) } ?? allCases[colors.count % allCases.count]
+    }
+}
+
 public struct ReaderTabGroup: Identifiable, Equatable {
     public let id: UUID
     public var name: String
     public var tabIDs: Set<UUID>
     public var isCollapsed = false
+    public var color: TabGroupColor = .blue
 }
 
 struct SavedTabGroup: Codable {
@@ -13,6 +22,7 @@ struct SavedTabGroup: Codable {
     let name: String
     let paths: [String]
     let isCollapsed: Bool
+    var color: TabGroupColor? = nil
 }
 
 @MainActor
@@ -85,7 +95,8 @@ extension AppStore {
         let name = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))
         guard !name.isEmpty, session.tabs.contains(where: { !$0.isHome && $0.id == tabID }) else { return nil }
         moveTab(tabID, intoGroup: nil, in: session.id)
-        let group = ReaderTabGroup(id: UUID(), name: name, tabIDs: [tabID])
+        let group = ReaderTabGroup(id: UUID(), name: name, tabIDs: [tabID],
+                                   color: .next(excluding: session.tabGroups.map(\.color)))
         session.tabGroups.append(group)
         session.normalizeTabGroupOrder()
         return group.id

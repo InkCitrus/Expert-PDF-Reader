@@ -382,8 +382,8 @@ struct TabBarView: View {
     }
 
     private func groupWidth(_ group: ReaderTabGroup) -> CGFloat {
-        let label = "\(group.name)  \(group.tabIDs.count)" as NSString
-        return min(180, max(72, ceil(label.size(withAttributes: [.font: NSFont.systemFont(ofSize: 11, weight: .semibold)]).width) + 38))
+        let label = group.name as NSString
+        return min(180, max(72, ceil(label.size(withAttributes: [.font: NSFont.systemFont(ofSize: 11, weight: .semibold)]).width) + 52))
     }
 
     private func groupHeader(_ group: ReaderTabGroup) -> some View {
@@ -392,7 +392,7 @@ struct TabBarView: View {
                        onDragChanged: { location in
                            if draggingGroupID == nil { onDragActivityChanged?(true) }
                            draggingGroupID = group.id
-                           dragFeedback.update(title: "\(group.name) (\(group.tabIDs.count))", isDark: isDark,
+                           dragFeedback.update(title: group.name, isDark: isDark,
                                                at: location, target: nil)
                            if session.containsTabStrip(location.screenPoint) {
                                session.showGroupInsertion(at: location.screenPoint)
@@ -409,6 +409,12 @@ struct TabBarView: View {
             .opacity(draggingGroupID == group.id ? 0.35 : 1)
     }
 
+    private var ungroupedTabs: [DocumentTabState] {
+        documentTabs.filter { session.tabGroup(containing: $0.id) == nil }
+    }
+
+    private var showsUngroupedSection: Bool { !ungroupedTabs.isEmpty || draggingTabID != nil }
+
     private var sidebarList: some View {
         VStack(spacing: 6) {
             ForEach(session.tabGroups) { group in
@@ -424,24 +430,23 @@ struct TabBarView: View {
                 .background(RoundedRectangle(cornerRadius: 8)
                     .fill(AppPalette.segmentedTrack(isDark).opacity(0.45)))
             }
-            VStack(spacing: 2) {
-                if !session.tabGroups.isEmpty {
-                    if isCollapsed { AppPalette.panelSeparator(isDark).frame(height: 1).padding(.vertical, 5) }
-                    else {
+            if showsUngroupedSection {
+                VStack(spacing: 2) {
+                    if !session.tabGroups.isEmpty && !isCollapsed {
                         Text(L10n.tr("未分组", "Ungrouped"))
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(AppPalette.labelSecondary(isDark))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .frame(height: 24).padding(.horizontal, 8)
                     }
+                    ForEach(ungroupedTabs) { state in
+                        tabItem(state, count: documentTabs.count).frame(height: Self.sidebarRowHeight).id(state.id)
+                    }
                 }
-                ForEach(documentTabs.filter { session.tabGroup(containing: $0.id) == nil }) { state in
-                    tabItem(state, count: documentTabs.count).frame(height: Self.sidebarRowHeight).id(state.id)
-                }
+                .frame(minHeight: ungroupedTabs.isEmpty ? 28 : 0)
+                .frame(maxWidth: .infinity)
+                .background(TabDropZoneAnchor { session.ungroupedTabDropView = $0 })
             }
-            .frame(minHeight: session.tabGroups.isEmpty ? 0 : 28)
-            .frame(maxWidth: .infinity)
-            .background(TabDropZoneAnchor { session.ungroupedTabDropView = $0 })
         }
         .padding(.horizontal, 6)
         .padding(.top, 6)
@@ -450,19 +455,19 @@ struct TabBarView: View {
     }
 
     private var sidebarTabs: some View {
-        let entries = self.entries
-        let grouped = !session.tabGroups.isEmpty
-        let ungroupedCount = documentTabs.filter { session.tabGroup(containing: $0.id) == nil }.count
-        let listPadding: CGFloat = grouped || entries.isEmpty ? 8 : 6
-        let naturalHeight = entries.reduce(listPadding) { height, entry in
-            let rowHeight: CGFloat
-            if case .group = entry { rowHeight = isCollapsed ? Self.sidebarRowHeight : 32 }
-            else { rowHeight = Self.sidebarRowHeight }
-            return height + rowHeight + (isGroup(entry) ? 10 : 2)
+        let groupHeight = session.tabGroups.reduce(CGFloat.zero) { height, group in
+            let rows = group.isCollapsed ? 0 : group.tabIDs.count
+            return height + (isCollapsed ? Self.sidebarRowHeight : 32) + CGFloat(rows) * (Self.sidebarRowHeight + 2) + 4
         }
-        let ungroupedHeader: CGFloat = !grouped ? 0 : (ungroupedCount == 0 ? 28 : (isCollapsed ? 11 : 24))
+        let count = ungroupedTabs.count
+        let header: CGFloat = !session.tabGroups.isEmpty && !isCollapsed ? 24 : 0
+        let rowsHeight = CGFloat(count) * Self.sidebarRowHeight + CGFloat(max(0, count - 1)) * 2
+        let ungroupedHeight: CGFloat = !showsUngroupedSection ? 0
+            : max(count == 0 ? 28 : 0, rowsHeight + header + (count > 0 && header > 0 ? 2 : 0))
+        let sections = session.tabGroups.count + (showsUngroupedSection ? 1 : 0)
+        let naturalHeight = groupHeight + ungroupedHeight + CGFloat(max(0, sections - 1)) * 6 + 8
         return GeometryReader { geometry in
-            let listHeight = min(naturalHeight + ungroupedHeader, max(0, geometry.size.height - 50))
+            let listHeight = min(naturalHeight, max(0, geometry.size.height - 50))
             VStack(spacing: 0) {
                 scrollingTabs(.vertical) { sidebarList }
                 .frame(height: listHeight)
@@ -474,8 +479,6 @@ struct TabBarView: View {
             }
         }
     }
-
-    private func isGroup(_ entry: Entry) -> Bool { if case .group = entry { return true }; return false }
 
     private var newGroupDropZone: some View {
         Label(L10n.tr("新建分组…", "New Group…"), systemImage: "folder.badge.plus")

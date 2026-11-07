@@ -71,8 +71,9 @@ struct ReaderRegressionTests {
             let restored = AppStore()
             let restoredGroup = restored.primarySession.tabGroups.first
             check(restoredGroup?.id == groupID && restoredGroup?.name == "Lectures"
-                  && restoredGroup?.isCollapsed == true && restoredGroup?.tabIDs.count == 2,
-                  "session restoration preserves group names, members and collapsed state")
+                  && restoredGroup?.isCollapsed == true && restoredGroup?.tabIDs.count == 2
+                  && restoredGroup?.color == session.tabGroups[0].color,
+                  "session restoration preserves group names, members, color and collapsed state")
             restored.selectNextTab()
             check(restored.activeDocumentTab?.documentID == c.documentID
                   && restored.primarySession.tabGroups.first?.isCollapsed == false,
@@ -82,6 +83,8 @@ struct ReaderRegressionTests {
                   "removing a tab from a group preserves its remaining members")
             store.moveTab(c.id, intoGroup: groupID)
             let second = store.createTabGroup(name: "Notes", containing: c.id)!
+            let colors = Dictionary(uniqueKeysWithValues: session.tabGroups.map { ($0.id, $0.color) })
+            check(Set(colors.values).count == 2, "new groups receive distinct colors while palette colors are available")
             check(session.tabs.filter { !$0.isHome }.map(\.id) == [a.id, c.id, b.id]
                   && session.tabGroups.count == 2, "creating a group from a grouped tab does not split the old group's members")
             store.moveDocumentTab(id: b.id, toDocumentIndex: 1)
@@ -93,6 +96,7 @@ struct ReaderRegressionTests {
             session.moveTabGroup(groupID, before: second)
             check(session.tabGroups.map(\.id) == [groupID, second], "groups can move before another group without losing members")
             store.renameTabGroup(second, name: "Papers")
+            check(session.tabGroups.allSatisfy { colors[$0.id] == $0.color }, "renaming and reordering preserve group colors")
             let closedOrder = session.tabs.filter { session.tabGroup(containing: $0.id)?.id == second }.map { $0.title }
             store.closeTabGroup(second)
             check(session.tabGroups.count == 1 && session.tabs.filter { !$0.isHome }.count == 1,
@@ -101,13 +105,27 @@ struct ReaderRegressionTests {
             store.reopenClosedTab()
             check(session.tabGroups.first(where: { $0.id == second })?.name == "Papers"
                   && session.tabGroups.first(where: { $0.id == second })?.tabIDs.count == 2
+                  && session.tabGroups.first(where: { $0.id == second })?.color == colors[second]
                   && session.tabs.filter { session.tabGroup(containing: $0.id)?.id == second }.map { $0.title } == closedOrder,
-                  "reopening closed grouped tabs restores their shared group and original order")
+                  "reopening closed grouped tabs restores their shared group, color and original order")
             store.ungroupTabs(groupID)
             store.ungroupTabs(second)
             check(session.tabGroups.isEmpty && session.tabs.filter { !$0.isHome }.count == 3,
                   "ungrouping leaves every PDF open")
             withExtendedLifetime(restored) {}
+        }
+        do {
+            let store = freshStore()
+            let a = store.openDocument(at: alpha, interactive: false)!
+            let b = store.openDocument(at: beta, interactive: false)!
+            let legacy = [SavedTabGroup(id: UUID(), name: "First", paths: [a.documentID.normalizedPath], isCollapsed: false),
+                          SavedTabGroup(id: UUID(), name: "Second", paths: [b.documentID.normalizedPath], isCollapsed: true)]
+            defaults.set(try JSONEncoder().encode(legacy), forKey: "expertPDFReader.TabGroups")
+            let restored = AppStore()
+            check(restored.primarySession.tabGroups.count == 2
+                  && Set(restored.primarySession.tabGroups.map(\.color)).count == 2,
+                  "groups saved before colors were introduced restore with distinct colors")
+            withExtendedLifetime(store) {}
         }
         do {
             let store = freshStore()

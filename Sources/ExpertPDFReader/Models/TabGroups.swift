@@ -29,6 +29,9 @@ public struct ReaderTabGroup: Identifiable, Equatable {
     public var tabIDs: Set<UUID>
     public var isCollapsed = false
     public var color: TabGroupColor = .blue
+
+    /// Unnamed groups remain identifiable in menus, tooltips and accessibility.
+    var displayName: String { name.isEmpty ? color.title : name }
 }
 
 struct SavedTabGroup: Codable {
@@ -80,7 +83,7 @@ extension ReaderWindowSession {
         tabGroups[index].isCollapsed.toggle()
     }
 
-    /// Both tab layouts use the same order: named groups, then ungrouped documents.
+    /// Both tab layouts use the same order: groups, then ungrouped documents.
     func normalizeTabGroupOrder() {
         guard !tabGroups.isEmpty else { return }
         let assigned = Set(tabGroups.flatMap(\.tabIDs))
@@ -107,7 +110,7 @@ extension AppStore {
     func createTabGroup(name: String, containing tabID: UUID, in sessionID: UUID? = nil) -> UUID? {
         let session = session(withID: sessionID)
         let name = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))
-        guard !name.isEmpty, session.tabs.contains(where: { !$0.isHome && $0.id == tabID }) else { return nil }
+        guard session.tabs.contains(where: { !$0.isHome && $0.id == tabID }) else { return nil }
         moveTab(tabID, intoGroup: nil, in: session.id)
         let group = ReaderTabGroup(id: UUID(), name: name, tabIDs: [tabID],
                                    color: .next(excluding: session.tabGroups.map(\.color)))
@@ -119,7 +122,7 @@ extension AppStore {
     func renameTabGroup(_ id: UUID, name: String, in sessionID: UUID? = nil) {
         let session = session(withID: sessionID)
         let name = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))
-        guard !name.isEmpty, let index = session.tabGroups.firstIndex(where: { $0.id == id }) else { return }
+        guard let index = session.tabGroups.firstIndex(where: { $0.id == id }) else { return }
         session.tabGroups[index].name = name
     }
 

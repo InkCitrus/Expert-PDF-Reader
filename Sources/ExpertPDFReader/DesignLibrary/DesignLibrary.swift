@@ -409,6 +409,11 @@ public enum AppAnimation {
     public static var panel: Animation {
         reduceMotion ? .easeInOut(duration: 0.15) : .spring(response: 0.28, dampingFraction: 0.88)
     }
+
+    public static var sidebarRevealDuration: Double { reduceMotion ? 0 : 0.22 }
+
+    /// Reveal fixed-width contents without spring overshoot or text reflow.
+    public static var sidebarReveal: Animation { .easeInOut(duration: sidebarRevealDuration) }
 }
 
 extension Color {

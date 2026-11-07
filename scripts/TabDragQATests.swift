@@ -106,6 +106,18 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         }
         await settle()
         check(staysLevel, "expanding the sidebar keeps group, grouped-tab and ungrouped-tab rows at the same vertical positions throughout the animation")
+        let exit = NSEvent.enterExitEvent(with: .mouseExited,
+            location: hover.convert(NSPoint(x: hover.bounds.maxX + 40, y: hover.bounds.midY), to: nil),
+            modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil)!
+        hover.mouseExited(with: exit)
+        try? await Task.sleep(nanoseconds: 60_000_000)
+        check(session.tabStripView!.bounds.width > 48,
+              "closing the drawer preserves the full text layout while its visible edge moves")
+        await settle()
+        check(session.tabStripView!.bounds.width <= 48,
+              "the closed drawer returns to compact hit regions after the animation")
+        await hoverSidebar(true, in: session)
     }
 
     func tabIsVisible(_ tab: DocumentTabState, in session: ReaderWindowSession) -> Bool {
@@ -491,6 +503,20 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
             store.tabsInSidebar = sidebar
             await settle()
             if sidebar { await hoverSidebar(true, in: primary) }
+            store.renameTabGroup(papersID, name: " ")
+            await settle()
+            if let blankHeader = primary.tabGroupViews.object(forKey: papersID as NSUUID) {
+                check(blankHeader.bounds.width >= 24 && blankHeader.toolTip == primary.tabGroups.first { $0.id == papersID }?.color.title,
+                      "\(sidebar ? "sidebar" : "top") unnamed groups retain a clickable color block and a color-name tooltip")
+                await click(blankHeader)
+                check(primary.tabGroup(containing: beta.id)?.isCollapsed == true && primary.activeDocumentTab === alpha,
+                      "\(sidebar ? "sidebar" : "top") unnamed groups can collapse without changing the active PDF")
+                if let blankHeader = primary.tabGroupViews.object(forKey: papersID as NSUUID) { await click(blankHeader) }
+                check(primary.tabGroup(containing: beta.id)?.isCollapsed == false && tabIsVisible(beta, in: primary),
+                      "\(sidebar ? "sidebar" : "top") unnamed groups can expand again")
+            } else { check(false, "an unnamed group retains its native hit region") }
+            store.renameTabGroup(papersID, name: "Papers")
+            await settle()
             if sidebar && ProcessInfo.processInfo.environment["TAB_DRAG_QA_INSPECT"] == "1" {
                 print("INFO inspecting sidebar groups; strip=\(primary.tabStripView?.bounds ?? .zero), groups=\(primary.tabGroups.count)")
                 try? await Task.sleep(nanoseconds: 45_000_000_000)

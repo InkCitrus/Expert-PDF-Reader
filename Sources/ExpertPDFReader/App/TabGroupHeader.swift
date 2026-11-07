@@ -13,7 +13,7 @@ struct TabGroupHeader: View {
 
     var body: some View {
         Button {
-            withAnimation(AppAnimation.tab) { session.toggleTabGroup(group.id) }
+            withAnimation(AppAnimation.sidebarReveal) { session.toggleTabGroup(group.id) }
         } label: {
             HStack(spacing: 6) {
                 if !isCompact {
@@ -43,13 +43,13 @@ struct TabGroupHeader: View {
             }
         }
         .overlay {
-            TabInteractionArea(session: session, tabID: group.id, toolTip: group.name,
+            TabInteractionArea(session: session, tabID: group.id, toolTip: group.displayName,
                 excludedTrailingWidth: 0, isGroupHeader: true, isSidebar: isSidebar,
-                onSelect: { withAnimation(AppAnimation.tab) { session.toggleTabGroup(group.id) } },
+                onSelect: { withAnimation(AppAnimation.sidebarReveal) { session.toggleTabGroup(group.id) } },
                 onDragChanged: onDragChanged, onDragEnded: onDragEnded)
         }
-        .help(group.name)
-        .accessibilityLabel(Text(group.name))
+        .help(group.displayName)
+        .accessibilityLabel(Text(group.displayName))
         .accessibilityValue(Text(group.isCollapsed ? L10n.tr("已折叠", "Collapsed") : L10n.tr("已展开", "Expanded")))
         .contextMenu {
             Button(L10n.tr("重命名分组…", "Rename Group…")) { store.editTabGroup(group.id, in: session.id) }

@@ -14,6 +14,7 @@ public struct MainWindowView: View {
     @State private var isSidebarHovered = false
     @State private var isSidebarDragging = false
     @State private var isSidebarMenuTracking = false
+    @State private var sidebarExpandedContent = false
     @State private var isDropTargeted = false
     private var isDark: Bool { colorScheme == .dark }
 
@@ -138,6 +139,7 @@ public struct MainWindowView: View {
         let width = boundedWidth(sidebarResizeWidth ?? preferredWidth)
         let isCollapsed = !isSidebarHovered && !isSidebarDragging && !isSidebarMenuTracking
         let popupWidth = min(520, max(360, windowWidth * 0.45))
+        let expandedLayout = !isCollapsed || sidebarExpandedContent
 
         return HStack(spacing: 0) {
             if store.tabsInSidebar { Color.clear.frame(width: railWidth) }
@@ -181,13 +183,25 @@ public struct MainWindowView: View {
         }
         .overlay(alignment: .topLeading) {
             if store.tabsInSidebar {
-                sidebarTabsColumn(width: isCollapsed ? railWidth : popupWidth, isCollapsed: isCollapsed)
+                sidebarTabsColumn(width: expandedLayout ? popupWidth : railWidth, isCollapsed: !expandedLayout)
+                    .transaction { $0.animation = nil }
+                    .frame(width: isCollapsed ? railWidth : popupWidth, alignment: .leading)
+                    .clipped()
+                    .contentShape(Rectangle())
                     .overlay(alignment: .trailing) {
                         AppPalette.panelHairline(isDark).frame(width: 1).allowsHitTesting(false)
                     }
                     .shadow(color: .black.opacity(isCollapsed ? 0 : (isDark ? 0.28 : 0.12)), radius: 10, x: 4, y: 0)
                     .background(SidebarTabHoverArea(session: session) { isSidebarHovered = $0 })
-                    .animation(AppAnimation.snappy, value: isCollapsed)
+                    .animation(AppAnimation.sidebarReveal, value: isCollapsed)
+                    .task(id: isCollapsed) {
+                        if !isCollapsed { sidebarExpandedContent = true; return }
+                        do {
+                            try await Task.sleep(nanoseconds: UInt64(AppAnimation.sidebarRevealDuration * 1_000_000_000))
+                        } catch { return }
+                        sidebarExpandedContent = false
+                    }
+                    .onDisappear { sidebarExpandedContent = false }
             }
         }
     }
@@ -381,6 +395,7 @@ struct TabBarView: View {
     }
 
     private func groupWidth(_ group: ReaderTabGroup) -> CGFloat {
+        if group.name.isEmpty { return 32 }
         let label = group.name as NSString
         return min(180, max(52, ceil(label.size(withAttributes: [.font: NSFont.systemFont(ofSize: 11, weight: .semibold)]).width) + 24))
     }
@@ -391,7 +406,7 @@ struct TabBarView: View {
                        onDragChanged: { location in
                            if draggingGroupID == nil { onDragActivityChanged?(true) }
                            draggingGroupID = group.id
-                           dragFeedback.update(title: group.name, isDark: isDark,
+                           dragFeedback.update(title: group.displayName, isDark: isDark,
                                                at: location, target: nil)
                            if session.containsTabStrip(location.screenPoint) {
                                session.showGroupInsertion(at: location.screenPoint)
@@ -441,7 +456,7 @@ struct TabBarView: View {
         .padding(.horizontal, 6)
         .padding(.top, 6)
         .padding(.bottom, 2)
-        .animation(AppAnimation.tab, value: entries.map(\.id))
+        .animation(AppAnimation.sidebarReveal, value: entries.map(\.id))
     }
 
     private var sidebarTabs: some View {
@@ -586,7 +601,7 @@ struct TabBarView: View {
                         }
                     }
                     .id(state.id)
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                    .transition(.opacity)
                 case .group(let group):
                     groupHeader(group).frame(width: groupWidth(group)).id(group.id)
                 }
@@ -882,7 +897,7 @@ struct DocumentTabItemView: View {
                 .transition(.opacity)
             }
         }
-        .padding(.leading, isCollapsed ? 0 : (isSidebar && session.tabGroup(containing: state.id) != nil ? 24 : 12))
+        .padding(.leading, isCollapsed ? 0 : (isSidebar ? (session.tabGroup(containing: state.id) != nil ? 8 : 10) : 12))
         .padding(.trailing, isCollapsed ? 0 : ((isSidebar || showsCloseButton) ? 8 : 12))
         .frame(maxHeight: .infinity)
         .background {
@@ -927,8 +942,8 @@ struct DocumentTabItemView: View {
                         Button {
                             store.moveTab(state.id, intoGroup: group.id, in: session.id)
                         } label: {
-                            if group.tabIDs.contains(state.id) { Label(group.name, systemImage: "checkmark") }
-                            else { Text(group.name) }
+                            if group.tabIDs.contains(state.id) { Label(group.displayName, systemImage: "checkmark") }
+                            else { Text(group.displayName) }
                         }
                     }
                 }

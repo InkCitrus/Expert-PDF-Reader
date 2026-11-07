@@ -57,7 +57,10 @@ struct ReaderRegressionTests {
             let b = store.openDocument(at: beta, interactive: false)!
             let c = store.openDocument(at: gamma, interactive: false)!
             let session = store.primarySession
-            check(store.createTabGroup(name: "  ", containing: a.id) == nil, "blank group names do not create empty groups")
+            let unnamed = store.createTabGroup(name: "  \n", containing: a.id)!
+            check(session.tabGroups.first?.name == "" && session.tabGroups.first?.tabIDs == [a.id],
+                  "blank group names create a color-only group with its document intact")
+            store.ungroupTabs(unnamed)
             let groupID = store.createTabGroup(name: " Lectures ", containing: a.id)!
             store.moveTab(c.id, intoGroup: groupID)
             check(session.tabGroups.count == 1 && session.tabGroups[0].name == "Lectures"
@@ -101,10 +104,13 @@ struct ReaderRegressionTests {
             check(session.tabGroups.first(where: { $0.id == second })?.color == .teal
                   && session.tabGroups.first(where: { $0.id == groupID })?.color == colors[groupID],
                   "choosing a group color updates only that group")
+            store.renameTabGroup(second, name: " \n ")
             store.saveSession()
             let recolored = AppStore()
-            check(recolored.primarySession.tabGroups.first(where: { $0.id == second })?.color == .teal,
-                  "a manually chosen group color survives session restoration")
+            let unnamedRestored = recolored.primarySession.tabGroups.first(where: { $0.id == second })
+            check(unnamedRestored?.color == .teal && unnamedRestored?.name == "" && unnamedRestored?.tabIDs.count == 2,
+                  "renaming a group to blank preserves its chosen color and members across session restoration")
+            store.renameTabGroup(second, name: "Papers")
             let closedOrder = session.tabs.filter { session.tabGroup(containing: $0.id)?.id == second }.map { $0.title }
             store.closeTabGroup(second)
             check(session.tabGroups.count == 1 && session.tabs.filter { !$0.isHome }.count == 1,

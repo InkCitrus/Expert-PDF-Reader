@@ -186,7 +186,7 @@ public struct MainWindowView: View {
                         AppPalette.panelHairline(isDark).frame(width: 1).allowsHitTesting(false)
                     }
                     .shadow(color: .black.opacity(isCollapsed ? 0 : (isDark ? 0.28 : 0.12)), radius: 10, x: 4, y: 0)
-                    .onHover { isSidebarHovered = $0 }
+                    .background(SidebarTabHoverArea(session: session) { isSidebarHovered = $0 })
                     .animation(AppAnimation.snappy, value: isCollapsed)
             }
         }
@@ -207,22 +207,8 @@ public struct MainWindowView: View {
     }
 
     private func sidebarTabsColumn(width: CGFloat, isCollapsed: Bool) -> some View {
-        VStack(spacing: 0) {
-            if !isCollapsed {
-                HStack {
-                    Text(L10n.tr("打开的文档", "Open Documents"))
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(AppPalette.labelSecondary(isDark))
-                    Spacer(minLength: 0)
-                }
-                .frame(height: 40)
-                .padding(.leading, 18)
-                .padding(.trailing, 8)
-                AppPalette.panelSeparator(isDark).frame(height: 1)
-            }
-            TabBarView(store: store, session: session, isDark: isDark, isSidebar: true,
-                       isCollapsed: isCollapsed, onDragActivityChanged: { isSidebarDragging = $0 })
-        }
+        TabBarView(store: store, session: session, isDark: isDark, isSidebar: true,
+                   isCollapsed: isCollapsed, onDragActivityChanged: { isSidebarDragging = $0 })
         .frame(width: width)
         .background(AppPalette.panelBackground(isDark), ignoresSafeAreaEdges: [])
     }
@@ -309,10 +295,13 @@ struct TabBarView: View {
     @Namespace private var tabBarNamespace
     @State private var hoveredTabID: UUID?
     @State private var isAllTabsHovered = false
+    @State private var isOpenFileHovered = false
     @State private var isShortcutsHelpHovered = false
     @State private var allTabsAnchor = NSViewAnchor()
 
     @State private var draggingTabID: UUID?
+    @State private var draggingGroupID: UUID?
+    @State private var isNewGroupDropTargeted = false
     @State private var dragFeedback = TabDragFeedback()
 
     private static let allTabsButtonWidth: CGFloat = 30
@@ -372,28 +361,143 @@ struct TabBarView: View {
         }
     }
 
-    private var sidebarTabs: some View {
-        let tabs = documentTabs
-        return scrollingTabs(.vertical) {
-            VStack(spacing: 2) {
-                ForEach(tabs) { state in
-                    tabItem(state, count: tabs.count)
-                        .frame(height: Self.sidebarRowHeight)
-                        .id(state.id)
-                        .transition(.opacity)
+    private enum Entry: Identifiable {
+        case document(DocumentTabState)
+        case group(ReaderTabGroup)
+        var id: UUID {
+            switch self { case .document(let tab): tab.id; case .group(let group): group.id }
+        }
+    }
+
+    private var entries: [Entry] {
+        var result: [Entry] = []
+        for group in session.tabGroups {
+            result.append(.group(group))
+            if !group.isCollapsed {
+                result.append(contentsOf: documentTabs.filter { group.tabIDs.contains($0.id) }.map(Entry.document))
+            }
+        }
+        result.append(contentsOf: documentTabs.filter { session.tabGroup(containing: $0.id) == nil }.map(Entry.document))
+        return result
+    }
+
+    private func groupWidth(_ group: ReaderTabGroup) -> CGFloat {
+        let label = "\(group.name)  \(group.tabIDs.count)" as NSString
+        return min(180, max(72, ceil(label.size(withAttributes: [.font: NSFont.systemFont(ofSize: 11, weight: .semibold)]).width) + 38))
+    }
+
+    private func groupHeader(_ group: ReaderTabGroup) -> some View {
+        TabGroupHeader(store: store, session: session, group: group,
+                       isSidebar: isSidebar, isCompact: isCollapsed, isDark: isDark,
+                       onDragChanged: { location in
+                           if draggingGroupID == nil { onDragActivityChanged?(true) }
+                           draggingGroupID = group.id
+                           dragFeedback.update(title: "\(group.name) (\(group.tabIDs.count))", isDark: isDark,
+                                               at: location, target: nil)
+                           if session.containsTabStrip(location.screenPoint) {
+                               session.showGroupInsertion(at: location.screenPoint)
+                           } else { session.showTabInsertion(at: nil) }
+                       }, onDragEnded: { location in
+                           draggingGroupID = nil
+                           onDragActivityChanged?(false)
+                           dragFeedback.end()
+                           session.showTabInsertion(at: nil)
+                           if let location, session.containsTabStrip(location.screenPoint) {
+                               session.moveTabGroup(group.id, before: session.groupInsertionTarget(at: location.screenPoint))
+                           }
+                       })
+            .opacity(draggingGroupID == group.id ? 0.35 : 1)
+    }
+
+    private var sidebarList: some View {
+        VStack(spacing: 6) {
+            ForEach(session.tabGroups) { group in
+                VStack(spacing: 2) {
+                    groupHeader(group).frame(height: isCollapsed ? Self.sidebarRowHeight : 32).id(group.id)
+                    if !group.isCollapsed {
+                        ForEach(documentTabs.filter { group.tabIDs.contains($0.id) }) { state in
+                            tabItem(state, count: documentTabs.count).frame(height: Self.sidebarRowHeight).id(state.id)
+                        }
+                    }
                 }
+                .padding(2)
+                .background(RoundedRectangle(cornerRadius: 8)
+                    .fill(AppPalette.segmentedTrack(isDark).opacity(0.45)))
+            }
+            VStack(spacing: 2) {
+                if !session.tabGroups.isEmpty {
+                    if isCollapsed { AppPalette.panelSeparator(isDark).frame(height: 1).padding(.vertical, 5) }
+                    else {
+                        Text(L10n.tr("未分组", "Ungrouped"))
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(AppPalette.labelSecondary(isDark))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .frame(height: 24).padding(.horizontal, 8)
+                    }
+                }
+                ForEach(documentTabs.filter { session.tabGroup(containing: $0.id) == nil }) { state in
+                    tabItem(state, count: documentTabs.count).frame(height: Self.sidebarRowHeight).id(state.id)
+                }
+            }
+            .frame(minHeight: session.tabGroups.isEmpty ? 0 : 28)
+            .frame(maxWidth: .infinity)
+            .background(TabDropZoneAnchor { session.ungroupedTabDropView = $0 })
+        }
+        .padding(.horizontal, 6)
+        .padding(.top, 6)
+        .padding(.bottom, 2)
+        .animation(AppAnimation.tab, value: entries.map(\.id))
+    }
+
+    private var sidebarTabs: some View {
+        let entries = self.entries
+        let grouped = !session.tabGroups.isEmpty
+        let ungroupedCount = documentTabs.filter { session.tabGroup(containing: $0.id) == nil }.count
+        let listPadding: CGFloat = grouped || entries.isEmpty ? 8 : 6
+        let naturalHeight = entries.reduce(listPadding) { height, entry in
+            let rowHeight: CGFloat
+            if case .group = entry { rowHeight = isCollapsed ? Self.sidebarRowHeight : 32 }
+            else { rowHeight = Self.sidebarRowHeight }
+            return height + rowHeight + (isGroup(entry) ? 10 : 2)
+        }
+        let ungroupedHeader: CGFloat = !grouped ? 0 : (ungroupedCount == 0 ? 28 : (isCollapsed ? 11 : 24))
+        return GeometryReader { geometry in
+            let listHeight = min(naturalHeight + ungroupedHeader, max(0, geometry.size.height - 50))
+            VStack(spacing: 0) {
+                scrollingTabs(.vertical) { sidebarList }
+                .frame(height: listHeight)
                 openFileButton
                     .frame(height: Self.sidebarRowHeight)
-                    .padding(.top, 4)
+                    .padding(.horizontal, 6)
+                    .padding(.bottom, 6)
+                Spacer(minLength: 0)
             }
-            .padding(6)
-            .animation(AppAnimation.tab, value: tabs.map(\.id))
         }
+    }
+
+    private func isGroup(_ entry: Entry) -> Bool { if case .group = entry { return true }; return false }
+
+    private var newGroupDropZone: some View {
+        Label(L10n.tr("新建分组…", "New Group…"), systemImage: "folder.badge.plus")
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(isNewGroupDropTargeted ? AppPalette.accentBlue : AppPalette.labelSecondary(isDark))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 6).fill(AppPalette.panelBackground(isDark)))
+            .overlay(RoundedRectangle(cornerRadius: 6)
+                .strokeBorder(isNewGroupDropTargeted ? AppPalette.accentBlue : AppPalette.labelTertiary(isDark),
+                              style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+            .background(TabDropZoneAnchor { session.newTabGroupDropView = $0 })
     }
 
     private var topTabs: some View {
         GeometryReader { proxy in
             let documentTabs = self.documentTabs
+            let entries = self.entries
+            let visibleCount = entries.filter { if case .document = $0 { return true }; return false }.count
+            let headersWidth = entries.reduce(CGFloat.zero) { width, entry in
+                if case .group(let group) = entry { return width + groupWidth(group) }
+                return width
+            }
             let showsAllTabsMenu = documentTabs.count >= 2
             let openWidth = min(156, ceil((openFileTitle as NSString).size(
                 withAttributes: [.font: NSFont.systemFont(ofSize: 12, weight: .medium)]
@@ -405,15 +509,15 @@ struct TabBarView: View {
                 0,
                 proxy.size.width - trailingControlsWidth - Self.reservedTrailingWidth - 1
             )
-            let fitWidth = documentTabs.isEmpty
+            let fitWidth = visibleCount == 0
                 ? Self.maximumTabWidth
-                : ((available - CGFloat(documentTabs.count)) / CGFloat(documentTabs.count)).rounded(.down)
+                : ((available - headersWidth - CGFloat(visibleCount)) / CGFloat(visibleCount)).rounded(.down)
             let tabWidth = min(Self.maximumTabWidth, max(Self.minimumTabWidth, fitWidth))
 
             HStack(spacing: 0) {
                 tabSeparator
 
-                if fitWidth < Self.minimumTabWidth {
+                if fitWidth < Self.minimumTabWidth || headersWidth > available {
                     scrollingTabs(.horizontal) {
                         documentTabsRow(documentTabs, tabWidth: tabWidth)
                     }
@@ -443,26 +547,45 @@ struct TabBarView: View {
     private func scrollingTabs<Content: View>(_ axis: Axis.Set, @ViewBuilder content: @escaping () -> Content) -> some View {
         ScrollViewReader { scrollProxy in
             let anchor: UnitPoint? = axis == .horizontal ? .center : nil
-            ScrollView(axis, showsIndicators: axis == .vertical, content: content)
-                .onAppear {
-                    scrollProxy.scrollTo(session.selectedTabID, anchor: anchor)
-                }
-                .onChange(of: session.selectedTabID) { _, newID in
-                    withAnimation(AppAnimation.tab) {
-                        scrollProxy.scrollTo(newID, anchor: anchor)
+            GeometryReader { geometry in
+                ScrollView(axis, showsIndicators: axis == .vertical, content: content)
+                    .onAppear {
+                        DispatchQueue.main.async {
+                            scrollProxy.scrollTo(session.selectedTabScrollID, anchor: anchor)
+                        }
                     }
-                }
+                    .onChange(of: session.selectedTabScrollID) { _, newID in
+                        withAnimation(AppAnimation.tab) {
+                            scrollProxy.scrollTo(newID, anchor: anchor)
+                        }
+                    }
+                    .onChange(of: axis == .vertical ? geometry.size.height : geometry.size.width) { _, _ in
+                        DispatchQueue.main.async {
+                            scrollProxy.scrollTo(session.selectedTabScrollID, anchor: anchor)
+                        }
+                    }
+                    .onChange(of: entries.map(\.id)) { _, _ in
+                        DispatchQueue.main.async {
+                            scrollProxy.scrollTo(session.selectedTabScrollID, anchor: anchor)
+                        }
+                    }
+            }
         }
     }
 
     private func documentTabsRow(_ documentTabs: [DocumentTabState], tabWidth: CGFloat) -> some View {
         HStack(spacing: 0) {
-            ForEach(documentTabs) { state in
-                tabItem(state, count: documentTabs.count)
-                    .frame(width: tabWidth)
-                    .id(state.id)
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                tabSeparator
+            ForEach(entries) { entry in
+                switch entry {
+                case .document(let state):
+                    tabItem(state, count: documentTabs.count)
+                        .frame(width: tabWidth)
+                        .id(state.id)
+                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                    tabSeparator
+                case .group(let group):
+                    groupHeader(group).frame(width: groupWidth(group)).id(group.id)
+                }
             }
         }
         .animation(AppAnimation.tab, value: documentTabs.map(\.id))
@@ -477,7 +600,7 @@ struct TabBarView: View {
             documentTabCount: count,
             isSelected: session.selectedTabID == state.id,
             isHovered: hoveredTabID == state.id,
-            isDragging: draggingTabID == state.id,
+            isDragging: draggingTabID == state.id || session.tabGroup(containing: state.id)?.id == draggingGroupID && draggingGroupID != nil,
             isDark: isDark,
             isSidebar: isSidebar,
             isCollapsed: isCollapsed,
@@ -488,25 +611,35 @@ struct TabBarView: View {
             onDragChanged: { location in
                 if draggingTabID == nil { onDragActivityChanged?(true) }
                 draggingTabID = state.id
+                isNewGroupDropTargeted = session.isNewTabGroupDrop(at: location.screenPoint)
                 let target = store.tabDropTarget(at: location.screenPoint)
-                dragFeedback.update(title: state.title, isDark: isDark, at: location, target: target)
+                dragFeedback.update(title: state.title, isDark: isDark, at: location,
+                                    target: isNewGroupDropTargeted ? nil : target)
             },
             onDragEnded: { location in
+                let createsGroup = location.map { session.isNewTabGroupDrop(at: $0.screenPoint) } ?? false
                 draggingTabID = nil
+                isNewGroupDropTargeted = false
                 onDragActivityChanged?(false)
                 dragFeedback.end()
                 guard let location else { return }
+                if createsGroup {
+                    store.editTabGroup(containing: state.id, in: session.id)
+                    return
+                }
                 let point = location.screenPoint
                 switch store.tabDropTarget(at: point) {
                 case .tabStrip(let target):
                     if target === session {
                         if let index = session.nearestDocumentIndex(at: point) {
-                            store.moveDocumentTab(id: state.id, toDocumentIndex: index, in: session.id)
+                            store.moveDocumentTab(id: state.id, toDocumentIndex: index,
+                                                  intoGroup: session.tabGroup(at: point)?.id, in: session.id)
                             session.selectedTabID = state.id
                         }
                     } else {
                         store.moveTab(id: state.id, from: session.id, to: target.id,
-                                      atDocumentIndex: target.documentInsertionIndex(at: point))
+                                      atDocumentIndex: target.documentInsertionIndex(at: point),
+                                      intoGroup: target.tabGroup(at: point)?.id)
                     }
                 case .comparison(let tab):
                     tab.setSecondaryDocument(from: state)
@@ -532,15 +665,32 @@ struct TabBarView: View {
     private var openFileTitle: String { L10n.tr("打开文件…", "Open File…") }
 
     private var openFileButton: some View {
-        ToolbarIconButton(
-            icon: "plus",
-            tooltip: L10n.tr("打开 PDF 文档 (⌘O)", "Open PDF Document (⌘O)"),
-            title: isCollapsed ? nil : openFileTitle,
-            fillsRow: true,
-            isDark: isDark
-        ) {
-            store.activateWindowSession(session.id)
-            store.openFilePicker(in: session.id)
+        Group {
+            if draggingTabID != nil {
+                newGroupDropZone.padding(.horizontal, 4).padding(.vertical, 4)
+            } else {
+                Button {
+                    store.activateWindowSession(session.id)
+                    store.openFilePicker(in: session.id)
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "plus").font(.system(size: isSidebar ? 17 : 14))
+                        if !isCollapsed { Text(openFileTitle).font(.system(size: 12)) }
+                    }
+                    .foregroundStyle(AppPalette.labelSecondary(isDark))
+                    .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
+                    .padding(.leading, isCollapsed ? 0 : 12)
+                    .padding(.trailing, isCollapsed ? 0 : 8)
+                    .frame(maxHeight: .infinity)
+                    .background(RoundedRectangle(cornerRadius: 6)
+                        .fill(isOpenFileHovered ? AppPalette.tabHoverBackground(isDark) : Color.clear))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(L10n.tr("打开 PDF 文档 (⌘O)", "Open PDF Document (⌘O)"))
+                .accessibilityLabel(Text(L10n.tr("打开 PDF 文档 (⌘O)", "Open PDF Document (⌘O)")))
+                .onHover { isOpenFileHovered = $0 }
+            }
         }
     }
 
@@ -730,13 +880,18 @@ struct DocumentTabItemView: View {
                 .transition(.opacity)
             }
         }
-        .padding(.leading, isCollapsed ? 0 : 12)
+        .padding(.leading, isCollapsed ? 0 : (isSidebar && session.tabGroup(containing: state.id) != nil ? 24 : 12))
         .padding(.trailing, isCollapsed ? 0 : ((isSidebar || showsCloseButton) ? 8 : 12))
         .frame(maxHeight: .infinity)
         .background {
             RoundedRectangle(cornerRadius: isSidebar ? 6 : 0)
                 .fill(isSelected ? AppPalette.tabSelectedBackground(isDark)
                     : (isHovered ? AppPalette.tabHoverBackground(isDark) : Color.clear))
+        }
+        .background {
+            if session.tabGroup(containing: state.id) != nil {
+                AppPalette.accentBlue.opacity(isDark ? 0.06 : 0.04)
+            }
         }
         .overlay(alignment: .top) {
             if isSelected && !isSidebar {
@@ -749,7 +904,7 @@ struct DocumentTabItemView: View {
         .opacity(isDragging ? 0.3 : 1)
         .overlay {
             TabInteractionArea(session: session, tabID: state.id, toolTip: state.documentID.url.path,
-                               excludedTrailingWidth: showsCloseButton ? 30 : 0, onSelect: selectTab,
+                               excludedTrailingWidth: showsCloseButton ? 30 : 0, isSidebar: isSidebar, onSelect: selectTab,
                                onDragChanged: onDragChanged, onDragEnded: onDragEnded)
         }
         .contentShape(Rectangle())
@@ -762,6 +917,28 @@ struct DocumentTabItemView: View {
             onHoverChanged(hovering)
         }
         .contextMenu {
+            Menu(L10n.tr("添加到分组", "Add to Group")) {
+                Button(L10n.tr("新建分组…", "New Group…")) {
+                    store.editTabGroup(containing: state.id, in: session.id)
+                }
+                if !session.tabGroups.isEmpty {
+                    Divider()
+                    ForEach(session.tabGroups) { group in
+                        Button {
+                            store.moveTab(state.id, intoGroup: group.id, in: session.id)
+                        } label: {
+                            if group.tabIDs.contains(state.id) { Label(group.name, systemImage: "checkmark") }
+                            else { Text(group.name) }
+                        }
+                    }
+                }
+            }
+            if session.tabGroup(containing: state.id) != nil {
+                Button(L10n.tr("移出分组", "Remove from Group")) {
+                    store.moveTab(state.id, intoGroup: nil, in: session.id)
+                }
+            }
+            Divider()
             Button(L10n.tr("将标签移至新窗口", "Move Tab to New Window")) {
                 store.detachTabToNewWindow(id: state.id, from: session.id)
             }

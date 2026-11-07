@@ -431,3 +431,39 @@
 "Clear Favorites?" = "清空收藏夾？";
 "PDF 文件会保留在原来的位置。|||Your PDF files will stay where they are." = "PDF 檔案會保留在原來的位置。";
 "Your PDF files will stay where they are." = "PDF 檔案會保留在原來的位置。";
+
+"新建分组…|||New Group…" = "新增分組…";
+"New Group…" = "新增分組…";
+
+"分组名称|||Group Name" = "分組名稱";
+"Group Name" = "分組名稱";
+
+"创建分组|||Create Group" = "建立分組";
+"Create Group" = "建立分組";
+
+"重命名分组…|||Rename Group…" = "重新命名分組…";
+"Rename Group…" = "重新命名分組…";
+
+"添加到分组|||Add to Group" = "加入分組";
+"Add to Group" = "加入分組";
+
+"移出分组|||Remove from Group" = "移出分組";
+"Remove from Group" = "移出分組";
+
+"取消分组|||Ungroup Tabs" = "取消分組";
+"Ungroup Tabs" = "取消分組";
+
+"关闭分组|||Close Group" = "關閉分組";
+"Close Group" = "關閉分組";
+
+"已折叠|||Collapsed" = "已收合";
+"Collapsed" = "已收合";
+
+"已展开|||Expanded" = "已展開";
+"Expanded" = "已展開";
+
+"保存|||Save" = "儲存";
+"Save" = "儲存";
+
+"未分组|||Ungrouped" = "未分組";
+"Ungrouped" = "未分組";

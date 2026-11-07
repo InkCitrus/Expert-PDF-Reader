@@ -1374,6 +1374,8 @@ public struct ClosedTabRecord: Codable, Equatable {
     public let isClearMarginsEnabled: Bool
     public let isLeftSidebarVisible: Bool
     public let activeSidebarTab: ReaderSidebarTab
+    public var tabGroupID: UUID? = nil
+    public var tabGroupName: String? = nil
 }
 
 @MainActor
@@ -1381,14 +1383,21 @@ public final class ReaderWindowSession: ObservableObject, Identifiable {
     public let id: UUID
     public let isPrimary: Bool
     @Published public var tabs: [AppTab] {
-        didSet { onTabsChanged?() }
+        didSet { pruneTabGroups(); onTabsChanged?() }
     }
     @Published public var selectedTabID: UUID {
+        didSet { revealSelectedTabGroup(); onTabsChanged?() }
+    }
+    @Published public var tabGroups: [ReaderTabGroup] = [] {
         didSet { onTabsChanged?() }
     }
     var onTabsChanged: (() -> Void)?
     weak var tabStripView: NSView?
-    let tabViews = NSMapTable<NSUUID, NSView>.strongToWeakObjects()
+    let tabViews = ReaderTabViewRegistry()
+    let tabGroupViews = ReaderTabViewRegistry()
+    weak var ungroupedTabDropView: NSView?
+    weak var newTabGroupDropView: NSView?
+    weak var sidebarTabHoverView: SidebarTabHoverView?
     @Published public var homeCurrentPage: HomeTabPage = .home
     @Published var isHomeSidebarVisible = true
     @Published public var isShortcutsSheetPresented: Bool = false
@@ -1824,6 +1833,7 @@ public final class AppStore: ObservableObject {
         static let fileBookmarks = "expertPDFReader.FileBookmarks"
         static let openTabs = "expertPDFReader.OpenTabs"
         static let selectedTab = "expertPDFReader.SelectedTab"
+        static let tabGroups = "expertPDFReader.TabGroups"
         static let closedTabs = "expertPDFReader.ClosedTabs"
     }
 
@@ -2342,7 +2352,8 @@ public final class AppStore: ObservableObject {
         id: UUID,
         from sourceSessionID: UUID,
         to targetSessionID: UUID,
-        atDocumentIndex: Int? = nil
+        atDocumentIndex: Int? = nil,
+        intoGroup groupID: UUID? = nil
     ) {
         guard sourceSessionID != targetSessionID else { return }
         let sourceSession = session(withID: sourceSessionID)
@@ -2380,6 +2391,8 @@ public final class AppStore: ObservableObject {
             } else {
                 targetSession.tabs.append(newTab)
             }
+            targetSession.setTabGroup(id, to: groupID)
+            targetSession.normalizeTabGroupOrder()
             targetSession.selectedTabID = newTab.id
             activeWindowSessionID = targetSession.id
         }
@@ -2400,11 +2413,13 @@ public final class AppStore: ObservableObject {
 
         performAnimated(AppAnimation.tab) {
             for detached in sessionsToMerge {
+                let groups = detached.tabGroups
                 for tab in detached.tabs {
                     if case .document(let docState) = tab {
                         primarySession.tabs.append(.document(docState))
                     }
                 }
+                primarySession.tabGroups.append(contentsOf: groups)
                 detached.tabs.removeAll()
             }
             if let previouslyActiveDocID,
@@ -2414,6 +2429,7 @@ public final class AppStore: ObservableObject {
                 primarySession.selectedTabID = lastTab.id
             }
             activeWindowSessionID = primarySession.id
+            primarySession.normalizeTabGroupOrder()
         }
 
         for detached in sessionsToMerge {
@@ -2483,6 +2499,7 @@ public final class AppStore: ObservableObject {
         guard !items.isEmpty else { return }
         for item in items {
             let state = item.state
+            let group = allWindowSessions.compactMap { $0.tabGroup(containing: state.id) }.first
             closedTabs.removeAll { $0.documentID == state.documentID }
             closedTabs.append(
                 ClosedTabRecord(
@@ -2490,7 +2507,9 @@ public final class AppStore: ObservableObject {
                     tabIndex: item.index,
                     isClearMarginsEnabled: state.isClearMarginsEnabled,
                     isLeftSidebarVisible: state.isLeftSidebarVisible,
-                    activeSidebarTab: state.activeSidebarTab
+                    activeSidebarTab: state.activeSidebarTab,
+                    tabGroupID: group?.id,
+                    tabGroupName: group?.name
                 )
             )
         }
@@ -2531,6 +2550,23 @@ public final class AppStore: ObservableObject {
             state.isClearMarginsEnabled = record.isClearMarginsEnabled
             state.isLeftSidebarVisible = record.isLeftSidebarVisible
             state.activeSidebarTab = record.activeSidebarTab
+            if let groupID = record.tabGroupID, let name = record.tabGroupName {
+                let target = session(withID: sessionID)
+                if !target.tabGroups.contains(where: { $0.id == groupID }) {
+                    target.tabGroups.append(ReaderTabGroup(id: groupID, name: name, tabIDs: [state.id]))
+                } else {
+                    let members = target.tabs.indices.filter { target.tabGroup(containing: target.tabs[$0].id)?.id == groupID }
+                    let inserted = target.tabs.firstIndex { $0.id == state.id }!
+                    if let first = members.first, let last = members.last,
+                       (first - 1...last + 1).contains(inserted) {
+                        target.setTabGroup(state.id, to: groupID)
+                    } else {
+                        moveTab(state.id, intoGroup: groupID, in: target.id)
+                    }
+                }
+                target.revealSelectedTabGroup()
+                target.normalizeTabGroupOrder()
+            }
             if record.isClearMarginsEnabled {
                 state.applyClearMarginsIfNeeded()
             }
@@ -2559,17 +2595,28 @@ public final class AppStore: ObservableObject {
 
     /// Moves a document tab to `toDocumentIndex` among the open document tabs (keeping Home pinned at the start).
     public func moveDocumentTab(id: UUID, toDocumentIndex: Int, in sessionID: UUID? = nil) {
+        let target = session(withID: sessionID)
+        let documents = target.tabs.filter { !$0.isHome }
+        let index = max(0, min(documents.count - 1, toDocumentIndex))
+        let groupID = documents.indices.contains(index) ? target.tabGroup(containing: documents[index].id)?.id : nil
+        moveDocumentTab(id: id, toDocumentIndex: toDocumentIndex, intoGroup: groupID, in: sessionID)
+    }
+
+    func moveDocumentTab(id: UUID, toDocumentIndex: Int, intoGroup groupID: UUID?, in sessionID: UUID? = nil) {
         let targetSession = session(withID: sessionID)
         let homeCount = targetSession.tabs.prefix(while: \.isHome).count
         let docCount = targetSession.tabs.count - homeCount
-        guard docCount > 1,
+        guard docCount > 0,
               let fromTabIndex = targetSession.tabs.firstIndex(where: { $0.id == id }),
               fromTabIndex >= homeCount else { return }
         let targetDocIndex = max(0, min(docCount - 1, toDocumentIndex))
         let toTabIndex = homeCount + targetDocIndex
-        guard fromTabIndex != toTabIndex else { return }
-        let moved = targetSession.tabs.remove(at: fromTabIndex)
-        targetSession.tabs.insert(moved, at: toTabIndex)
+        var reordered = targetSession.tabs
+        let moved = reordered.remove(at: fromTabIndex)
+        reordered.insert(moved, at: toTabIndex)
+        targetSession.setTabGroup(id, to: groupID)
+        targetSession.tabs = reordered
+        targetSession.normalizeTabGroupOrder()
     }
 
     /// When two or more open document tabs (across any reader window) have the same title, returns the nearest
@@ -2717,7 +2764,9 @@ public final class AppStore: ObservableObject {
                     tabIndex: record.tabIndex,
                     isClearMarginsEnabled: record.isClearMarginsEnabled,
                     isLeftSidebarVisible: record.isLeftSidebarVisible,
-                    activeSidebarTab: record.activeSidebarTab
+                    activeSidebarTab: record.activeSidebarTab,
+                    tabGroupID: record.tabGroupID,
+                    tabGroupName: record.tabGroupName
                 )
             }
             for tab in allOpenDocumentTabs {
@@ -2984,7 +3033,9 @@ public final class AppStore: ObservableObject {
                     tabIndex: record.tabIndex,
                     isClearMarginsEnabled: record.isClearMarginsEnabled,
                     isLeftSidebarVisible: record.isLeftSidebarVisible,
-                    activeSidebarTab: record.activeSidebarTab
+                    activeSidebarTab: record.activeSidebarTab,
+                    tabGroupID: record.tabGroupID,
+                    tabGroupName: record.tabGroupName
                 )
             }
         }
@@ -3118,6 +3169,16 @@ public final class AppStore: ObservableObject {
         let defaults = UserDefaults.standard
         defaults.set(paths, forKey: Keys.openTabs)
         defaults.set(activeDocumentTab?.documentID.normalizedPath, forKey: Keys.selectedTab)
+        let groups = allWindowSessions.flatMap { session in
+            session.tabGroups.map { group in
+                SavedTabGroup(id: group.id, name: group.name,
+                    paths: session.tabs.compactMap { tab in
+                        guard case .document(let state) = tab, group.tabIDs.contains(tab.id) else { return nil }
+                        return state.documentID.normalizedPath
+                    }, isCollapsed: group.isCollapsed)
+            }
+        }
+        if let data = try? JSONEncoder().encode(groups) { defaults.set(data, forKey: Keys.tabGroups) }
     }
 
     /// Reopens the last session's tabs, skipping files that are gone or need a password.
@@ -3138,13 +3199,24 @@ public final class AppStore: ObservableObject {
                 selectedID = state.id
             }
         }
-        isRestoringSession = false
-
         if let selectedID {
             selectedTabID = selectedID
         } else {
             selectHomeTab()
         }
+        if let data = defaults.data(forKey: Keys.tabGroups),
+           let groups = try? JSONDecoder().decode([SavedTabGroup].self, from: data) {
+            primarySession.tabGroups = groups.compactMap { group in
+                let ids = Set(group.paths.compactMap { path -> UUID? in
+                    let resolved = resolveFileURL(path: path).map { DocumentID(url: $0).normalizedPath } ?? path
+                    return allOpenDocumentTabs.first { $0.documentID.normalizedPath == resolved }?.id
+                })
+                guard !ids.isEmpty else { return nil }
+                return ReaderTabGroup(id: group.id, name: group.name, tabIDs: ids, isCollapsed: group.isCollapsed)
+            }
+        }
+        primarySession.normalizeTabGroupOrder()
+        isRestoringSession = false
         saveOpenTabs()
     }
 

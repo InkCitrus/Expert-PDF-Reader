@@ -47,23 +47,28 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
     }
     func settle() async { try? await Task.sleep(nanoseconds: 650_000_000) }
 
-    // WindowServer generates real hover events only for a real mouse move. Keep these moves
-    // inside this disposable QA window, and refuse to send input if another app is active.
+    func keepWindowOnScreen() {
+        guard let screen = window.screen ?? NSScreen.main else { return }
+        let visible = screen.visibleFrame.insetBy(dx: 20, dy: 20)
+        var frame = window.frame
+        frame.size.width = min(frame.width, visible.width)
+        frame.size.height = min(frame.height, visible.height)
+        frame.origin = NSPoint(x: visible.minX, y: visible.maxY - frame.height)
+        window.setFrame(frame, display: true)
+    }
+
+    // Drive the public AppKit tracking callbacks inside this QA app, without moving the user's mouse.
     func hoverSidebar(_ entered: Bool, in session: ReaderWindowSession) async {
-        guard let strip = session.tabStripView, let window = strip.window else { return }
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        await settle()
-        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier else {
-            check(false, "hover input stays inside the frontmost QA app")
+        guard let view = session.sidebarTabHoverView, let window = view.window else {
+            check(false, "the sidebar has a native hover region")
             return
         }
-        let frame = window.convertToScreen(strip.convert(strip.bounds, to: nil))
-        let point = entered ? NSPoint(x: frame.minX + 24, y: frame.midY)
-                            : NSPoint(x: window.frame.maxX - 30, y: frame.midY)
-        let top = NSScreen.screens.first!.frame.maxY
-        CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
-                mouseCursorPosition: CGPoint(x: point.x, y: top - point.y), mouseButton: .left)?.post(tap: .cghidEventTap)
+        let local = NSPoint(x: entered ? view.bounds.midX : view.bounds.maxX + 40, y: view.bounds.midY)
+        let event = NSEvent.enterExitEvent(with: entered ? .mouseEntered : .mouseExited,
+            location: view.convert(local, to: nil), modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+            context: nil, eventNumber: 0, trackingNumber: 0, userData: nil)!
+        if entered { view.mouseEntered(with: event) } else { view.mouseExited(with: event) }
         await settle()
     }
 
@@ -118,10 +123,15 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
 
     func drag(_ title: String, from session: ReaderWindowSession, to point: NSPoint,
               grabFraction: CGFloat = 0.5, onMove: ((TabDragLocation) -> Void)? = nil) async {
+        let view = session.tabViews.object(forKey: tab(title, in: session).id as NSUUID)! as! TabInteractionView
+        await dragView(title, view: view, from: session, to: point, grabFraction: grabFraction, onMove: onMove)
+    }
+
+    func dragView(_ title: String, view: TabInteractionView, from session: ReaderWindowSession, to point: NSPoint,
+                  grabFraction: CGFloat = 0.5, stepDelay: Double = 0, onMove: ((TabDragLocation) -> Void)? = nil) async {
         let sourceWindow = session.nsWindow!
         sourceWindow.makeKeyAndOrderFront(nil)
         let originalFrame = sourceWindow.frame
-        let view = session.tabViews.object(forKey: tab(title, in: session).id as NSUUID)! as! TabInteractionView
         let tabFrame = sourceWindow.convertToScreen(view.convert(view.bounds, to: nil))
         let start = NSPoint(x: tabFrame.minX + tabFrame.width * grabFraction, y: tabFrame.maxY - 13)
         let expectedOffset = NSPoint(x: start.x - tabFrame.minX, y: tabFrame.maxY - start.y)
@@ -156,10 +166,17 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         post(.leftMouseDown, start, 0)
         for step in 1...20 {
             let t = CGFloat(step) / 20
-            post(.leftMouseDragged, NSPoint(x: start.x + (point.x - start.x) * t,
-                 y: start.y + (point.y - start.y) * t), Double(t) * 0.35)
+            let position = NSPoint(x: start.x + (point.x - start.x) * t, y: start.y + (point.y - start.y) * t)
+            if stepDelay > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + Double(step) * stepDelay) {
+                    post(.leftMouseDragged, position, Double(t) * 0.35)
+                }
+            } else { post(.leftMouseDragged, position, Double(t) * 0.35) }
         }
-        post(.leftMouseUp, point, 0.4)
+        if stepDelay > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 21 * stepDelay) { post(.leftMouseUp, point, 0.4) }
+            try? await Task.sleep(nanoseconds: UInt64(22 * stepDelay * 1_000_000_000))
+        } else { post(.leftMouseUp, point, 0.4) }
         await settle()
         check(sourceWindow.frame == originalFrame, "dragging \(title) leaves the source window frame unchanged")
         check(previewChecks > 0 && anchored, "drag preview preserves the \(Int(grabFraction * 100))% grab point and full tab size")
@@ -279,6 +296,7 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         let originalTabs = primary.tabs
         let originalSelection = primary.selectedTabID
         let originalFrame = window.frame
+        keepWindowOnScreen()
         var extra: [DocumentTabState] = []
         let source = tab("Alpha", in: primary).documentID.url
         let openedAt = ProcessInfo.processInfo.systemUptime
@@ -310,6 +328,19 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
                 await settle()
                 check(tabIsVisible(selected, in: primary),
                       "\(sidebar ? "sidebar" : "top") tabs scroll to selected document \(selected === first ? "at the start" : selected === last ? "at the end" : "in the middle")")
+                if selected === extra[27], let strip = primary.tabStripView {
+                    let documents = primary.tabs.filter { !$0.isHome }
+                    let lastVisible = documents.indices.last { index in
+                        guard let view = primary.tabViews.object(forKey: documents[index].id as NSUUID) else { return false }
+                        let visible = view.bounds.intersection(view.visibleRect)
+                        return !visible.isNull && !visible.isEmpty
+                    }!
+                    let frame = window.convertToScreen(strip.convert(strip.bounds, to: nil))
+                    let edge = sidebar ? NSPoint(x: frame.midX, y: frame.minY + 0.1)
+                                       : NSPoint(x: frame.maxX - 0.1, y: frame.midY)
+                    check(lastVisible < 59 && primary.documentInsertionIndex(at: edge) == lastVisible + 1,
+                          "\(sidebar ? "sidebar" : "top") dropping at the viewport edge inserts after the visible row rather than after all 60 tabs")
+                }
             }
             let view = primary.tabViews.object(forKey: last.id as NSUUID)!
             check(view.toolTip == last.documentID.url.path,
@@ -335,6 +366,44 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         store.tabsInSidebar = true
         await settle()
         await hoverSidebar(true, in: primary)
+        primary.selectedTabID = first.id
+        await settle()
+        var openPanelAppeared = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            if let panel = NSApp.modalWindow as? NSOpenPanel {
+                openPanelAppeared = true
+                panel.cancel(nil)
+            }
+        }
+        if let strip = primary.tabStripView {
+            await click(strip, at: NSPoint(x: strip.bounds.maxX - 12, y: strip.bounds.minY + 28))
+            await settle()
+        }
+        check(openPanelAppeared, "Open File remains visible and its full row is clickable with 60 tabs scrolled to the start")
+        let groupA = store.createTabGroup(name: "Lectures", containing: first.id, in: primary.id)!
+        for state in extra.prefix(19) { store.moveTab(state.id, intoGroup: groupA, in: primary.id) }
+        let groupB = store.createTabGroup(name: "Papers", containing: extra[19].id, in: primary.id)!
+        for state in extra[20..<39] { store.moveTab(state.id, intoGroup: groupB, in: primary.id) }
+        let groupC = store.createTabGroup(name: "Books", containing: extra[39].id, in: primary.id)!
+        for state in extra[40...] { store.moveTab(state.id, intoGroup: groupC, in: primary.id) }
+        for id in [groupA, groupB, groupC] { primary.toggleTabGroup(id) }
+        await settle()
+        check(primary.tabGroups.map(\.tabIDs.count) == [20, 20, 18]
+              && extra.allSatisfy { primary.tabViews.object(forKey: $0.id as NSUUID)?.window == nil },
+              "60 open tabs collapse into three named groups without leaving hidden rows in the sidebar")
+        store.tabsInSidebar = false
+        await settle()
+        check(primary.tabGroups.allSatisfy(\.isCollapsed)
+              && primary.tabGroupViews.object(forKey: groupC as NSUUID)?.window != nil,
+              "switching the grouped 60-tab session to the top bar preserves collapsed groups")
+        store.tabsInSidebar = true
+        await settle()
+        await hoverSidebar(true, in: primary)
+        primary.selectedTabID = first.id
+        await settle()
+        check(primary.tabGroup(containing: first.id)?.isCollapsed == false && tabIsVisible(first, in: primary),
+              "selecting a member of the grouped 60-tab session reveals the correct group")
+        for id in [groupA, groupB, groupC] { store.ungroupTabs(id, in: primary.id) }
         primary.selectedTabID = last.id
         await settle()
         store.closeTab(id: last.id, in: primary.id)
@@ -348,7 +417,12 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
               && tabIsVisible(primary.activeDocumentTab!, in: primary),
               "reopening the closed tab restores it visibly without losing the long list")
         window.setContentSize(NSSize(width: 600, height: 520))
+        keepWindowOnScreen()
         await settle()
+        await hoverSidebar(true, in: primary)
+        if !tabIsVisible(primary.activeDocumentTab!, in: primary) || abs((primary.tabStripView?.bounds.width ?? 0) - 360) >= 1 {
+            print("INFO resized strip \(primary.tabStripView?.bounds ?? .zero), selected visible \(tabIsVisible(primary.activeDocumentTab!, in: primary))")
+        }
         check(abs((primary.tabStripView?.bounds.width ?? 0) - 360) < 1 && tabIsVisible(primary.activeDocumentTab!, in: primary),
               "the expanded tab list remains usable in a minimum-size window with 60 tabs")
         await hoverSidebar(false, in: primary)
@@ -363,6 +437,125 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         window.setFrame(originalFrame, display: true)
         await settle()
         check(primary.tabs.map(\.id) == originalTabs.map(\.id), "closing the extra test tabs restores the original session")
+    }
+
+    func checkTabGroups(_ primary: ReaderWindowSession) async {
+        let originalFrame = window.frame
+        let originalAppearance = NSApp.appearance
+        defer { NSApp.appearance = originalAppearance }
+        window.setContentSize(NSSize(width: 1400, height: 780))
+        keepWindowOnScreen()
+        let alpha = tab("Alpha", in: primary), beta = tab("Beta", in: primary), gamma = tab("Gamma", in: primary)
+        let groupID = store.createTabGroup(name: "Coursework", containing: alpha.id, in: primary.id)!
+        store.moveTab(gamma.id, intoGroup: groupID, in: primary.id)
+        primary.selectedTabID = alpha.id
+        for sidebar in [true, false] {
+            NSApp.appearance = NSAppearance(named: sidebar ? .aqua : .darkAqua)
+            let papersID = store.createTabGroup(name: "Papers", containing: beta.id, in: primary.id)!
+            store.tabsInSidebar = sidebar
+            await settle()
+            if sidebar { await hoverSidebar(true, in: primary) }
+            if sidebar && ProcessInfo.processInfo.environment["TAB_DRAG_QA_INSPECT"] == "1" {
+                print("INFO inspecting sidebar groups; strip=\(primary.tabStripView?.bounds ?? .zero), groups=\(primary.tabGroups.count)")
+                try? await Task.sleep(nanoseconds: 45_000_000_000)
+            }
+            guard let header = primary.tabGroupViews.object(forKey: groupID as NSUUID) else {
+                print("INFO expected group \(groupID), model groups \(primary.tabGroups.map(\.id)), window visible \(window.isVisible), session window matches \(primary.nsWindow === window)")
+                func describe(_ view: NSView) {
+                    if let tab = view as? TabInteractionView {
+                        print("INFO native row \(tab.isGroupHeader ? "GROUP" : "DOC") \(tab.tabID?.uuidString ?? "nil") bounds=\(tab.bounds) visible=\(tab.visibleRect) session matches \(tab.session === primary), window matches \(tab.window === window)")
+                    }
+                    if let scroll = view as? NSScrollView {
+                        print("INFO scroll bounds=\(scroll.bounds) offset=\(scroll.contentView.bounds) document=\(scroll.documentView?.bounds ?? .zero)")
+                    }
+                    for child in view.subviews { describe(child) }
+                }
+                describe(window.contentView!)
+                check(false, "group header appears in \(sidebar ? "sidebar" : "top") tabs"); continue
+            }
+            if let papers = primary.tabGroupViews.object(forKey: papersID as NSUUID) as? TabInteractionView {
+                let before = window.convertPoint(toScreen: header.convert(NSPoint(x: header.bounds.midX, y: header.bounds.midY), to: nil))
+                await dragView("Papers", view: papers, from: primary, to: before)
+                check(primary.tabGroups.first?.id == papersID && primary.activeDocumentTab === alpha,
+                      "\(sidebar ? "sidebar" : "top") dragging a group moves its entire document block without changing the PDF")
+                let after = center("Gamma", in: primary)
+                await dragView("Papers", view: primary.tabGroupViews.object(forKey: papersID as NSUUID)! as! TabInteractionView,
+                               from: primary, to: after)
+                check(primary.tabGroups.map(\.id) == [groupID, papersID],
+                      "\(sidebar ? "sidebar" : "top") groups can also be reordered after another group")
+            }
+            await click(header)
+            check(primary.tabGroup(containing: alpha.id)?.isCollapsed == true && primary.activeDocumentTab === alpha,
+                  "\(sidebar ? "sidebar" : "top") group collapse keeps the currently displayed PDF")
+            check(primary.tabViews.object(forKey: alpha.id as NSUUID)?.window == nil
+                  && primary.tabViews.object(forKey: gamma.id as NSUUID)?.window == nil,
+                  "\(sidebar ? "sidebar" : "top") collapsed groups hide all their document rows")
+            store.selectNextTab(in: primary.id)
+            await settle()
+            check(primary.activeDocumentTab === gamma && primary.tabGroup(containing: gamma.id)?.isCollapsed == false
+                  && tabIsVisible(gamma, in: primary),
+                  "\(sidebar ? "sidebar" : "top") keyboard switching reveals a tab inside a collapsed group")
+            let target = window.convertPoint(toScreen: header.convert(NSPoint(x: header.bounds.midX, y: header.bounds.midY), to: nil))
+            await drag("Beta", from: primary, to: target)
+            check(primary.tabGroups.count == 1 && primary.tabGroup(containing: beta.id)?.id == groupID
+                  && primary.tabGroups[0].tabIDs.count == 3,
+                  "\(sidebar ? "sidebar" : "top") dragging onto a group moves the tab into that group and removes an empty source group")
+            store.moveTab(beta.id, intoGroup: nil, in: primary.id)
+            primary.selectedTabID = alpha.id
+            await settle()
+            check(primary.tabGroup(containing: beta.id) == nil && primary.tabGroups[0].tabIDs.count == 2,
+                  "\(sidebar ? "sidebar" : "top") removing a tab from a group keeps every document open")
+            await drag("Gamma", from: primary, to: center("Beta", in: primary))
+            check(primary.tabGroup(containing: gamma.id) == nil && primary.tabGroup(containing: alpha.id)?.id == groupID,
+                  "\(sidebar ? "sidebar" : "top") dropping onto ungrouped documents removes group membership")
+            store.moveTab(gamma.id, intoGroup: groupID, in: primary.id)
+            primary.selectedTabID = alpha.id
+            await settle()
+            if sidebar, let strip = primary.tabStripView,
+               let betaView = primary.tabViews.object(forKey: beta.id as NSUUID) as? TabInteractionView {
+                // A few tabs put Open File immediately after the list. Its drag target occupies the same row.
+                let last = primary.tabViews.object(forKey: beta.id as NSUUID)!
+                let lastFrame = window.convertToScreen(last.convert(last.bounds, to: nil))
+                let target = NSPoint(x: window.frame.minX + strip.bounds.width * 0.5, y: lastFrame.minY - 40)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                    guard let sheet = self.window.attachedSheet, let root = sheet.contentView else { return }
+                    func fill(_ view: NSView) {
+                        if let field = view as? NSTextField, field.isEditable { field.stringValue = "New from Drag" }
+                        for child in view.subviews { fill(child) }
+                    }
+                    func confirm(_ view: NSView) -> NSButton? {
+                        if let button = view as? NSButton, button.title == L10n.tr("创建分组", "Create Group") { return button }
+                        return view.subviews.lazy.compactMap(confirm).first
+                    }
+                    fill(root)
+                    confirm(root)?.performClick(nil)
+                }
+                await dragView("Beta", view: betaView, from: primary, to: target, stepDelay: 0.03)
+                await settle()
+                let created = primary.tabGroup(containing: beta.id)
+                check(created?.name == "New from Drag", "the New Group drop target creates a named group from the dragged tab")
+                if let created { store.ungroupTabs(created.id, in: primary.id) }
+            }
+            if sidebar { await hoverSidebar(false, in: primary) }
+        }
+        store.renameTabGroup(groupID, name: "Lectures", in: primary.id)
+        check(primary.tabGroups.first?.name == "Lectures", "renaming a group updates the shared sidebar and top-tab model")
+        store.ungroupTabs(groupID, in: primary.id)
+        check(primary.tabGroups.isEmpty && names(primary).count == 3, "ungrouping preserves all three documents")
+        store.tabsInSidebar = false
+        window.setFrame(originalFrame, display: true)
+        primary.selectedTabID = alpha.id
+        await settle()
+    }
+
+    func finish(_ domain: String) {
+        let log = checks.joined(separator: "\n") + "\n"
+        try? log.write(toFile: CommandLine.arguments[0] + ".results", atomically: true, encoding: .utf8)
+        UserDefaults.standard.removePersistentDomain(forName: domain)
+        try? FileManager.default.removeItem(at: fixtureDirectory)
+        print(failures.isEmpty ? "All AppKit drag checks passed" : "AppKit drag checks failed")
+        fflush(stdout)
+        exit(failures.isEmpty ? 0 : 1)
     }
 
     func resizeHandle(in view: NSView, axis: Axis) -> ReaderResizeHandle.Handle? {
@@ -506,6 +699,11 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             await settle()
             let primary = store.primarySession
+            if ProcessInfo.processInfo.environment["TAB_DRAG_QA_FOCUS"] == "groups" {
+                await checkTabGroups(primary)
+                finish(domain)
+                return
+            }
             check(names(primary) == ["Alpha", "Beta", "Gamma"], "three real document tabs appear")
             check(tabsAreInContent(primary), "primary tabs use the unified native titlebar accessory")
             checkPreviewThemes()
@@ -566,6 +764,7 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
             await checkTopTabsSidebarResize(primary)
             await checkSplitComparison(primary)
             await checkManyTabs(primary)
+            await checkTabGroups(primary)
             let renamed = fixtureDirectory.appendingPathComponent("Alpha-renamed.pdf")
             let active = primary.activeDocumentTab!
             try! FileManager.default.moveItem(at: active.documentID.url, to: renamed)
@@ -580,13 +779,7 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
             check(primary.tabs.contains { if case .document(let tab) = $0 { return tab.documentID == removed }; return false }
                   && !store.documents.contains { $0.documentID == removed },
                   "deleting a source file retains its open tab but removes its Home entry")
-            let log = checks.joined(separator: "\n") + "\n"
-            try? log.write(toFile: CommandLine.arguments[0] + ".results", atomically: true, encoding: .utf8)
-            UserDefaults.standard.removePersistentDomain(forName: domain)
-            try? FileManager.default.removeItem(at: fixtureDirectory)
-            print(failures.isEmpty ? "All AppKit drag checks passed" : "AppKit drag checks failed")
-            fflush(stdout)
-            exit(failures.isEmpty ? 0 : 1)
+            finish(domain)
         }
     }
 }

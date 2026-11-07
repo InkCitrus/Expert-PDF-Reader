@@ -1,6 +1,31 @@
 import AppKit
 import SwiftUI
 
+/// A layout switch briefly mounts both titlebar and sidebar views. An outgoing view must not
+/// overwrite the incoming view's hit region and then leave a nil weak reference behind.
+@MainActor
+final class ReaderTabViewRegistry {
+    private final class Entry {
+        weak var view: NSView?
+        init(_ view: NSView) { self.view = view }
+    }
+    private var entries: [UUID: [Entry]] = [:]
+
+    func setObject(_ view: NSView, forKey key: NSUUID) {
+        let id = key as UUID
+        var candidates = entries[id, default: []].filter { $0.view != nil && $0.view !== view }
+        candidates.append(Entry(view))
+        entries[id] = candidates
+    }
+
+    func object(forKey key: NSUUID) -> NSView? {
+        let candidates = entries[key as UUID, default: []].compactMap(\.view).reversed()
+        let sidebar = UserDefaults.standard.bool(forKey: "expertPDFReader.tabsInSidebar")
+        return candidates.first { ($0 as? TabInteractionView)?.isSidebar == sidebar && $0.window != nil }
+            ?? candidates.first { $0.window != nil }
+    }
+}
+
 struct TabDragLocation {
     let screenPoint: NSPoint
     /// Distance from the tab's top-left corner, in screen points.
@@ -20,6 +45,8 @@ struct TabInteractionArea: NSViewRepresentable {
     let tabID: UUID
     let toolTip: String
     let excludedTrailingWidth: CGFloat
+    var isGroupHeader = false
+    var isSidebar = false
     let onSelect: () -> Void
     let onDragChanged: (TabDragLocation) -> Void
     let onDragEnded: (TabDragLocation?) -> Void
@@ -36,15 +63,33 @@ struct TabInteractionArea: NSViewRepresentable {
         view.excludedTrailingWidth = excludedTrailingWidth
         view.onDragChanged = onDragChanged
         view.onDragEnded = onDragEnded
-        session.tabViews.setObject(view, forKey: tabID as NSUUID)
+        view.session = session
+        view.tabID = tabID
+        view.isGroupHeader = isGroupHeader
+        view.isSidebar = isSidebar
+        let views = isGroupHeader ? session.tabGroupViews : session.tabViews
+        views.setObject(view, forKey: tabID as NSUUID)
     }
 }
 
 final class TabInteractionView: NSView {
+    weak var session: ReaderWindowSession?
+    var tabID: UUID?
+    var isGroupHeader = false
+    var isSidebar = false
     var excludedTrailingWidth: CGFloat = 0
     var onSelect: (() -> Void)?
     var onDragChanged: ((TabDragLocation) -> Void)?
     var onDragEnded: ((TabDragLocation?) -> Void)?
+
+    override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); registerIfAttached() }
+    override func layout() { super.layout(); registerIfAttached() }
+
+    func registerIfAttached() {
+        guard let session, let tabID else { return }
+        let views = isGroupHeader ? session.tabGroupViews : session.tabViews
+        if window != nil { views.setObject(self, forKey: tabID as NSUUID) }
+    }
 
     override var mouseDownCanMoveWindow: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -192,13 +237,66 @@ extension ReaderWindowSession {
     }
 
     private var documentTabFrames: [(index: Int, frame: NSRect)] {
-        tabs.filter { !$0.isHome }.enumerated().compactMap { index, tab in
-            guard let view = tabViews.object(forKey: tab.id as NSUUID), let window = view.window else { return nil }
+        var seenGroups = Set<UUID>()
+        var frames: [(index: Int, frame: NSRect)] = []
+        for (index, tab) in tabs.filter({ !$0.isHome }).enumerated() {
+            if let group = tabGroup(containing: tab.id), seenGroups.insert(group.id).inserted,
+               let view = tabGroupViews.object(forKey: group.id as NSUUID), let window = view.window {
+                let visible = view.bounds.intersection(view.visibleRect)
+                if !visible.isNull && !visible.isEmpty {
+                    frames.append((index, window.convertToScreen(view.convert(visible, to: nil))))
+                }
+            }
+            if tabGroup(containing: tab.id)?.isCollapsed == true { continue }
+            guard let view = tabViews.object(forKey: tab.id as NSUUID), let window = view.window else { continue }
             // SwiftUI can report a visibleRect larger than this representable's bounds.
             let visible = view.bounds.intersection(view.visibleRect)
-            guard !visible.isNull, !visible.isEmpty else { return nil }
-            return (index, window.convertToScreen(view.convert(visible, to: nil)))
+            guard !visible.isNull, !visible.isEmpty else { continue }
+            frames.append((index, window.convertToScreen(view.convert(visible, to: nil))))
         }
+        return frames
+    }
+
+    func tabGroup(at point: NSPoint) -> ReaderTabGroup? {
+        if visibleScreenRect(ungroupedTabDropView)?.contains(point) == true { return nil }
+        return tabGroups.first { groupScreenRect($0)?.contains(point) == true }
+    }
+
+    func isNewTabGroupDrop(at point: NSPoint) -> Bool {
+        visibleScreenRect(newTabGroupDropView)?.contains(point) == true
+    }
+
+    private func visibleScreenRect(_ view: NSView?) -> NSRect? {
+        guard let view, let window = view.window else { return nil }
+        let visible = view.bounds.intersection(view.visibleRect)
+        guard !visible.isNull && !visible.isEmpty else { return nil }
+        return window.convertToScreen(view.convert(visible, to: nil))
+    }
+
+    private func groupScreenRect(_ group: ReaderTabGroup) -> NSRect? {
+        var views = [tabGroupViews.object(forKey: group.id as NSUUID)]
+        if !group.isCollapsed { views += group.tabIDs.map { tabViews.object(forKey: $0 as NSUUID) } }
+        let frames = views.compactMap(visibleScreenRect)
+        return frames.isEmpty ? nil : frames.reduce(NSRect.null) { $0.union($1) }
+    }
+
+    func groupInsertionTarget(at point: NSPoint) -> UUID? {
+        tabGroups.first { group in
+            guard let frame = groupScreenRect(group) else { return false }
+            return (tabStripView as? TabStripAnchorView)?.axis == .vertical ? point.y > frame.midY : point.x < frame.midX
+        }?.id
+    }
+
+    func showGroupInsertion(at point: NSPoint) {
+        guard let strip = tabStripView as? TabStripAnchorView, let window = strip.window else { return }
+        let next = groupInsertionTarget(at: point).flatMap { id in tabGroups.first { $0.id == id } }.flatMap(groupScreenRect)
+        let last = tabGroups.last.flatMap(groupScreenRect)
+        let screen = strip.axis == .vertical
+            ? NSPoint(x: point.x, y: next?.maxY ?? last?.minY ?? point.y)
+            : NSPoint(x: next?.minX ?? last?.maxX ?? point.x, y: point.y)
+        let local = strip.convert(window.convertPoint(fromScreen: screen), from: nil)
+        strip.insertionPosition = strip.axis == .vertical ? local.y : local.x
+        strip.displayIfNeeded()
     }
 
     func nearestDocumentIndex(at point: NSPoint) -> Int? {
@@ -209,7 +307,15 @@ extension ReaderWindowSession {
     }
 
     func documentInsertionIndex(at point: NSPoint) -> Int {
-        documentTabFrames.first { isBeforeTab($0.frame, at: point) }?.index ?? tabs.filter { !$0.isHome }.count
+        let frames = documentTabFrames
+        return frames.first { isBeforeTab($0.frame, at: point) }?.index
+            ?? frames.last.map { last in
+                let documents = tabs.filter { !$0.isHome }
+                if let group = tabGroup(containing: documents[last.index].id), group.isCollapsed {
+                    return documents.lastIndex(where: { group.tabIDs.contains($0.id) })! + 1
+                }
+                return last.index + 1
+            } ?? tabs.filter { !$0.isHome }.count
     }
 
     private func isBeforeTab(_ frame: NSRect, at point: NSPoint) -> Bool {
@@ -232,6 +338,24 @@ extension ReaderWindowSession {
         let local = view.convert(window.convertPoint(fromScreen: point), from: nil)
         view.insertionPosition = view.axis == .vertical ? local.y : local.x
         view.displayIfNeeded()
+    }
+}
+
+struct TabDropZoneAnchor: NSViewRepresentable {
+    let onAttach: (NSView) -> Void
+    func makeNSView(context: Context) -> AnchorView { AnchorView() }
+    func updateNSView(_ view: AnchorView, context: Context) {
+        view.onAttach = onAttach
+        if view.window != nil { onAttach(view) }
+    }
+    final class AnchorView: NSView {
+        var onAttach: ((NSView) -> Void)?
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func isAccessibilityElement() -> Bool { false }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window != nil { onAttach?(self) }
+        }
     }
 }
 

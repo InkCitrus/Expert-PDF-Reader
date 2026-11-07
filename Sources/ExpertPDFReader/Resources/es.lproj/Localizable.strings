@@ -431,3 +431,39 @@
 "Clear Favorites?" = "¿Vaciar los favoritos?";
 "PDF 文件会保留在原来的位置。|||Your PDF files will stay where they are." = "Tus archivos PDF se quedarán donde están.";
 "Your PDF files will stay where they are." = "Tus archivos PDF se quedarán donde están.";
+
+"新建分组…|||New Group…" = "Nuevo grupo…";
+"New Group…" = "Nuevo grupo…";
+
+"分组名称|||Group Name" = "Nombre del grupo";
+"Group Name" = "Nombre del grupo";
+
+"创建分组|||Create Group" = "Crear grupo";
+"Create Group" = "Crear grupo";
+
+"重命名分组…|||Rename Group…" = "Renombrar grupo…";
+"Rename Group…" = "Renombrar grupo…";
+
+"添加到分组|||Add to Group" = "Añadir al grupo";
+"Add to Group" = "Añadir al grupo";
+
+"移出分组|||Remove from Group" = "Quitar del grupo";
+"Remove from Group" = "Quitar del grupo";
+
+"取消分组|||Ungroup Tabs" = "Desagrupar pestañas";
+"Ungroup Tabs" = "Desagrupar pestañas";
+
+"关闭分组|||Close Group" = "Cerrar grupo";
+"Close Group" = "Cerrar grupo";
+
+"已折叠|||Collapsed" = "Contraído";
+"Collapsed" = "Contraído";
+
+"已展开|||Expanded" = "Expandido";
+"Expanded" = "Expandido";
+
+"保存|||Save" = "Guardar";
+"Save" = "Guardar";
+
+"未分组|||Ungrouped" = "Sin grupo";
+"Ungrouped" = "Sin grupo";

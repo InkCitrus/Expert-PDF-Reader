@@ -55,6 +55,64 @@ struct ReaderRegressionTests {
             let store = freshStore()
             let a = store.openDocument(at: alpha, interactive: false)!
             let b = store.openDocument(at: beta, interactive: false)!
+            let c = store.openDocument(at: gamma, interactive: false)!
+            let session = store.primarySession
+            check(store.createTabGroup(name: "  ", containing: a.id) == nil, "blank group names do not create empty groups")
+            let groupID = store.createTabGroup(name: " Lectures ", containing: a.id)!
+            store.moveTab(c.id, intoGroup: groupID)
+            check(session.tabGroups.count == 1 && session.tabGroups[0].name == "Lectures"
+                  && session.tabs.filter { !$0.isHome }.map(\.id) == [a.id, c.id, b.id],
+                  "adding a tab to a named group keeps its members together")
+            session.selectedTabID = a.id
+            session.toggleTabGroup(groupID)
+            check(session.selectedTabScrollID == groupID && session.activeDocumentTab === a,
+                  "collapsing the active group keeps the PDF open and scrolls to its header")
+            store.saveSession()
+            let restored = AppStore()
+            let restoredGroup = restored.primarySession.tabGroups.first
+            check(restoredGroup?.id == groupID && restoredGroup?.name == "Lectures"
+                  && restoredGroup?.isCollapsed == true && restoredGroup?.tabIDs.count == 2,
+                  "session restoration preserves group names, members and collapsed state")
+            restored.selectNextTab()
+            check(restored.activeDocumentTab?.documentID == c.documentID
+                  && restored.primarySession.tabGroups.first?.isCollapsed == false,
+                  "keyboard switching automatically reveals a tab inside a collapsed group")
+            store.moveTab(c.id, intoGroup: nil)
+            check(session.tabGroup(containing: c.id) == nil && session.tabGroups[0].tabIDs == [a.id],
+                  "removing a tab from a group preserves its remaining members")
+            store.moveTab(c.id, intoGroup: groupID)
+            let second = store.createTabGroup(name: "Notes", containing: c.id)!
+            check(session.tabs.filter { !$0.isHome }.map(\.id) == [a.id, c.id, b.id]
+                  && session.tabGroups.count == 2, "creating a group from a grouped tab does not split the old group's members")
+            store.moveDocumentTab(id: b.id, toDocumentIndex: 1)
+            check(session.tabGroup(containing: b.id)?.id == second, "drag-style reordering into a group updates membership")
+            session.moveTabGroup(second, before: groupID)
+            check(session.tabGroups.map(\.id) == [second, groupID]
+                  && session.tabs.filter { !$0.isHome }.map(\.id) == [b.id, c.id, a.id],
+                  "reordering a group moves its whole block in the shared tab order")
+            session.moveTabGroup(groupID, before: second)
+            check(session.tabGroups.map(\.id) == [groupID, second], "groups can move before another group without losing members")
+            store.renameTabGroup(second, name: "Papers")
+            let closedOrder = session.tabs.filter { session.tabGroup(containing: $0.id)?.id == second }.map { $0.title }
+            store.closeTabGroup(second)
+            check(session.tabGroups.count == 1 && session.tabs.filter { !$0.isHome }.count == 1,
+                  "closing a group closes only its member tabs and removes the empty group")
+            store.reopenClosedTab()
+            store.reopenClosedTab()
+            check(session.tabGroups.first(where: { $0.id == second })?.name == "Papers"
+                  && session.tabGroups.first(where: { $0.id == second })?.tabIDs.count == 2
+                  && session.tabs.filter { session.tabGroup(containing: $0.id)?.id == second }.map { $0.title } == closedOrder,
+                  "reopening closed grouped tabs restores their shared group and original order")
+            store.ungroupTabs(groupID)
+            store.ungroupTabs(second)
+            check(session.tabGroups.isEmpty && session.tabs.filter { !$0.isHome }.count == 3,
+                  "ungrouping leaves every PDF open")
+            withExtendedLifetime(restored) {}
+        }
+        do {
+            let store = freshStore()
+            let a = store.openDocument(at: alpha, interactive: false)!
+            let b = store.openDocument(at: beta, interactive: false)!
             store.selectedTabID = a.id
             check(defaults.string(forKey: "expertPDFReader.SelectedTab") == a.documentID.normalizedPath,
                   "selection persists the newly selected tab")

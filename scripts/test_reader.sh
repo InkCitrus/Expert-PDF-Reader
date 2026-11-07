@@ -12,7 +12,7 @@ TEST_SOURCE=scripts/ReaderRegressionTests.swift
 TEST_BINARY=build/ReaderRegressionTests
 if [[ "${1:-}" == "--ui" || "${1:-}" == "--scene" ]]; then
     TEST_SOURCE=scripts/TabDragQATests.swift
-    TEST_APP="build/Tab Drag QA.app"
+    TEST_APP="$PWD/build/Tab Drag QA.app"
     TEST_BINARY="$TEST_APP/Contents/MacOS/TabDragQATests"
     mkdir -p "$TEST_APP/Contents/MacOS"
     cp Support/Info.plist "$TEST_APP/Contents/Info.plist"
@@ -32,7 +32,23 @@ if [[ "${1:-}" == "--ui" || "${1:-}" == "--scene" ]]; then
 fi
 swiftc -sdk "$SDK_PATH" -target "$(uname -m)-apple-macos14.0" -module-cache-path build/ModuleCache -parse-as-library \
     "${SOURCES[@]}" "$TEST_SOURCE" -o "$TEST_BINARY"
-"$TEST_BINARY"
+if [[ "${1:-}" == "--ui" || "${1:-}" == "--scene" ]]; then
+    /usr/bin/codesign --force --sign - "$TEST_APP"
+    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$TEST_APP" || true
+    # Launch through macOS so tracking areas and foreground activation behave like the real app.
+    QA_LOG="$PWD/build/TabDragQA.output"
+    : > "$QA_LOG"
+    QA_ENV=()
+    for QA_KEY in TAB_DRAG_QA_FOCUS TAB_DRAG_QA_INSPECT TAB_DRAG_QA_EVIDENCE_DIR; do
+        [[ -z "${(P)QA_KEY:-}" ]] || QA_ENV+=(--env "$QA_KEY=${(P)QA_KEY}")
+    done
+    /usr/bin/open -W -n -a "$TEST_APP" --stdout "$QA_LOG" --stderr "$QA_LOG" "${QA_ENV[@]}"
+    cat "$QA_LOG"
+    [[ -f "$TEST_BINARY.results" ]] || { print -u2 'UI checks did not complete'; exit 1; }
+    if rg -q '^FAIL ' "$TEST_BINARY.results"; then exit 1; fi
+else
+    "$TEST_BINARY"
+fi
 if [[ "${1:-}" != "--ui" && "${1:-}" != "--scene" ]]; then
     swiftc -sdk "$SDK_PATH" -module-cache-path build/ModuleCache -parse-as-library \
         Sources/ExpertPDFReader/Models/ReaderRelease.swift scripts/UpdateCheckTests.swift -o build/UpdateCheckTests

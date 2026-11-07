@@ -431,3 +431,39 @@
 "Clear Favorites?" = "Очистити обране?";
 "PDF 文件会保留在原来的位置。|||Your PDF files will stay where they are." = "Ваші PDF-файли залишаться на своїх місцях.";
 "Your PDF files will stay where they are." = "Ваші PDF-файли залишаться на своїх місцях.";
+
+"新建分组…|||New Group…" = "Нова група…";
+"New Group…" = "Нова група…";
+
+"分组名称|||Group Name" = "Назва групи";
+"Group Name" = "Назва групи";
+
+"创建分组|||Create Group" = "Створити групу";
+"Create Group" = "Створити групу";
+
+"重命名分组…|||Rename Group…" = "Перейменувати групу…";
+"Rename Group…" = "Перейменувати групу…";
+
+"添加到分组|||Add to Group" = "Додати до групи";
+"Add to Group" = "Додати до групи";
+
+"移出分组|||Remove from Group" = "Вилучити з групи";
+"Remove from Group" = "Вилучити з групи";
+
+"取消分组|||Ungroup Tabs" = "Розгрупувати вкладки";
+"Ungroup Tabs" = "Розгрупувати вкладки";
+
+"关闭分组|||Close Group" = "Закрити групу";
+"Close Group" = "Закрити групу";
+
+"已折叠|||Collapsed" = "Згорнуто";
+"Collapsed" = "Згорнуто";
+
+"已展开|||Expanded" = "Розгорнуто";
+"Expanded" = "Розгорнуто";
+
+"保存|||Save" = "Зберегти";
+"Save" = "Зберегти";
+
+"未分组|||Ungrouped" = "Без групи";
+"Ungrouped" = "Без групи";

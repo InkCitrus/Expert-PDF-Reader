@@ -431,3 +431,39 @@
 "Clear Favorites?" = "즐겨찾기를 비울까요?";
 "PDF 文件会保留在原来的位置。|||Your PDF files will stay where they are." = "PDF 파일은 원래 위치에 그대로 유지됩니다.";
 "Your PDF files will stay where they are." = "PDF 파일은 원래 위치에 그대로 유지됩니다.";
+
+"新建分组…|||New Group…" = "새 그룹…";
+"New Group…" = "새 그룹…";
+
+"分组名称|||Group Name" = "그룹 이름";
+"Group Name" = "그룹 이름";
+
+"创建分组|||Create Group" = "그룹 만들기";
+"Create Group" = "그룹 만들기";
+
+"重命名分组…|||Rename Group…" = "그룹 이름 변경…";
+"Rename Group…" = "그룹 이름 변경…";
+
+"添加到分组|||Add to Group" = "그룹에 추가";
+"Add to Group" = "그룹에 추가";
+
+"移出分组|||Remove from Group" = "그룹에서 제거";
+"Remove from Group" = "그룹에서 제거";
+
+"取消分组|||Ungroup Tabs" = "그룹 해제";
+"Ungroup Tabs" = "그룹 해제";
+
+"关闭分组|||Close Group" = "그룹 닫기";
+"Close Group" = "그룹 닫기";
+
+"已折叠|||Collapsed" = "접힘";
+"Collapsed" = "접힘";
+
+"已展开|||Expanded" = "펼쳐짐";
+"Expanded" = "펼쳐짐";
+
+"保存|||Save" = "저장";
+"Save" = "저장";
+
+"未分组|||Ungrouped" = "그룹 없음";
+"Ungrouped" = "그룹 없음";

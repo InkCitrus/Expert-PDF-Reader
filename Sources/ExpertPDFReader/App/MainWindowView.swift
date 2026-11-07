@@ -10,7 +10,6 @@ public struct MainWindowView: View {
     @ObservedObject var session: ReaderWindowSession
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("expertPDFReader.sidebarTabsWidth") private var sidebarWidth: Double?
-    @AppStorage("expertPDFReader.sidebarTabsPinned") private var sidebarTabsPinned = false
     @State private var sidebarResizeWidth: CGFloat?
     @State private var isSidebarHovered = false
     @State private var isSidebarDragging = false
@@ -137,7 +136,7 @@ public struct MainWindowView: View {
             min(max(width, minimumWidth), maximumWidth)
         }
         let width = boundedWidth(sidebarResizeWidth ?? preferredWidth)
-        let isCollapsed = !sidebarTabsPinned && !isSidebarHovered && !isSidebarDragging && !isSidebarMenuTracking
+        let isCollapsed = !isSidebarHovered && !isSidebarDragging && !isSidebarMenuTracking
         let popupWidth = min(520, max(360, windowWidth * 0.45))
 
         return HStack(spacing: 0) {
@@ -215,7 +214,6 @@ public struct MainWindowView: View {
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(AppPalette.labelSecondary(isDark))
                     Spacer(minLength: 0)
-                    pinSidebarButton
                 }
                 .frame(height: 40)
                 .padding(.leading, 18)
@@ -229,15 +227,6 @@ public struct MainWindowView: View {
         .background(AppPalette.panelBackground(isDark), ignoresSafeAreaEdges: [])
     }
 
-    private var pinSidebarButton: some View {
-        ToolbarIconButton(icon: sidebarTabsPinned ? "pin.fill" : "pin",
-                          tooltip: sidebarTabsPinned
-                            ? L10n.tr("自动折叠标签栏", "Auto-Collapse Tab Sidebar")
-                            : L10n.tr("固定标签栏", "Pin Tab Sidebar"),
-                          isActive: sidebarTabsPinned, iconWidth: 28, isDark: isDark) {
-            sidebarTabsPinned.toggle()
-        }
-    }
 }
 
 struct ReaderResizeHandle: NSViewRepresentable {

@@ -18,7 +18,7 @@ A native macOS PDF reader built for reading: tabs, Split View, and Day / Sepia /
 - **Interface**
   - **Title bar**: Sidebar and Home stay beside the native window controls in either tab layout. **Open File…** follows the tab list.
   - **Toolbar**: zoom, a Layout menu for page layout, Page Overview and split view, reading theme, Clear Margins, rotation, Share, Bookmark, and search.
-  - **Left sidebar**: Thumbnails, Outline, and Bookmarks stay in their own page-navigation sidebar. The independent tab rail expands to a wider floating document list over the reading area. Use **Pin Tab Sidebar** to keep the list open; `⌘B` toggles page navigation.
+  - **Left sidebar**: Thumbnails, Outline, and Bookmarks stay in their own page-navigation sidebar. The independent tab rail expands to a wider floating document list over the reading area. The list collapses when the pointer leaves; `⌘B` toggles page navigation.
   - **Right search dock**, bottom-right **page counter** (click or `⌥⌘G` → Go to Page) and a **Page Overview** grid (`⌃⌘1`).
   - Tab strip, toolbar and panels follow the **System / Light / Dark** appearance.
 - **Home Tab**: sidebar with Home, Recents and Favorites (plus Open File…, Shortcuts & Tips, Reading Guide and Settings; Help › Reading Guide, `⌘?`, opens the guide from anywhere), a drag-and-drop area, reading-theme cards, and document grids with locale-aware dates.

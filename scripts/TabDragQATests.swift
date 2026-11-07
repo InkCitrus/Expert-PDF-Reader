@@ -43,9 +43,35 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         guard let window = session.nsWindow, let strip = session.tabStripView else { return false }
         let rect = window.convertToScreen(strip.convert(strip.bounds, to: nil))
         return abs(rect.minX - window.frame.minX) < 2 && rect.height > MainWindowView.tabStripHeight
-            && rect.maxY < window.frame.maxY - MainWindowView.tabStripHeight
+            && rect.maxY <= window.frame.maxY - MainWindowView.tabStripHeight + 1
     }
     func settle() async { try? await Task.sleep(nanoseconds: 650_000_000) }
+
+    // WindowServer generates real hover events only for a real mouse move. Keep these moves
+    // inside this disposable QA window, and refuse to send input if another app is active.
+    func hoverSidebar(_ entered: Bool, in session: ReaderWindowSession) async {
+        guard let strip = session.tabStripView, let window = strip.window else { return }
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        await settle()
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier else {
+            check(false, "hover input stays inside the frontmost QA app")
+            return
+        }
+        let frame = window.convertToScreen(strip.convert(strip.bounds, to: nil))
+        let point = entered ? NSPoint(x: frame.minX + 24, y: frame.midY)
+                            : NSPoint(x: window.frame.maxX - 30, y: frame.midY)
+        let top = NSScreen.screens.first!.frame.maxY
+        CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
+                mouseCursorPosition: CGPoint(x: point.x, y: top - point.y), mouseButton: .left)?.post(tap: .cghidEventTap)
+        await settle()
+    }
+
+    func tabIsVisible(_ tab: DocumentTabState, in session: ReaderWindowSession) -> Bool {
+        guard let view = session.tabViews.object(forKey: tab.id as NSUUID), view.window != nil else { return false }
+        let visible = view.bounds.intersection(view.visibleRect)
+        return !visible.isNull && visible.width >= view.bounds.width - 1 && visible.height >= view.bounds.height - 1
+    }
 
     func checkPreviewThemes() {
         let feedback = TabDragFeedback()
@@ -184,13 +210,15 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
     func checkSidebarTabs(_ primary: ReaderWindowSession) async {
         let originalOrder = names(primary)
         let originalTab = primary.activeDocumentTab
-        UserDefaults.standard.set(true, forKey: "expertPDFReader.sidebarTabsPinned")
         store.tabsInSidebar = true
         await settle()
         check(tabsAreInSidebar(primary) && names(primary) == originalOrder && primary.activeDocumentTab === originalTab,
               "moving tabs into the sidebar preserves tab order and selection")
-        check((primary.tabStripView?.bounds.width ?? 0) >= 180,
-              "pinning the floating sidebar keeps the document titles expanded")
+        check(abs((primary.tabStripView?.bounds.width ?? 0) - 48) < 1,
+              "sidebar tabs start as a compact rail without a pin setting")
+        await hoverSidebar(true, in: primary)
+        check((primary.tabStripView?.bounds.width ?? 0) >= 360,
+              "hovering the rail expands the floating document list")
 
         store.activateWindowSession(primary.id)
         store.toggleLeftPanel(in: primary)
@@ -238,10 +266,103 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
 
         let reordered = names(primary)
         if let originalTab { primary.selectedTabID = originalTab.id }
+        await hoverSidebar(false, in: primary)
+        check(abs((primary.tabStripView?.bounds.width ?? 0) - 48) < 1,
+              "leaving the floating document list collapses it")
         store.tabsInSidebar = false
         await settle()
         check(tabsAreInContent(primary) && names(primary) == reordered && primary.activeDocumentTab === originalTab,
               "returning to the titlebar preserves the reordered tabs and reading state")
+    }
+
+    func checkManyTabs(_ primary: ReaderWindowSession) async {
+        let originalTabs = primary.tabs
+        let originalSelection = primary.selectedTabID
+        let originalFrame = window.frame
+        var extra: [DocumentTabState] = []
+        let source = tab("Alpha", in: primary).documentID.url
+        let openedAt = ProcessInfo.processInfo.systemUptime
+        for index in 1...57 {
+            let folder = fixtureDirectory.appendingPathComponent("Collection \(index)")
+            try! FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let title = index <= 2 ? "Repeated document title" : String(format: "%02d", index)
+                + " — Foundations of Statistical Inference — Long document title with 中文文件名 and a distinct ending \(index)"
+            let url = folder.appendingPathComponent(title).appendingPathExtension("pdf")
+            try! FileManager.default.copyItem(at: source, to: url)
+            if let tab = store.openDocument(at: url, recordInRecents: false, interactive: false, in: primary.id) {
+                extra.append(tab)
+            }
+        }
+        await settle()
+        print(String(format: "INFO opened 60 small PDFs and laid out the tabs in %.2fs",
+                     ProcessInfo.processInfo.systemUptime - openedAt))
+        check(names(primary).count == 60 && extra.count == 57, "60 independent document tabs open without dropping any files")
+        check(extra.prefix(2).allSatisfy { store.disambiguatedFolder(for: $0) != nil },
+              "identical filenames remain distinguishable by their parent folders")
+        guard let first = primary.tabs.compactMap({ if case .document(let tab) = $0 { return tab }; return nil }).first,
+              let last = extra.last else { return }
+        for sidebar in [true, false] {
+            store.tabsInSidebar = sidebar
+            await settle()
+            if sidebar { await hoverSidebar(true, in: primary) }
+            for selected in [first, last, extra[27], first, last] {
+                primary.selectedTabID = selected.id
+                await settle()
+                check(tabIsVisible(selected, in: primary),
+                      "\(sidebar ? "sidebar" : "top") tabs scroll to selected document \(selected === first ? "at the start" : selected === last ? "at the end" : "in the middle")")
+            }
+            let view = primary.tabViews.object(forKey: last.id as NSUUID)!
+            check(view.toolTip == last.documentID.url.path,
+                  "\(sidebar ? "sidebar" : "top") long filenames retain the complete path tooltip")
+            store.selectNextTab(in: primary.id)
+            await settle()
+            check(primary.activeDocumentTab === first && tabIsVisible(first, in: primary),
+                  "\(sidebar ? "sidebar" : "top") keyboard switching wraps from the last tab to the first")
+            store.selectPreviousTab(in: primary.id)
+            await settle()
+            check(primary.activeDocumentTab === last && tabIsVisible(last, in: primary),
+                  "\(sidebar ? "sidebar" : "top") keyboard switching wraps back to the last tab")
+            if sidebar {
+                let preceding = extra[55]
+                await drag(last.title, from: primary, to: center(preceding.title, in: primary))
+                check(names(primary).suffix(2) == [last.title, preceding.title],
+                      "reordering near the end of a scrolled 60-tab sidebar targets the correct documents")
+                store.moveDocumentTab(id: last.id, toDocumentIndex: 59, in: primary.id)
+                await settle()
+                await hoverSidebar(false, in: primary)
+            }
+        }
+        store.tabsInSidebar = true
+        await settle()
+        await hoverSidebar(true, in: primary)
+        primary.selectedTabID = last.id
+        await settle()
+        store.closeTab(id: last.id, in: primary.id)
+        await settle()
+        check(names(primary).count == 59 && primary.activeDocumentTab != nil
+              && tabIsVisible(primary.activeDocumentTab!, in: primary),
+              "closing a selected tab at the end of a long sidebar leaves its replacement visible")
+        store.reopenClosedTab(in: primary.id)
+        await settle()
+        check(names(primary).count == 60 && primary.activeDocumentTab?.documentID == last.documentID
+              && tabIsVisible(primary.activeDocumentTab!, in: primary),
+              "reopening the closed tab restores it visibly without losing the long list")
+        window.setContentSize(NSSize(width: 600, height: 520))
+        await settle()
+        check(abs((primary.tabStripView?.bounds.width ?? 0) - 360) < 1 && tabIsVisible(primary.activeDocumentTab!, in: primary),
+              "the expanded tab list remains usable in a minimum-size window with 60 tabs")
+        await hoverSidebar(false, in: primary)
+        check(abs((primary.tabStripView?.bounds.width ?? 0) - 48) < 1,
+              "the long tab list still collapses after resizing")
+        for state in primary.tabs.compactMap({ if case .document(let tab) = $0 { return tab }; return nil })
+            where !originalTabs.contains(where: { $0.id == state.id }) {
+            store.closeTab(id: state.id, in: primary.id)
+        }
+        primary.selectedTabID = originalSelection
+        store.tabsInSidebar = false
+        window.setFrame(originalFrame, display: true)
+        await settle()
+        check(primary.tabs.map(\.id) == originalTabs.map(\.id), "closing the extra test tabs restores the original session")
     }
 
     func resizeHandle(in view: NSView, axis: Axis) -> ReaderResizeHandle.Handle? {
@@ -444,6 +565,7 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
             await checkSidebarTabs(primary)
             await checkTopTabsSidebarResize(primary)
             await checkSplitComparison(primary)
+            await checkManyTabs(primary)
             let renamed = fixtureDirectory.appendingPathComponent("Alpha-renamed.pdf")
             let active = primary.activeDocumentTab!
             try! FileManager.default.moveItem(at: active.documentID.url, to: renamed)

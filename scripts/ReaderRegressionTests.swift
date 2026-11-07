@@ -92,6 +92,59 @@ struct ReaderRegressionTests {
         }
         do {
             let store = freshStore()
+            let a = store.openDocument(at: alpha, interactive: false)!
+            let b = store.openDocument(at: beta, interactive: false)!
+            let spot = DocumentTabState.ReadingSpot(pageIndex: 2, point: CGPoint(x: 280, y: 420))
+            let scan = BookPageScan(readsRightToLeft: true)
+            var position = a.readingPosition
+            position.pageIndex = 2
+            position.readingSpot = spot
+            position.zoomScale = 1.7
+            position.isAutoScaling = false
+            position.layoutMode = .twoPagesCover
+            position.pageDirection = .leftToRight
+            position.bookPageScan = scan
+            a.restore(position)
+            b.currentPageIndex = 1
+            store.selectedTabID = a.id
+            store.saveSession()
+
+            let restored = AppStore()
+            let active = restored.activeDocumentTab!
+            check(restored.restoreTabsOnLaunch && restored.allOpenDocumentTabs.map(\.documentID) == [a.documentID, b.documentID]
+                  && active.documentID == a.documentID && active.currentPageIndex == 2 && active.readingSpot == spot,
+                  "tab restoration is on by default and restores tab order, selection and reading positions")
+            let savedPositions = defaults.data(forKey: "expertPDFReader.ReadingPositions")
+            restored.restoreTabsOnLaunch = false
+            check(restored.allOpenDocumentTabs.count == 2 && active.currentPageIndex == 2 && active.readingSpot == spot,
+                  "disabling tab restoration leaves the current session open")
+            check(defaults.data(forKey: "expertPDFReader.ReadingPositions") == savedPositions,
+                  "disabling tab restoration never clears saved reading positions")
+            restored.saveSession()
+
+            let restarted = AppStore()
+            check(!restarted.restoreTabsOnLaunch && restarted.allOpenDocumentTabs.isEmpty && restarted.activeDocumentTab == nil,
+                  "launching with tab restoration off opens Home without reopening PDFs")
+            let manual = restarted.openDocument(at: alpha, interactive: false)!
+            check(manual.currentPageIndex == 2 && manual.readingSpot == spot && manual.zoomScale == 1.7
+                  && !manual.isAutoScaling && manual.layoutMode == .twoPagesCover
+                  && manual.pageDirection == .leftToRight && manual.pageScan == scan,
+                  "manually opening a PDF still restores its page, scroll, zoom, layout and page scan")
+            manual.currentPageIndex = 3
+            let newSpot = DocumentTabState.ReadingSpot(pageIndex: 3, point: CGPoint(x: 200, y: 300))
+            manual.readingSpot = newSpot
+            restarted.saveSession()
+            let home = AppStore()
+            check(home.allOpenDocumentTabs.isEmpty, "tab restoration stays off after a session is saved")
+            home.restoreTabsOnLaunch = true
+            check(home.allOpenDocumentTabs.isEmpty, "enabling tab restoration takes effect on the next launch")
+            let resumed = AppStore()
+            check(resumed.restoreTabsOnLaunch && resumed.activeDocumentTab?.documentID == a.documentID
+                  && resumed.activeDocumentTab?.currentPageIndex == 3 && resumed.activeDocumentTab?.readingSpot == newSpot,
+                  "re-enabling tab restoration reopens the last session with reading progress saved while it was off")
+        }
+        do {
+            let store = freshStore()
             let original = try fixture("ClosedBeforeRename")
             let tab = store.openDocument(at: original, interactive: false)!
             store.setFavorite(id: tab.documentID, isFavorite: true)

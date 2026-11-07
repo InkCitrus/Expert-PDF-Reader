@@ -38,7 +38,7 @@ A native macOS PDF reader built for reading: tabs, Split View, and Day / Sepia /
   - **Left sidebar (`⌘B`)**: themed page thumbnails, the document outline and bookmarks (`⌘D`).
   - **Local OCR**: bundled [RapidOCRLite](https://github.com/RapidAI/RapidOCRLite) models provide character positions for selecting scanned text, including traditional Chinese and vertical columns. Drag to select and use `⌘C`; the original PDF is not rewritten. Recognition runs on demand and copies join physical wraps while preserving paragraphs. No upload or Python runtime is needed.
   - **Full-text search (`⌘F`)** runs in the background and lists results per page as they are found, with highlighted context.
-  - **Picks up where you left off**: every document reopens at its last page, zoom and layout, and the last session's tabs are restored on launch.
+  - **Restore Tabs** in Settings is on by default and reopens the previous session’s tabs at startup. Turn it off to start on Home. Each PDF’s reading position, zoom and layout are saved independently and restored whenever you open it.
   - **Password-protected PDFs** ask for their password; files that can't be opened say why.
   - Drop PDFs anywhere on the window or on the Dock icon; `⌘=` zooms in as well as `⌘+`.
 - **Fast Home Tab**: Recents keep up to 50 documents (the latest 10 also under File › Open Recent), cover thumbnails load in the background and are cached on disk, and moved or renamed files stay in Recents / Favorites with their bookmarks and reading position, while files that are deleted or moved to the Trash drop out of them automatically.

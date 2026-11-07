@@ -1587,6 +1587,10 @@ public final class AppStore: ObservableObject {
         }
     }
 
+    @Published public var restoreTabsOnLaunch: Bool {
+        didSet { UserDefaults.standard.set(restoreTabsOnLaunch, forKey: Keys.restoreTabsOnLaunch) }
+    }
+
     /// Resolves the concrete GPU `PDFViewTheme` (`day`, `sepia`, or `night`) for the given UI appearance.
     public func resolvedPDFTheme(isDark: Bool) -> PDFViewTheme {
         readingThemeMode.resolvedTheme(isDark: isDark, useSepiaInLight: useSepiaForLightSystemTheme)
@@ -1852,6 +1856,7 @@ public final class AppStore: ObservableObject {
         static let recents = "expertPDFReader.Recents"
         static let favorites = "expertPDFReader.Favorites"
         static let bookmarks = "expertPDFReader.Bookmarks"
+        static let restoreTabsOnLaunch = "expertPDFReader.restoreTabsOnLaunch"
         static let readingPositions = "expertPDFReader.ReadingPositions"
         static let fileBookmarks = "expertPDFReader.FileBookmarks"
         static let openTabs = "expertPDFReader.OpenTabs"
@@ -1891,6 +1896,7 @@ public final class AppStore: ObservableObject {
         self.readingThemeMode = PDFReadingThemeMode(rawValue: savedModeRaw) ?? .system
 
         self.useSepiaForLightSystemTheme = defaults.bool(forKey: "expertPDFReader.useSepiaForLightSystemTheme")
+        self.restoreTabsOnLaunch = defaults.object(forKey: Keys.restoreTabsOnLaunch) as? Bool ?? true
 
         let savedAppRaw = defaults.string(forKey: "expertPDFReader.appearanceMode")
             ?? AppAppearanceMode.system.rawValue
@@ -3153,6 +3159,7 @@ public final class AppStore: ObservableObject {
 
     /// Reopens the last session's tabs, skipping files that are gone or need a password.
     private func restoreOpenTabs() {
+        guard restoreTabsOnLaunch else { return }
         let defaults = UserDefaults.standard
         guard let paths = defaults.stringArray(forKey: Keys.openTabs), !paths.isEmpty else { return }
         let selectedPath = defaults.string(forKey: Keys.selectedTab)

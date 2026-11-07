@@ -293,6 +293,10 @@
 "Restart Now" = "立即重新啟動";
 "重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。|||Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "重新啟動後，由 macOS 提供的選單（檔案、編輯、視窗等）也會切換為所選語言。";
 "Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "重新啟動後，由 macOS 提供的選單（檔案、編輯、視窗等）也會切換為所選語言。";
+"恢复标签页|||Restore Tabs" = "還原分頁";
+"Restore Tabs" = "還原分頁";
+"启动时恢复上次退出前打开的标签页。|||Reopen the tabs from your previous session when the app starts." = "啟動時還原上次結束前開啟的分頁。";
+"Reopen the tabs from your previous session when the app starts." = "啟動時還原上次結束前開啟的分頁。";
 "默认 PDF 应用|||Default PDF App" = "預設 PDF 應用程式";
 "Default PDF App" = "預設 PDF 應用程式";
 "设为默认|||Make Default" = "設為預設";

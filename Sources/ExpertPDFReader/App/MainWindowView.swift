@@ -209,19 +209,19 @@ public struct MainWindowView: View {
 
     private func sidebarTabsColumn(width: CGFloat, isCollapsed: Bool) -> some View {
         VStack(spacing: 0) {
-            HStack {
-                if !isCollapsed {
+            if !isCollapsed {
+                HStack {
                     Text(L10n.tr("打开的文档", "Open Documents"))
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(AppPalette.labelSecondary(isDark))
                     Spacer(minLength: 0)
+                    pinSidebarButton
                 }
-                pinSidebarButton
+                .frame(height: 40)
+                .padding(.leading, 18)
+                .padding(.trailing, 8)
+                AppPalette.panelSeparator(isDark).frame(height: 1)
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 42)
-            .padding(.horizontal, isCollapsed ? 0 : 12)
-            AppPalette.panelSeparator(isDark).frame(height: 1)
             TabBarView(store: store, session: session, isDark: isDark, isSidebar: true,
                        isCollapsed: isCollapsed, onDragActivityChanged: { isSidebarDragging = $0 })
         }
@@ -238,8 +238,6 @@ public struct MainWindowView: View {
             sidebarTabsPinned.toggle()
         }
     }
-
-
 }
 
 struct ReaderResizeHandle: NSViewRepresentable {
@@ -332,18 +330,12 @@ struct TabBarView: View {
     private static let shortcutsHelpButtonWidth: CGFloat = 34
     private static let minimumTabWidth: CGFloat = 168
     private static let maximumTabWidth: CGFloat = 340
-    private static let sidebarRowHeight: CGFloat = 36
+    private static let sidebarRowHeight: CGFloat = 44
     /// Leave room between the last tab and the help button.
     private static let reservedTrailingWidth: CGFloat = 48
 
     var body: some View {
-        VStack(spacing: 0) {
-            tabStrip
-            if isSidebar {
-                AppPalette.panelSeparator(isDark).frame(height: 1)
-                openFileButton
-            }
-        }
+        tabStrip
     }
 
     private var tabStrip: some View {
@@ -401,6 +393,9 @@ struct TabBarView: View {
                         .id(state.id)
                         .transition(.opacity)
                 }
+                openFileButton
+                    .frame(height: Self.sidebarRowHeight)
+                    .padding(.top, 4)
             }
             .padding(6)
             .animation(AppAnimation.tab, value: tabs.map(\.id))
@@ -690,6 +685,12 @@ struct DocumentTabItemView: View {
                     .frame(maxWidth: .infinity)
                     .accessibilityHidden(true)
             } else {
+                if isSidebar {
+                    Image(systemName: "doc.text")
+                        .font(.system(size: 17))
+                        .foregroundStyle(isSelected ? AppPalette.accentBlue : AppPalette.labelSecondary(isDark))
+                        .accessibilityHidden(true)
+                }
                 HStack(spacing: 5) {
                     Text(state.title)
                         .font(.system(size: 12, weight: isSelected ? .medium : .regular))
@@ -716,7 +717,7 @@ struct DocumentTabItemView: View {
                 .accessibilityHidden(true)
             }
 
-            if showsCloseButton {
+            if showsCloseButton || (isSidebar && !isCollapsed) {
                 Button {
                     store.closeTab(id: state.id, in: session.id)
                 } label: {
@@ -733,12 +734,15 @@ struct DocumentTabItemView: View {
                 .buttonStyle(.plain)
                 .help(L10n.tr("关闭标签 (⌘W · ⇧⌘T 恢复)", "Close Tab (⌘W · ⇧⌘T to Reopen)"))
                 .accessibilityLabel(Text("\(L10n.tr("关闭标签", "Close Tab")) \(state.title)"))
+                .opacity(showsCloseButton ? 1 : 0)
+                .allowsHitTesting(showsCloseButton)
+                .accessibilityHidden(!showsCloseButton)
                 .onHover { isCloseHovered = $0 }
                 .transition(.opacity)
             }
         }
         .padding(.leading, isCollapsed ? 0 : 12)
-        .padding(.trailing, isCollapsed ? 0 : (showsCloseButton ? 8 : 12))
+        .padding(.trailing, isCollapsed ? 0 : ((isSidebar || showsCloseButton) ? 8 : 12))
         .frame(maxHeight: .infinity)
         .background {
             RoundedRectangle(cornerRadius: isSidebar ? 6 : 0)

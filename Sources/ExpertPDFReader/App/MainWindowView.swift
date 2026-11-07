@@ -14,7 +14,6 @@ public struct MainWindowView: View {
     @State private var isSidebarHovered = false
     @State private var isSidebarDragging = false
     @State private var isSidebarMenuTracking = false
-    @State private var isSidebarContextMenuPresented = false
     @State private var isDropTargeted = false
     private var isDark: Bool { colorScheme == .dark }
 
@@ -137,7 +136,7 @@ public struct MainWindowView: View {
             min(max(width, minimumWidth), maximumWidth)
         }
         let width = boundedWidth(sidebarResizeWidth ?? preferredWidth)
-        let isCollapsed = !isSidebarHovered && !isSidebarDragging && !isSidebarMenuTracking && !isSidebarContextMenuPresented
+        let isCollapsed = !isSidebarHovered && !isSidebarDragging && !isSidebarMenuTracking
         let popupWidth = min(520, max(360, windowWidth * 0.45))
 
         return HStack(spacing: 0) {
@@ -209,8 +208,7 @@ public struct MainWindowView: View {
 
     private func sidebarTabsColumn(width: CGFloat, isCollapsed: Bool) -> some View {
         TabBarView(store: store, session: session, isDark: isDark, isSidebar: true,
-                   isCollapsed: isCollapsed, onDragActivityChanged: { isSidebarDragging = $0 },
-                   onMenuActivityChanged: { isSidebarContextMenuPresented = $0 })
+                   isCollapsed: isCollapsed, onDragActivityChanged: { isSidebarDragging = $0 })
         .frame(width: width, alignment: .leading)
         .background(AppPalette.panelBackground(isDark), ignoresSafeAreaEdges: [])
     }
@@ -293,9 +291,7 @@ struct TabBarView: View {
     var isSidebar = false
     var isCollapsed = false
     var onDragActivityChanged: ((Bool) -> Void)?
-    var onMenuActivityChanged: ((Bool) -> Void)?
 
-    @Namespace private var tabBarNamespace
     @State private var hoveredTabID: UUID?
     @State private var isAllTabsHovered = false
     @State private var isOpenFileHovered = false
@@ -392,7 +388,6 @@ struct TabBarView: View {
     private func groupHeader(_ group: ReaderTabGroup) -> some View {
         TabGroupHeader(store: store, session: session, group: group,
                        isSidebar: isSidebar, isCompact: isCollapsed, isDark: isDark,
-                       onMenuActivityChanged: onMenuActivityChanged,
                        onDragChanged: { location in
                            if draggingGroupID == nil { onDragActivityChanged?(true) }
                            draggingGroupID = group.id
@@ -577,11 +572,17 @@ struct TabBarView: View {
                 case .document(let state):
                     HStack(spacing: 0) {
                         tabItem(state, count: documentTabs.count).frame(width: tabWidth)
-                        tabSeparator
+                        tabSeparator.opacity(session.selectedTabID == state.id ? 0 : 1)
                     }
                     .overlay(alignment: .bottom) {
-                        if let group = session.tabGroup(containing: state.id) {
-                            AppPalette.tabGroupFill(group.color, isDark).frame(height: 2)
+                        let color = session.tabGroup(containing: state.id)?.color
+                        if session.selectedTabID == state.id {
+                            TabContour()
+                                .stroke(AppPalette.tabOutline(color, isDark),
+                                        style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                                .allowsHitTesting(false)
+                        } else if let color {
+                            AppPalette.tabOutline(color, isDark).frame(height: 2).allowsHitTesting(false)
                         }
                     }
                     .id(state.id)
@@ -607,8 +608,6 @@ struct TabBarView: View {
             isDark: isDark,
             isSidebar: isSidebar,
             isCollapsed: isCollapsed,
-            onMenuActivityChanged: onMenuActivityChanged,
-            tabBarNamespace: tabBarNamespace,
             onHoverChanged: { hovering in
                 hoveredTabID = hovering ? state.id : (hoveredTabID == state.id ? nil : hoveredTabID)
             },
@@ -808,14 +807,11 @@ struct DocumentTabItemView: View {
     let isDark: Bool
     let isSidebar: Bool
     var isCollapsed = false
-    var onMenuActivityChanged: ((Bool) -> Void)?
-    let tabBarNamespace: Namespace.ID
     let onHoverChanged: (Bool) -> Void
     let onDragChanged: (TabDragLocation) -> Void
     let onDragEnded: (TabDragLocation?) -> Void
 
     @State private var isCloseHovered = false
-    @State private var isContextMenuPresented = false
 
     private var showsCloseButton: Bool {
         !isCollapsed && (isSelected || isHovered)
@@ -890,28 +886,25 @@ struct DocumentTabItemView: View {
         .padding(.trailing, isCollapsed ? 0 : ((isSidebar || showsCloseButton) ? 8 : 12))
         .frame(maxHeight: .infinity)
         .background {
-            RoundedRectangle(cornerRadius: isSidebar ? 6 : 0)
-                .fill(isSelected ? AppPalette.tabSelectedBackground(isDark)
-                    : (isHovered ? AppPalette.tabHoverBackground(isDark) : Color.clear))
-        }
-        .background {
-            if session.tabGroup(containing: state.id) != nil {
-                AppPalette.accentBlue.opacity(isDark ? 0.06 : 0.04)
+            if isSidebar {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(isSelected ? AppPalette.tabSelectedBackground(isDark)
+                        : (isHovered ? AppPalette.tabHoverBackground(isDark) : Color.clear))
+            } else if isSelected || isHovered {
+                TabContour().fill(isSelected ? AppPalette.tabSelectedBackground(isDark)
+                                  : AppPalette.tabHoverBackground(isDark))
             }
         }
-        .overlay(alignment: .top) {
-            if isSelected && !isSidebar {
-                Rectangle()
-                    .fill(AppPalette.accentBlue)
-                    .frame(height: 2.5)
-                    .matchedGeometryEffect(id: "activeTabAccent", in: tabBarNamespace)
+        .background {
+            if isSidebar && session.tabGroup(containing: state.id) != nil {
+                AppPalette.accentBlue.opacity(isDark ? 0.06 : 0.04)
             }
         }
         .opacity(isDragging ? 0.3 : 1)
         .overlay {
             TabInteractionArea(session: session, tabID: state.id, toolTip: state.documentID.url.path,
                                excludedTrailingWidth: showsCloseButton ? 30 : 0, isSidebar: isSidebar,
-                               onContextMenu: presentContextMenu, onSelect: selectTab,
+                               onSelect: selectTab,
                                onDragChanged: onDragChanged, onDragEnded: onDragEnded)
         }
         .contentShape(Rectangle())
@@ -923,23 +916,67 @@ struct DocumentTabItemView: View {
             if !hovering { isCloseHovered = false }
             onHoverChanged(hovering)
         }
-        .accessibilityAction(named: Text(L10n.tr("显示菜单", "Show Menu"))) { presentContextMenu() }
-        .popover(isPresented: $isContextMenuPresented, arrowEdge: isSidebar ? .trailing : .bottom) {
-            DocumentTabContextMenu(store: store, session: session, tab: state) {
-                isContextMenuPresented = false
+        .contextMenu {
+            Menu(L10n.tr("添加到分组", "Add to Group")) {
+                Button(L10n.tr("新建分组…", "New Group…")) {
+                    store.editTabGroup(containing: state.id, in: session.id)
+                }
+                if !session.tabGroups.isEmpty {
+                    Divider()
+                    ForEach(session.tabGroups) { group in
+                        Button {
+                            store.moveTab(state.id, intoGroup: group.id, in: session.id)
+                        } label: {
+                            if group.tabIDs.contains(state.id) { Label(group.name, systemImage: "checkmark") }
+                            else { Text(group.name) }
+                        }
+                    }
+                }
+            }
+            if session.tabGroup(containing: state.id) != nil {
+                Button(L10n.tr("移出分组", "Remove from Group")) {
+                    store.moveTab(state.id, intoGroup: nil, in: session.id)
+                }
+            }
+            Divider()
+            Button(L10n.tr("将标签移至新窗口", "Move Tab to New Window")) {
+                store.detachTabToNewWindow(id: state.id, from: session.id)
+            }
+            .disabled(!store.canDetachTab(id: state.id, in: session.id))
+
+            if !session.isPrimary {
+                Button(L10n.tr("移回主窗口", "Move Tab to Main Window")) {
+                    store.moveTab(id: state.id, from: session.id, to: store.primarySession.id)
+                }
+            }
+
+            Divider()
+
+            Button(L10n.tr("重新打开关闭的标签", "Reopen Closed Tab")) {
+                store.reopenClosedTab(in: session.id)
+            }
+            .disabled(store.closedTabs.isEmpty)
+
+            Divider()
+
+            Button(L10n.tr("关闭标签", "Close Tab")) {
+                store.closeTab(id: state.id, in: session.id)
+            }
+            Button(L10n.tr("关闭其他标签", "Close Other Tabs")) {
+                store.closeOtherTabs(keeping: state.id, in: session.id)
+            }
+            .disabled(documentTabCount <= 1)
+
+            Divider()
+
+            Button(L10n.tr("在 Finder 中显示", "Show in Finder")) {
+                store.showInFinder(id: state.documentID)
+            }
+            Button(L10n.tr("复制为路径名", "Copy as Pathname")) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(state.documentID.url.path, forType: .string)
             }
         }
-        .onChange(of: isContextMenuPresented) { _, presented in
-            onMenuActivityChanged?(presented)
-        }
-        .onDisappear {
-            if isContextMenuPresented { onMenuActivityChanged?(false) }
-        }
-    }
-
-    private func presentContextMenu() {
-        onMenuActivityChanged?(true)
-        isContextMenuPresented = true
     }
 
     private func selectTab() {

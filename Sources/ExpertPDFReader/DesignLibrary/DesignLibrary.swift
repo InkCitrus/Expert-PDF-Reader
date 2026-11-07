@@ -256,6 +256,11 @@ public enum AppPalette {
         color == .orange || color == .yellow ? Color(hex: 0x262218) : .white
     }
 
+    public static func tabOutline(_ group: TabGroupColor?, _ isDark: Bool) -> Color {
+        let base = NSColor(group.map { tabGroupFill($0, isDark) } ?? accentBlue)
+        return Color(nsColor: base.blended(withFraction: isDark ? 0.35 : 0, of: .white) ?? base)
+    }
+
     // Window Chrome (tab strip + toolbar). PDF Expert always paints this chrome graphite; here every
     // token is a light/dark pair so the title bar follows the appearance while keeping PDF Expert's
     // elevation order: tab strip < toolbar < selected tab.

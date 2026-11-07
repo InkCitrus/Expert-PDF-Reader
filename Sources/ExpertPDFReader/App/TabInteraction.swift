@@ -47,7 +47,6 @@ struct TabInteractionArea: NSViewRepresentable {
     let excludedTrailingWidth: CGFloat
     var isGroupHeader = false
     var isSidebar = false
-    var onContextMenu: (() -> Void)?
     let onSelect: () -> Void
     let onDragChanged: (TabDragLocation) -> Void
     let onDragEnded: (TabDragLocation?) -> Void
@@ -68,7 +67,6 @@ struct TabInteractionArea: NSViewRepresentable {
         view.tabID = tabID
         view.isGroupHeader = isGroupHeader
         view.isSidebar = isSidebar
-        view.onContextMenu = onContextMenu
         let views = isGroupHeader ? session.tabGroupViews : session.tabViews
         views.setObject(view, forKey: tabID as NSUUID)
     }
@@ -81,7 +79,6 @@ final class TabInteractionView: NSView {
     var isSidebar = false
     var excludedTrailingWidth: CGFloat = 0
     var onSelect: (() -> Void)?
-    var onContextMenu: (() -> Void)?
     var onDragChanged: ((TabDragLocation) -> Void)?
     var onDragEnded: ((TabDragLocation?) -> Void)?
 
@@ -108,8 +105,8 @@ final class TabInteractionView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        if event.modifierFlags.contains(.control), let onContextMenu {
-            onContextMenu()
+        if event.modifierFlags.contains(.control) {
+            super.mouseDown(with: event)
             return
         }
         guard let window else { return }
@@ -148,10 +145,6 @@ final class TabInteractionView: NSView {
         if isDragging { ended?(nil) }
     }
 
-    override func rightMouseDown(with event: NSEvent) {
-        if let onContextMenu { onContextMenu() }
-        else { super.rightMouseDown(with: event) }
-    }
 }
 
 enum ReaderTabDropTarget {

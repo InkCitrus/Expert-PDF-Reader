@@ -221,6 +221,7 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         }
         var previewChecks = 0
         var anchored = true
+        var reportedAnchorMismatch = false
         // Install immediately before delivery: pending SwiftUI updates can replace the view's callbacks.
         let monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
             let changed = view.onDragChanged
@@ -255,6 +256,10 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
                     anchored = anchored && abs(location.screenPoint.x - panel.frame.minX - expectedOffset.x) <= 1
                         && abs(panel.frame.maxY - location.screenPoint.y - expectedOffset.y) <= 1
                         && panel.frame.size == tabFrame.size
+                }
+                if !anchored && !reportedAnchorMismatch {
+                    reportedAnchorMismatch = true
+                    print("INFO drag geometry \(title): source=\(tabFrame), panel=\(panel.frame), freePreview=\(location.previewFrame), inStrip=\(session.tabDragPreview != nil)")
                 }
             }
             return event
@@ -986,6 +991,13 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         store.primarySession.nsWindow = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        if ProcessInfo.processInfo.environment["TAB_DRAG_QA_PARK_POINTER"] == "1", CGPreflightPostEventAccess() {
+            // Keep physical hover separate from the synthetic tracking events in an attended QA run.
+            let point = CGPoint(x: window.frame.maxX - 100,
+                                y: CGDisplayBounds(CGMainDisplayID()).height - window.frame.midY)
+            CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point,
+                    mouseButton: .left)?.post(tap: .cghidEventTap)
+        }
         Task { @MainActor in
             await settle()
             let primary = store.primarySession

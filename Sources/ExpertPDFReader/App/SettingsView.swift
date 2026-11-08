@@ -76,6 +76,17 @@ struct SettingsView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
             }
+
+            Section {
+                Toggle(L10n.tr("恢复标签页", "Restore Tabs"), isOn: $store.restoreTabsOnLaunch)
+            } footer: {
+                Text(L10n.tr(
+                    "启动时恢复上次退出前打开的标签页。",
+                    "Reopen the tabs from your previous session when the app starts."
+                ))
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         // Sized to its content instead of a tall window with empty space below the form

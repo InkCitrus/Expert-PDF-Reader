@@ -293,6 +293,10 @@
 "Restart Now" = "今すぐ再起動";
 "重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。|||Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "再起動すると、macOS が提供するメニュー（ファイル、編集、ウインドウなど）も選択した言語に切り替わります。";
 "Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "再起動すると、macOS が提供するメニュー（ファイル、編集、ウインドウなど）も選択した言語に切り替わります。";
+"恢复标签页|||Restore Tabs" = "タブを復元";
+"Restore Tabs" = "タブを復元";
+"启动时恢复上次退出前打开的标签页。|||Reopen the tabs from your previous session when the app starts." = "起動時に前回終了したときのタブを開き直します。";
+"Reopen the tabs from your previous session when the app starts." = "起動時に前回終了したときのタブを開き直します。";
 "默认 PDF 应用|||Default PDF App" = "デフォルトの PDF アプリ";
 "Default PDF App" = "デフォルトの PDF アプリ";
 "设为默认|||Make Default" = "デフォルトに設定";
@@ -427,3 +431,70 @@
 "Clear Favorites?" = "お気に入りをすべて消去しますか？";
 "PDF 文件会保留在原来的位置。|||Your PDF files will stay where they are." = "PDF ファイルは元の場所に残ります。";
 "Your PDF files will stay where they are." = "PDF ファイルは元の場所に残ります。";
+
+"新建分组…|||New Group…" = "新しいグループ…";
+"New Group…" = "新しいグループ…";
+
+"分组名称|||Group Name" = "グループ名";
+"Group Name" = "グループ名";
+
+"创建分组|||Create Group" = "グループを作成";
+"Create Group" = "グループを作成";
+
+"重命名分组…|||Rename Group…" = "グループ名を変更…";
+"Rename Group…" = "グループ名を変更…";
+
+"添加到分组|||Add to Group" = "グループに追加";
+"Add to Group" = "グループに追加";
+
+"移出分组|||Remove from Group" = "グループから削除";
+"Remove from Group" = "グループから削除";
+
+"取消分组|||Ungroup Tabs" = "グループを解除";
+"Ungroup Tabs" = "グループを解除";
+
+"关闭分组|||Close Group" = "グループを閉じる";
+"Close Group" = "グループを閉じる";
+
+"已折叠|||Collapsed" = "折りたたみ";
+"Collapsed" = "折りたたみ";
+
+"已展开|||Expanded" = "展開";
+"Expanded" = "展開";
+
+"保存|||Save" = "保存";
+"Save" = "保存";
+
+"未分组|||Ungrouped" = "未分類";
+"Ungrouped" = "未分類";
+
+"蓝色|||Blue" = "ブルー";
+"Blue" = "ブルー";
+
+"紫色|||Purple" = "パープル";
+"Purple" = "パープル";
+
+"粉色|||Pink" = "ピンク";
+"Pink" = "ピンク";
+
+"红色|||Red" = "レッド";
+"Red" = "レッド";
+
+"橙色|||Orange" = "オレンジ";
+"Orange" = "オレンジ";
+
+"黄色|||Yellow" = "イエロー";
+"Yellow" = "イエロー";
+
+"绿色|||Green" = "グリーン";
+"Green" = "グリーン";
+
+"青色|||Teal" = "ティール";
+"Teal" = "ティール";
+
+"灰色|||Gray" = "グレー";
+"Gray" = "グレー";
+
+
+"颜色|||Color" = "カラー";
+"Color" = "カラー";

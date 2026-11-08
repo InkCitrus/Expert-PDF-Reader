@@ -12,7 +12,7 @@ TEST_SOURCE=scripts/ReaderRegressionTests.swift
 TEST_BINARY=build/ReaderRegressionTests
 if [[ "${1:-}" == "--ui" || "${1:-}" == "--scene" ]]; then
     TEST_SOURCE=scripts/TabDragQATests.swift
-    TEST_APP="build/Tab Drag QA.app"
+    TEST_APP="$PWD/build/Tab Drag QA.app"
     TEST_BINARY="$TEST_APP/Contents/MacOS/TabDragQATests"
     mkdir -p "$TEST_APP/Contents/MacOS"
     cp Support/Info.plist "$TEST_APP/Contents/Info.plist"
@@ -32,6 +32,10 @@ if [[ "${1:-}" == "--ui" || "${1:-}" == "--scene" ]]; then
 fi
 swiftc -sdk "$SDK_PATH" -target "$(uname -m)-apple-macos14.0" -module-cache-path build/ModuleCache -parse-as-library \
     "${SOURCES[@]}" "$TEST_SOURCE" -o "$TEST_BINARY"
+if [[ "${1:-}" == "--ui" || "${1:-}" == "--scene" ]]; then
+    /usr/bin/codesign --force --sign - "$TEST_APP"
+fi
+# Input stays inside the QA process; no LaunchServices registration or foreground takeover is needed.
 "$TEST_BINARY"
 if [[ "${1:-}" != "--ui" && "${1:-}" != "--scene" ]]; then
     swiftc -sdk "$SDK_PATH" -module-cache-path build/ModuleCache -parse-as-library \

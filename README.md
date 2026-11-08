@@ -18,7 +18,7 @@ A native macOS PDF reader built for reading: tabs, Split View, and Day / Sepia /
 - **Interface**
   - **Title bar**: Sidebar and Home stay beside the native window controls in either tab layout. **Open File…** follows the tab list.
   - **Toolbar**: zoom, a Layout menu for page layout, Page Overview and split view, reading theme, Clear Margins, rotation, Share, Bookmark, and search.
-  - **Left sidebar**: Thumbnails, Outline, and Bookmarks. In sidebar tab mode, the sidebar header switches between open tabs and navigation. Press `⌘B` to hide or restore the last panel.
+  - **Left sidebar**: Thumbnails, Outline, and Bookmarks stay in their own page-navigation sidebar. The independent tab rail expands to a wider floating document list over the reading area. The list collapses when the pointer leaves; `⌘B` toggles page navigation.
   - **Right search dock**, bottom-right **page counter** (click or `⌥⌘G` → Go to Page) and a **Page Overview** grid (`⌃⌘1`).
   - Tab strip, toolbar and panels follow the **System / Light / Dark** appearance.
 - **Home Tab**: sidebar with Home, Recents and Favorites (plus Open File…, Shortcuts & Tips, Reading Guide and Settings; Help › Reading Guide, `⌘?`, opens the guide from anywhere), a drag-and-drop area, reading-theme cards, and document grids with locale-aware dates.
@@ -26,7 +26,7 @@ A native macOS PDF reader built for reading: tabs, Split View, and Day / Sepia /
 - **Tabs & Windows**:
   - **Browser-style multi-window**: drag a tab out of the tab bar to detach it into a new window, drag tabs between windows to merge, or choose Window › Merge All Windows.
   - **Dock & New Window (`⌘N`)**: right-click the Dock icon for New Window, Open… and recent files.
-  - **Tab management**: drag tabs to reorder, show the full file path in a standard tooltip, and open the All Tabs menu (`⌄`) when multiple documents are open. Duplicate filenames across folders are automatically disambiguated with parent folder names.
+  - **Tab management**: drag tabs to reorder, show the full file path in a standard tooltip, and open the All Tabs menu (`⌄`) when multiple documents are open. Duplicate filenames across folders are automatically disambiguated with parent folder names. Right-click a tab to create a named group or move it into an existing one. Groups use solid color headings and can collapse or expand. The name can be left empty to show only the color; in the top tab bar, one colored line follows the active tab’s rounded outline and continues under the other tabs in its group. In the sidebar, a matching vertical line runs behind the group in a separate left gutter, including in the compact rail. While dragging, tabs slide into the proposed order and the group line follows the insertion slot; releasing saves the change, and Escape cancels it. Right-click a group to rename it or choose a color from the native menu; both are saved with restored tabs. Groups form separate sections, followed by ungrouped documents. Drag a group heading to move the whole group, or drag a document to New Group. Open File stays visible when the list overflows.
   - **Navigation shortcuts**: `⌃⇥` / `⌃⇧⇥` cycle document tabs (Home is skipped); `⇧⌘T` reopens closed tabs in their original slot and reading position.
   - **Mission Control**: window titles and represented file icons stay in sync with the active document across macOS Mission Control, App Exposé, Stage Manager and Dock.
   - **Split View**: vertical (left / right) or horizontal (top / bottom) Split View with Swap Sides, Sync Scroll & Zoom, and the Home tab as a picker for the second document.
@@ -38,7 +38,7 @@ A native macOS PDF reader built for reading: tabs, Split View, and Day / Sepia /
   - **Left sidebar (`⌘B`)**: themed page thumbnails, the document outline and bookmarks (`⌘D`).
   - **Local OCR**: bundled [RapidOCRLite](https://github.com/RapidAI/RapidOCRLite) models provide character positions for selecting scanned text, including traditional Chinese and vertical columns. Drag to select and use `⌘C`; the original PDF is not rewritten. Recognition runs on demand and copies join physical wraps while preserving paragraphs. No upload or Python runtime is needed.
   - **Full-text search (`⌘F`)** runs in the background and lists results per page as they are found, with highlighted context.
-  - **Picks up where you left off**: every document reopens at its last page, zoom and layout, and the last session's tabs are restored on launch.
+  - **Restore Tabs** in Settings is on by default and reopens the previous session’s tabs at startup. Turn it off to start on Home. Each PDF’s reading position, zoom and layout are saved independently and restored whenever you open it.
   - **Password-protected PDFs** ask for their password; files that can't be opened say why.
   - Drop PDFs anywhere on the window or on the Dock icon; `⌘=` zooms in as well as `⌘+`.
 - **Fast Home Tab**: Recents keep up to 50 documents (the latest 10 also under File › Open Recent), cover thumbnails load in the background and are cached on disk, and moved or renamed files stay in Recents / Favorites with their bookmarks and reading position, while files that are deleted or moved to the Trash drop out of them automatically.

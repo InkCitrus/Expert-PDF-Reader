@@ -238,6 +238,29 @@ public enum AppPalette {
     // Primary action blue (prominent buttons, links, selection rings)
     public static let accentBlue = Color(hex: 0x3A82F7)
 
+    public static func tabGroupFill(_ color: TabGroupColor, _ isDark: Bool) -> Color {
+        switch color {
+        case .blue: Color(hex: isDark ? 0x3A63C4 : 0x436BD4)
+        case .purple: Color(hex: isDark ? 0x8530C8 : 0x9135D7)
+        case .pink: Color(hex: isDark ? 0xAC008C : 0xBC0097)
+        case .red: Color(hex: isDark ? 0xCB1528 : 0xDE1427)
+        case .orange: Color(hex: isDark ? 0xF0A04B : 0xFF942F)
+        case .yellow: Color(hex: isDark ? 0xE8C640 : 0xFFD32D)
+        case .green: Color(hex: isDark ? 0x207A37 : 0x1B802E)
+        case .teal: Color(hex: isDark ? 0x00727C : 0x007E87)
+        case .gray: Color(hex: isDark ? 0x5E626A : 0x646970)
+        }
+    }
+
+    public static func tabGroupLabel(_ color: TabGroupColor) -> Color {
+        color == .orange || color == .yellow ? Color(hex: 0x262218) : .white
+    }
+
+    public static func tabOutline(_ group: TabGroupColor?, _ isDark: Bool) -> Color {
+        let base = NSColor(group.map { tabGroupFill($0, isDark) } ?? accentBlue)
+        return Color(nsColor: base.blended(withFraction: isDark ? 0.35 : 0, of: .white) ?? base)
+    }
+
     // Window Chrome (tab strip + toolbar). PDF Expert always paints this chrome graphite; here every
     // token is a light/dark pair so the title bar follows the appearance while keeping PDF Expert's
     // elevation order: tab strip < toolbar < selected tab.
@@ -386,6 +409,11 @@ public enum AppAnimation {
     public static var panel: Animation {
         reduceMotion ? .easeInOut(duration: 0.15) : .spring(response: 0.28, dampingFraction: 0.88)
     }
+
+    public static var sidebarRevealDuration: Double { reduceMotion ? 0 : 0.22 }
+
+    /// Reveal fixed-width contents without spring overshoot or text reflow.
+    public static var sidebarReveal: Animation { .easeInOut(duration: sidebarRevealDuration) }
 }
 
 extension Color {

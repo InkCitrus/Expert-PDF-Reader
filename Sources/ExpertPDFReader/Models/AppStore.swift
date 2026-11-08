@@ -238,13 +238,6 @@ public enum ReaderSplitMode: String, CaseIterable, Identifiable, Codable {
     }
 }
 
-enum SidebarPanel: CaseIterable, Hashable, Identifiable {
-    case openDocuments
-    case navigation
-
-    var id: Self { self }
-}
-
 public enum ReaderSidebarTab: String, CaseIterable, Identifiable, Codable {
     case thumbnails = "thumbnails"
     case outline = "outline"
@@ -1381,6 +1374,9 @@ public struct ClosedTabRecord: Codable, Equatable {
     public let isClearMarginsEnabled: Bool
     public let isLeftSidebarVisible: Bool
     public let activeSidebarTab: ReaderSidebarTab
+    public var tabGroupID: UUID? = nil
+    public var tabGroupName: String? = nil
+    public var tabGroupColor: TabGroupColor? = nil
 }
 
 @MainActor
@@ -1388,22 +1384,24 @@ public final class ReaderWindowSession: ObservableObject, Identifiable {
     public let id: UUID
     public let isPrimary: Bool
     @Published public var tabs: [AppTab] {
-        didSet { onTabsChanged?() }
+        didSet { pruneTabGroups(); onTabsChanged?() }
     }
     @Published public var selectedTabID: UUID {
+        didSet { revealSelectedTabGroup(); onTabsChanged?() }
+    }
+    @Published public var tabGroups: [ReaderTabGroup] = [] {
         didSet { onTabsChanged?() }
     }
     var onTabsChanged: (() -> Void)?
     weak var tabStripView: NSView?
-    let tabViews = NSMapTable<NSUUID, NSView>.strongToWeakObjects()
+    let tabViews = ReaderTabViewRegistry()
+    let tabGroupViews = ReaderTabViewRegistry()
+    weak var newTabGroupDropView: NSView?
+    weak var sidebarTabHoverView: SidebarTabHoverView?
+    /// A drag changes the displayed order only; Escape and leaving the strip restore it immediately.
+    @Published var tabDragPreview: TabStripDragPreview?
     @Published public var homeCurrentPage: HomeTabPage = .home
     @Published var isHomeSidebarVisible = true
-    @Published var sidebarPanel: SidebarPanel? {
-        didSet {
-            if let sidebarPanel { lastSidebarPanel = sidebarPanel }
-        }
-    }
-    private var lastSidebarPanel: SidebarPanel
     @Published public var isShortcutsSheetPresented: Bool = false
     @Published public var shortcutsInitialCategory: ShortcutGuideCategory = .all
     public weak var nsWindow: NSWindow?
@@ -1414,13 +1412,6 @@ public final class ReaderWindowSession: ObservableObject, Identifiable {
         self.isPrimary = isPrimary
         self.tabs = tabs
         self.selectedTabID = selectedTabID
-        let initialPanel: SidebarPanel = tabs.contains { $0.id == selectedTabID && !$0.isHome } ? .openDocuments : .navigation
-        self.lastSidebarPanel = initialPanel
-        self.sidebarPanel = initialPanel
-    }
-
-    func toggleSidebarVisibility() {
-        sidebarPanel = sidebarPanel == nil ? lastSidebarPanel : nil
     }
 
     public var activeDocumentTab: DocumentTabState? {
@@ -1587,6 +1578,10 @@ public final class AppStore: ObservableObject {
         }
     }
 
+    @Published public var restoreTabsOnLaunch: Bool {
+        didSet { UserDefaults.standard.set(restoreTabsOnLaunch, forKey: Keys.restoreTabsOnLaunch) }
+    }
+
     /// Resolves the concrete GPU `PDFViewTheme` (`day`, `sepia`, or `night`) for the given UI appearance.
     public func resolvedPDFTheme(isDark: Bool) -> PDFViewTheme {
         readingThemeMode.resolvedTheme(isDark: isDark, useSepiaInLight: useSepiaForLightSystemTheme)
@@ -1615,14 +1610,7 @@ public final class AppStore: ObservableObject {
     }
 
     @Published public var tabsInSidebar: Bool {
-        didSet {
-            UserDefaults.standard.set(tabsInSidebar, forKey: "expertPDFReader.tabsInSidebar")
-            if tabsInSidebar && !oldValue {
-                for session in allWindowSessions {
-                    session.sidebarPanel = session.activeDocumentTab == nil ? .navigation : .openDocuments
-                }
-            }
-        }
+        didSet { UserDefaults.standard.set(tabsInSidebar, forKey: "expertPDFReader.tabsInSidebar") }
     }
 
     @Published public var appLanguage: AppLanguage {
@@ -1714,15 +1702,12 @@ public final class AppStore: ObservableObject {
     }
 
     func isLeftPanelVisible(in session: ReaderWindowSession) -> Bool {
-        if tabsInSidebar { return session.sidebarPanel != nil }
         return session.activeDocumentTab?.isLeftSidebarVisible ?? session.isHomeSidebarVisible
     }
 
     func toggleLeftPanel(in session: ReaderWindowSession) {
         withAnimation(AppAnimation.panel) {
-            if tabsInSidebar {
-                session.toggleSidebarVisibility()
-            } else if let tab = session.activeDocumentTab {
+            if let tab = session.activeDocumentTab {
                 tab.isLeftSidebarVisible.toggle()
             } else {
                 session.isHomeSidebarVisible.toggle()
@@ -1731,14 +1716,7 @@ public final class AppStore: ObservableObject {
     }
 
     func showSidebarTab(_ sidebarTab: ReaderSidebarTab) {
-        let session = activeSession
-        guard let tab = session.activeDocumentTab else { return }
-        if tabsInSidebar {
-            tab.activeSidebarTab = sidebarTab
-            session.sidebarPanel = .navigation
-        } else {
-            tab.showSidebarTab(sidebarTab)
-        }
+        activeSession.activeDocumentTab?.showSidebarTab(sidebarTab)
     }
 
     public func session(withID id: UUID?) -> ReaderWindowSession {
@@ -1852,10 +1830,12 @@ public final class AppStore: ObservableObject {
         static let recents = "expertPDFReader.Recents"
         static let favorites = "expertPDFReader.Favorites"
         static let bookmarks = "expertPDFReader.Bookmarks"
+        static let restoreTabsOnLaunch = "expertPDFReader.restoreTabsOnLaunch"
         static let readingPositions = "expertPDFReader.ReadingPositions"
         static let fileBookmarks = "expertPDFReader.FileBookmarks"
         static let openTabs = "expertPDFReader.OpenTabs"
         static let selectedTab = "expertPDFReader.SelectedTab"
+        static let tabGroups = "expertPDFReader.TabGroups"
         static let closedTabs = "expertPDFReader.ClosedTabs"
     }
 
@@ -1891,6 +1871,7 @@ public final class AppStore: ObservableObject {
         self.readingThemeMode = PDFReadingThemeMode(rawValue: savedModeRaw) ?? .system
 
         self.useSepiaForLightSystemTheme = defaults.bool(forKey: "expertPDFReader.useSepiaForLightSystemTheme")
+        self.restoreTabsOnLaunch = defaults.object(forKey: Keys.restoreTabsOnLaunch) as? Bool ?? true
 
         let savedAppRaw = defaults.string(forKey: "expertPDFReader.appearanceMode")
             ?? AppAppearanceMode.system.rawValue
@@ -2373,7 +2354,8 @@ public final class AppStore: ObservableObject {
         id: UUID,
         from sourceSessionID: UUID,
         to targetSessionID: UUID,
-        atDocumentIndex: Int? = nil
+        atDocumentIndex: Int? = nil,
+        intoGroup groupID: UUID? = nil
     ) {
         guard sourceSessionID != targetSessionID else { return }
         let sourceSession = session(withID: sourceSessionID)
@@ -2411,6 +2393,8 @@ public final class AppStore: ObservableObject {
             } else {
                 targetSession.tabs.append(newTab)
             }
+            targetSession.setTabGroup(id, to: groupID)
+            targetSession.normalizeTabGroupOrder()
             targetSession.selectedTabID = newTab.id
             activeWindowSessionID = targetSession.id
         }
@@ -2431,11 +2415,13 @@ public final class AppStore: ObservableObject {
 
         performAnimated(AppAnimation.tab) {
             for detached in sessionsToMerge {
+                let groups = detached.tabGroups
                 for tab in detached.tabs {
                     if case .document(let docState) = tab {
                         primarySession.tabs.append(.document(docState))
                     }
                 }
+                primarySession.tabGroups.append(contentsOf: groups)
                 detached.tabs.removeAll()
             }
             if let previouslyActiveDocID,
@@ -2445,6 +2431,7 @@ public final class AppStore: ObservableObject {
                 primarySession.selectedTabID = lastTab.id
             }
             activeWindowSessionID = primarySession.id
+            primarySession.normalizeTabGroupOrder()
         }
 
         for detached in sessionsToMerge {
@@ -2514,6 +2501,7 @@ public final class AppStore: ObservableObject {
         guard !items.isEmpty else { return }
         for item in items {
             let state = item.state
+            let group = allWindowSessions.compactMap { $0.tabGroup(containing: state.id) }.first
             closedTabs.removeAll { $0.documentID == state.documentID }
             closedTabs.append(
                 ClosedTabRecord(
@@ -2521,7 +2509,10 @@ public final class AppStore: ObservableObject {
                     tabIndex: item.index,
                     isClearMarginsEnabled: state.isClearMarginsEnabled,
                     isLeftSidebarVisible: state.isLeftSidebarVisible,
-                    activeSidebarTab: state.activeSidebarTab
+                    activeSidebarTab: state.activeSidebarTab,
+                    tabGroupID: group?.id,
+                    tabGroupName: group?.name,
+                    tabGroupColor: group?.color
                 )
             )
         }
@@ -2562,6 +2553,24 @@ public final class AppStore: ObservableObject {
             state.isClearMarginsEnabled = record.isClearMarginsEnabled
             state.isLeftSidebarVisible = record.isLeftSidebarVisible
             state.activeSidebarTab = record.activeSidebarTab
+            if let groupID = record.tabGroupID, let name = record.tabGroupName {
+                let target = session(withID: sessionID)
+                if !target.tabGroups.contains(where: { $0.id == groupID }) {
+                    target.tabGroups.append(ReaderTabGroup(id: groupID, name: name, tabIDs: [state.id],
+                        color: record.tabGroupColor ?? .next(excluding: target.tabGroups.map(\.color))))
+                } else {
+                    let members = target.tabs.indices.filter { target.tabGroup(containing: target.tabs[$0].id)?.id == groupID }
+                    let inserted = target.tabs.firstIndex { $0.id == state.id }!
+                    if let first = members.first, let last = members.last,
+                       (first - 1...last + 1).contains(inserted) {
+                        target.setTabGroup(state.id, to: groupID)
+                    } else {
+                        moveTab(state.id, intoGroup: groupID, in: target.id)
+                    }
+                }
+                target.revealSelectedTabGroup()
+                target.normalizeTabGroupOrder()
+            }
             if record.isClearMarginsEnabled {
                 state.applyClearMarginsIfNeeded()
             }
@@ -2590,17 +2599,28 @@ public final class AppStore: ObservableObject {
 
     /// Moves a document tab to `toDocumentIndex` among the open document tabs (keeping Home pinned at the start).
     public func moveDocumentTab(id: UUID, toDocumentIndex: Int, in sessionID: UUID? = nil) {
+        let target = session(withID: sessionID)
+        let documents = target.tabs.filter { !$0.isHome }
+        let index = max(0, min(documents.count - 1, toDocumentIndex))
+        let groupID = documents.indices.contains(index) ? target.tabGroup(containing: documents[index].id)?.id : nil
+        moveDocumentTab(id: id, toDocumentIndex: toDocumentIndex, intoGroup: groupID, in: sessionID)
+    }
+
+    func moveDocumentTab(id: UUID, toDocumentIndex: Int, intoGroup groupID: UUID?, in sessionID: UUID? = nil) {
         let targetSession = session(withID: sessionID)
         let homeCount = targetSession.tabs.prefix(while: \.isHome).count
         let docCount = targetSession.tabs.count - homeCount
-        guard docCount > 1,
+        guard docCount > 0,
               let fromTabIndex = targetSession.tabs.firstIndex(where: { $0.id == id }),
               fromTabIndex >= homeCount else { return }
         let targetDocIndex = max(0, min(docCount - 1, toDocumentIndex))
         let toTabIndex = homeCount + targetDocIndex
-        guard fromTabIndex != toTabIndex else { return }
-        let moved = targetSession.tabs.remove(at: fromTabIndex)
-        targetSession.tabs.insert(moved, at: toTabIndex)
+        var reordered = targetSession.tabs
+        let moved = reordered.remove(at: fromTabIndex)
+        reordered.insert(moved, at: toTabIndex)
+        targetSession.setTabGroup(id, to: groupID)
+        targetSession.tabs = reordered
+        targetSession.normalizeTabGroupOrder()
     }
 
     /// When two or more open document tabs (across any reader window) have the same title, returns the nearest
@@ -2748,7 +2768,10 @@ public final class AppStore: ObservableObject {
                     tabIndex: record.tabIndex,
                     isClearMarginsEnabled: record.isClearMarginsEnabled,
                     isLeftSidebarVisible: record.isLeftSidebarVisible,
-                    activeSidebarTab: record.activeSidebarTab
+                    activeSidebarTab: record.activeSidebarTab,
+                    tabGroupID: record.tabGroupID,
+                    tabGroupName: record.tabGroupName,
+                    tabGroupColor: record.tabGroupColor
                 )
             }
             for tab in allOpenDocumentTabs {
@@ -3015,7 +3038,10 @@ public final class AppStore: ObservableObject {
                     tabIndex: record.tabIndex,
                     isClearMarginsEnabled: record.isClearMarginsEnabled,
                     isLeftSidebarVisible: record.isLeftSidebarVisible,
-                    activeSidebarTab: record.activeSidebarTab
+                    activeSidebarTab: record.activeSidebarTab,
+                    tabGroupID: record.tabGroupID,
+                    tabGroupName: record.tabGroupName,
+                    tabGroupColor: record.tabGroupColor
                 )
             }
         }
@@ -3149,10 +3175,21 @@ public final class AppStore: ObservableObject {
         let defaults = UserDefaults.standard
         defaults.set(paths, forKey: Keys.openTabs)
         defaults.set(activeDocumentTab?.documentID.normalizedPath, forKey: Keys.selectedTab)
+        let groups = allWindowSessions.flatMap { session in
+            session.tabGroups.map { group in
+                SavedTabGroup(id: group.id, name: group.name,
+                    paths: session.tabs.compactMap { tab in
+                        guard case .document(let state) = tab, group.tabIDs.contains(tab.id) else { return nil }
+                        return state.documentID.normalizedPath
+                    }, isCollapsed: group.isCollapsed, color: group.color)
+            }
+        }
+        if let data = try? JSONEncoder().encode(groups) { defaults.set(data, forKey: Keys.tabGroups) }
     }
 
     /// Reopens the last session's tabs, skipping files that are gone or need a password.
     private func restoreOpenTabs() {
+        guard restoreTabsOnLaunch else { return }
         let defaults = UserDefaults.standard
         guard let paths = defaults.stringArray(forKey: Keys.openTabs), !paths.isEmpty else { return }
         let selectedPath = defaults.string(forKey: Keys.selectedTab)
@@ -3168,14 +3205,27 @@ public final class AppStore: ObservableObject {
                 selectedID = state.id
             }
         }
-        isRestoringSession = false
-
         if let selectedID {
             selectedTabID = selectedID
-            if tabsInSidebar { primarySession.sidebarPanel = .openDocuments }
         } else {
             selectHomeTab()
         }
+        if let data = defaults.data(forKey: Keys.tabGroups),
+           let groups = try? JSONDecoder().decode([SavedTabGroup].self, from: data) {
+            var restoredColors: [TabGroupColor] = []
+            primarySession.tabGroups = groups.compactMap { group in
+                let ids = Set(group.paths.compactMap { path -> UUID? in
+                    let resolved = resolveFileURL(path: path).map { DocumentID(url: $0).normalizedPath } ?? path
+                    return allOpenDocumentTabs.first { $0.documentID.normalizedPath == resolved }?.id
+                })
+                guard !ids.isEmpty else { return nil }
+                let color = group.color ?? .next(excluding: restoredColors)
+                restoredColors.append(color)
+                return ReaderTabGroup(id: group.id, name: group.name, tabIDs: ids, isCollapsed: group.isCollapsed, color: color)
+            }
+        }
+        primarySession.normalizeTabGroupOrder()
+        isRestoringSession = false
         saveOpenTabs()
     }
 

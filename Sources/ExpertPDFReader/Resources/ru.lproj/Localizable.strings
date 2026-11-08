@@ -293,6 +293,10 @@
 "Restart Now" = "Перезапустить";
 "重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。|||Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "Меню macOS («Файл», «Правка», «Окно» и т. д.) переключатся на этот язык после перезапуска.";
 "Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "Меню macOS («Файл», «Правка», «Окно» и т. д.) переключатся на этот язык после перезапуска.";
+"恢复标签页|||Restore Tabs" = "Восстанавливать вкладки";
+"Restore Tabs" = "Восстанавливать вкладки";
+"启动时恢复上次退出前打开的标签页。|||Reopen the tabs from your previous session when the app starts." = "При запуске приложения открывать вкладки предыдущего сеанса.";
+"Reopen the tabs from your previous session when the app starts." = "При запуске приложения открывать вкладки предыдущего сеанса.";
 "默认 PDF 应用|||Default PDF App" = "Приложение для PDF по умолчанию";
 "Default PDF App" = "Приложение для PDF по умолчанию";
 "设为默认|||Make Default" = "Использовать по умолчанию";
@@ -427,3 +431,70 @@
 "Clear Favorites?" = "Очистить избранное?";
 "PDF 文件会保留在原来的位置。|||Your PDF files will stay where they are." = "Ваши PDF-файлы останутся на прежнем месте.";
 "Your PDF files will stay where they are." = "Ваши PDF-файлы останутся на прежнем месте.";
+
+"新建分组…|||New Group…" = "Новая группа…";
+"New Group…" = "Новая группа…";
+
+"分组名称|||Group Name" = "Название группы";
+"Group Name" = "Название группы";
+
+"创建分组|||Create Group" = "Создать группу";
+"Create Group" = "Создать группу";
+
+"重命名分组…|||Rename Group…" = "Переименовать группу…";
+"Rename Group…" = "Переименовать группу…";
+
+"添加到分组|||Add to Group" = "Добавить в группу";
+"Add to Group" = "Добавить в группу";
+
+"移出分组|||Remove from Group" = "Удалить из группы";
+"Remove from Group" = "Удалить из группы";
+
+"取消分组|||Ungroup Tabs" = "Разгруппировать вкладки";
+"Ungroup Tabs" = "Разгруппировать вкладки";
+
+"关闭分组|||Close Group" = "Закрыть группу";
+"Close Group" = "Закрыть группу";
+
+"已折叠|||Collapsed" = "Свёрнуто";
+"Collapsed" = "Свёрнуто";
+
+"已展开|||Expanded" = "Развёрнуто";
+"Expanded" = "Развёрнуто";
+
+"保存|||Save" = "Сохранить";
+"Save" = "Сохранить";
+
+"未分组|||Ungrouped" = "Без группы";
+"Ungrouped" = "Без группы";
+
+"蓝色|||Blue" = "Синий";
+"Blue" = "Синий";
+
+"紫色|||Purple" = "Фиолетовый";
+"Purple" = "Фиолетовый";
+
+"粉色|||Pink" = "Розовый";
+"Pink" = "Розовый";
+
+"红色|||Red" = "Красный";
+"Red" = "Красный";
+
+"橙色|||Orange" = "Оранжевый";
+"Orange" = "Оранжевый";
+
+"黄色|||Yellow" = "Жёлтый";
+"Yellow" = "Жёлтый";
+
+"绿色|||Green" = "Зелёный";
+"Green" = "Зелёный";
+
+"青色|||Teal" = "Бирюзовый";
+"Teal" = "Бирюзовый";
+
+"灰色|||Gray" = "Серый";
+"Gray" = "Серый";
+
+
+"颜色|||Color" = "Цвет";
+"Color" = "Цвет";

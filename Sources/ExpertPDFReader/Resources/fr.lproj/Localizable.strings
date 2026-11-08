@@ -293,6 +293,10 @@
 "Restart Now" = "Redémarrer maintenant";
 "重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。|||Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "Les menus fournis par macOS (Fichier, Édition, Fenêtre…) passent à cette langue après un redémarrage.";
 "Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "Les menus fournis par macOS (Fichier, Édition, Fenêtre…) passent à cette langue après un redémarrage.";
+"恢复标签页|||Restore Tabs" = "Restaurer les onglets";
+"Restore Tabs" = "Restaurer les onglets";
+"启动时恢复上次退出前打开的标签页。|||Reopen the tabs from your previous session when the app starts." = "Rouvrir les onglets de la session précédente au démarrage de l’app.";
+"Reopen the tabs from your previous session when the app starts." = "Rouvrir les onglets de la session précédente au démarrage de l’app.";
 "默认 PDF 应用|||Default PDF App" = "App PDF par défaut";
 "Default PDF App" = "App PDF par défaut";
 "设为默认|||Make Default" = "Définir par défaut";
@@ -427,3 +431,70 @@
 "Clear Favorites?" = "Vider les favoris ?";
 "PDF 文件会保留在原来的位置。|||Your PDF files will stay where they are." = "Vos fichiers PDF resteront à leur emplacement actuel.";
 "Your PDF files will stay where they are." = "Vos fichiers PDF resteront à leur emplacement actuel.";
+
+"新建分组…|||New Group…" = "Nouveau groupe…";
+"New Group…" = "Nouveau groupe…";
+
+"分组名称|||Group Name" = "Nom du groupe";
+"Group Name" = "Nom du groupe";
+
+"创建分组|||Create Group" = "Créer le groupe";
+"Create Group" = "Créer le groupe";
+
+"重命名分组…|||Rename Group…" = "Renommer le groupe…";
+"Rename Group…" = "Renommer le groupe…";
+
+"添加到分组|||Add to Group" = "Ajouter au groupe";
+"Add to Group" = "Ajouter au groupe";
+
+"移出分组|||Remove from Group" = "Retirer du groupe";
+"Remove from Group" = "Retirer du groupe";
+
+"取消分组|||Ungroup Tabs" = "Dissocier les onglets";
+"Ungroup Tabs" = "Dissocier les onglets";
+
+"关闭分组|||Close Group" = "Fermer le groupe";
+"Close Group" = "Fermer le groupe";
+
+"已折叠|||Collapsed" = "Réduit";
+"Collapsed" = "Réduit";
+
+"已展开|||Expanded" = "Développé";
+"Expanded" = "Développé";
+
+"保存|||Save" = "Enregistrer";
+"Save" = "Enregistrer";
+
+"未分组|||Ungrouped" = "Sans groupe";
+"Ungrouped" = "Sans groupe";
+
+"蓝色|||Blue" = "Bleu";
+"Blue" = "Bleu";
+
+"紫色|||Purple" = "Violet";
+"Purple" = "Violet";
+
+"粉色|||Pink" = "Rose";
+"Pink" = "Rose";
+
+"红色|||Red" = "Rouge";
+"Red" = "Rouge";
+
+"橙色|||Orange" = "Orange";
+"Orange" = "Orange";
+
+"黄色|||Yellow" = "Jaune";
+"Yellow" = "Jaune";
+
+"绿色|||Green" = "Vert";
+"Green" = "Vert";
+
+"青色|||Teal" = "Sarcelle";
+"Teal" = "Sarcelle";
+
+"灰色|||Gray" = "Gris";
+"Gray" = "Gris";
+
+
+"颜色|||Color" = "Couleur";
+"Color" = "Couleur";

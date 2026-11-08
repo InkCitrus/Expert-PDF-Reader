@@ -293,6 +293,10 @@
 "Restart Now" = "지금 재시동";
 "重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。|||Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "재시동하면 macOS가 제공하는 메뉴(파일, 편집, 윈도우 등)도 선택한 언어로 바뀝니다.";
 "Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "재시동하면 macOS가 제공하는 메뉴(파일, 편집, 윈도우 등)도 선택한 언어로 바뀝니다.";
+"恢复标签页|||Restore Tabs" = "탭 복원";
+"Restore Tabs" = "탭 복원";
+"启动时恢复上次退出前打开的标签页。|||Reopen the tabs from your previous session when the app starts." = "앱을 시작할 때 이전에 열려 있던 탭을 다시 엽니다.";
+"Reopen the tabs from your previous session when the app starts." = "앱을 시작할 때 이전에 열려 있던 탭을 다시 엽니다.";
 "默认 PDF 应用|||Default PDF App" = "기본 PDF 앱";
 "Default PDF App" = "기본 PDF 앱";
 "设为默认|||Make Default" = "기본으로 설정";
@@ -427,3 +431,70 @@
 "Clear Favorites?" = "즐겨찾기를 비울까요?";
 "PDF 文件会保留在原来的位置。|||Your PDF files will stay where they are." = "PDF 파일은 원래 위치에 그대로 유지됩니다.";
 "Your PDF files will stay where they are." = "PDF 파일은 원래 위치에 그대로 유지됩니다.";
+
+"新建分组…|||New Group…" = "새 그룹…";
+"New Group…" = "새 그룹…";
+
+"分组名称|||Group Name" = "그룹 이름";
+"Group Name" = "그룹 이름";
+
+"创建分组|||Create Group" = "그룹 만들기";
+"Create Group" = "그룹 만들기";
+
+"重命名分组…|||Rename Group…" = "그룹 이름 변경…";
+"Rename Group…" = "그룹 이름 변경…";
+
+"添加到分组|||Add to Group" = "그룹에 추가";
+"Add to Group" = "그룹에 추가";
+
+"移出分组|||Remove from Group" = "그룹에서 제거";
+"Remove from Group" = "그룹에서 제거";
+
+"取消分组|||Ungroup Tabs" = "그룹 해제";
+"Ungroup Tabs" = "그룹 해제";
+
+"关闭分组|||Close Group" = "그룹 닫기";
+"Close Group" = "그룹 닫기";
+
+"已折叠|||Collapsed" = "접힘";
+"Collapsed" = "접힘";
+
+"已展开|||Expanded" = "펼쳐짐";
+"Expanded" = "펼쳐짐";
+
+"保存|||Save" = "저장";
+"Save" = "저장";
+
+"未分组|||Ungrouped" = "그룹 없음";
+"Ungrouped" = "그룹 없음";
+
+"蓝色|||Blue" = "파란색";
+"Blue" = "파란색";
+
+"紫色|||Purple" = "보라색";
+"Purple" = "보라색";
+
+"粉色|||Pink" = "분홍색";
+"Pink" = "분홍색";
+
+"红色|||Red" = "빨간색";
+"Red" = "빨간색";
+
+"橙色|||Orange" = "주황색";
+"Orange" = "주황색";
+
+"黄色|||Yellow" = "노란색";
+"Yellow" = "노란색";
+
+"绿色|||Green" = "초록색";
+"Green" = "초록색";
+
+"青色|||Teal" = "청록색";
+"Teal" = "청록색";
+
+"灰色|||Gray" = "회색";
+"Gray" = "회색";
+
+
+"颜色|||Color" = "색상";
+"Color" = "색상";

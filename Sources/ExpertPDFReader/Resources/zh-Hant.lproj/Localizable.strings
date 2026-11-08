@@ -293,6 +293,10 @@
 "Restart Now" = "立即重新啟動";
 "重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。|||Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "重新啟動後，由 macOS 提供的選單（檔案、編輯、視窗等）也會切換為所選語言。";
 "Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "重新啟動後，由 macOS 提供的選單（檔案、編輯、視窗等）也會切換為所選語言。";
+"恢复标签页|||Restore Tabs" = "還原分頁";
+"Restore Tabs" = "還原分頁";
+"启动时恢复上次退出前打开的标签页。|||Reopen the tabs from your previous session when the app starts." = "啟動時還原上次結束前開啟的分頁。";
+"Reopen the tabs from your previous session when the app starts." = "啟動時還原上次結束前開啟的分頁。";
 "默认 PDF 应用|||Default PDF App" = "預設 PDF 應用程式";
 "Default PDF App" = "預設 PDF 應用程式";
 "设为默认|||Make Default" = "設為預設";
@@ -427,3 +431,70 @@
 "Clear Favorites?" = "清空收藏夾？";
 "PDF 文件会保留在原来的位置。|||Your PDF files will stay where they are." = "PDF 檔案會保留在原來的位置。";
 "Your PDF files will stay where they are." = "PDF 檔案會保留在原來的位置。";
+
+"新建分组…|||New Group…" = "新增分組…";
+"New Group…" = "新增分組…";
+
+"分组名称|||Group Name" = "分組名稱";
+"Group Name" = "分組名稱";
+
+"创建分组|||Create Group" = "建立分組";
+"Create Group" = "建立分組";
+
+"重命名分组…|||Rename Group…" = "重新命名分組…";
+"Rename Group…" = "重新命名分組…";
+
+"添加到分组|||Add to Group" = "加入分組";
+"Add to Group" = "加入分組";
+
+"移出分组|||Remove from Group" = "移出分組";
+"Remove from Group" = "移出分組";
+
+"取消分组|||Ungroup Tabs" = "取消分組";
+"Ungroup Tabs" = "取消分組";
+
+"关闭分组|||Close Group" = "關閉分組";
+"Close Group" = "關閉分組";
+
+"已折叠|||Collapsed" = "已收合";
+"Collapsed" = "已收合";
+
+"已展开|||Expanded" = "已展開";
+"Expanded" = "已展開";
+
+"保存|||Save" = "儲存";
+"Save" = "儲存";
+
+"未分组|||Ungrouped" = "未分組";
+"Ungrouped" = "未分組";
+
+"蓝色|||Blue" = "藍色";
+"Blue" = "藍色";
+
+"紫色|||Purple" = "紫色";
+"Purple" = "紫色";
+
+"粉色|||Pink" = "粉紅色";
+"Pink" = "粉紅色";
+
+"红色|||Red" = "紅色";
+"Red" = "紅色";
+
+"橙色|||Orange" = "橘色";
+"Orange" = "橘色";
+
+"黄色|||Yellow" = "黃色";
+"Yellow" = "黃色";
+
+"绿色|||Green" = "綠色";
+"Green" = "綠色";
+
+"青色|||Teal" = "青色";
+"Teal" = "青色";
+
+"灰色|||Gray" = "灰色";
+"Gray" = "灰色";
+
+
+"颜色|||Color" = "顏色";
+"Color" = "顏色";

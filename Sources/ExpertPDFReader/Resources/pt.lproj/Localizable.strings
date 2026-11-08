@@ -293,6 +293,10 @@
 "Restart Now" = "Reiniciar agora";
 "重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。|||Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "Os menus fornecidos pelo macOS (Arquivo, Editar, Janela…) mudam para este idioma após reiniciar.";
 "Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "Os menus fornecidos pelo macOS (Arquivo, Editar, Janela…) mudam para este idioma após reiniciar.";
+"恢复标签页|||Restore Tabs" = "Restaurar abas";
+"Restore Tabs" = "Restaurar abas";
+"启动时恢复上次退出前打开的标签页。|||Reopen the tabs from your previous session when the app starts." = "Reabrir as abas da sessão anterior ao iniciar o app.";
+"Reopen the tabs from your previous session when the app starts." = "Reabrir as abas da sessão anterior ao iniciar o app.";
 "默认 PDF 应用|||Default PDF App" = "App de PDF padrão";
 "Default PDF App" = "App de PDF padrão";
 "设为默认|||Make Default" = "Definir como padrão";
@@ -427,3 +431,70 @@
 "Clear Favorites?" = "Limpar os favoritos?";
 "PDF 文件会保留在原来的位置。|||Your PDF files will stay where they are." = "Os seus ficheiros PDF permanecerão no local atual.";
 "Your PDF files will stay where they are." = "Os seus ficheiros PDF permanecerão no local atual.";
+
+"新建分组…|||New Group…" = "Novo grupo…";
+"New Group…" = "Novo grupo…";
+
+"分组名称|||Group Name" = "Nome do grupo";
+"Group Name" = "Nome do grupo";
+
+"创建分组|||Create Group" = "Criar grupo";
+"Create Group" = "Criar grupo";
+
+"重命名分组…|||Rename Group…" = "Renomear grupo…";
+"Rename Group…" = "Renomear grupo…";
+
+"添加到分组|||Add to Group" = "Adicionar ao grupo";
+"Add to Group" = "Adicionar ao grupo";
+
+"移出分组|||Remove from Group" = "Remover do grupo";
+"Remove from Group" = "Remover do grupo";
+
+"取消分组|||Ungroup Tabs" = "Desagrupar abas";
+"Ungroup Tabs" = "Desagrupar abas";
+
+"关闭分组|||Close Group" = "Fechar grupo";
+"Close Group" = "Fechar grupo";
+
+"已折叠|||Collapsed" = "Recolhido";
+"Collapsed" = "Recolhido";
+
+"已展开|||Expanded" = "Expandido";
+"Expanded" = "Expandido";
+
+"保存|||Save" = "Salvar";
+"Save" = "Salvar";
+
+"未分组|||Ungrouped" = "Sem grupo";
+"Ungrouped" = "Sem grupo";
+
+"蓝色|||Blue" = "Azul";
+"Blue" = "Azul";
+
+"紫色|||Purple" = "Roxo";
+"Purple" = "Roxo";
+
+"粉色|||Pink" = "Rosa";
+"Pink" = "Rosa";
+
+"红色|||Red" = "Vermelho";
+"Red" = "Vermelho";
+
+"橙色|||Orange" = "Laranja";
+"Orange" = "Laranja";
+
+"黄色|||Yellow" = "Amarelo";
+"Yellow" = "Amarelo";
+
+"绿色|||Green" = "Verde";
+"Green" = "Verde";
+
+"青色|||Teal" = "Verde-azulado";
+"Teal" = "Verde-azulado";
+
+"灰色|||Gray" = "Cinza";
+"Gray" = "Cinza";
+
+
+"颜色|||Color" = "Cor";
+"Color" = "Cor";

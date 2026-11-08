@@ -55,6 +55,96 @@ struct ReaderRegressionTests {
             let store = freshStore()
             let a = store.openDocument(at: alpha, interactive: false)!
             let b = store.openDocument(at: beta, interactive: false)!
+            let c = store.openDocument(at: gamma, interactive: false)!
+            let session = store.primarySession
+            let unnamed = store.createTabGroup(name: "  \n", containing: a.id)!
+            check(session.tabGroups.first?.name == "" && session.tabGroups.first?.tabIDs == [a.id],
+                  "blank group names create a color-only group with its document intact")
+            store.ungroupTabs(unnamed)
+            let groupID = store.createTabGroup(name: " Lectures ", containing: a.id)!
+            store.moveTab(c.id, intoGroup: groupID)
+            check(session.tabGroups.count == 1 && session.tabGroups[0].name == "Lectures"
+                  && session.tabs.filter { !$0.isHome }.map(\.id) == [a.id, c.id, b.id],
+                  "adding a tab to a named group keeps its members together")
+            session.selectedTabID = a.id
+            session.toggleTabGroup(groupID)
+            check(session.selectedTabScrollID == groupID && session.activeDocumentTab === a,
+                  "collapsing the active group keeps the PDF open and scrolls to its header")
+            store.saveSession()
+            let restored = AppStore()
+            let restoredGroup = restored.primarySession.tabGroups.first
+            check(restoredGroup?.id == groupID && restoredGroup?.name == "Lectures"
+                  && restoredGroup?.isCollapsed == true && restoredGroup?.tabIDs.count == 2
+                  && restoredGroup?.color == session.tabGroups[0].color,
+                  "session restoration preserves group names, members, color and collapsed state")
+            restored.selectNextTab()
+            check(restored.activeDocumentTab?.documentID == c.documentID
+                  && restored.primarySession.tabGroups.first?.isCollapsed == false,
+                  "keyboard switching automatically reveals a tab inside a collapsed group")
+            store.moveTab(c.id, intoGroup: nil)
+            check(session.tabGroup(containing: c.id) == nil && session.tabGroups[0].tabIDs == [a.id],
+                  "removing a tab from a group preserves its remaining members")
+            store.moveTab(c.id, intoGroup: groupID)
+            let second = store.createTabGroup(name: "Notes", containing: c.id)!
+            let colors = Dictionary(uniqueKeysWithValues: session.tabGroups.map { ($0.id, $0.color) })
+            check(Set(colors.values).count == 2, "new groups receive distinct colors while palette colors are available")
+            check(session.tabs.filter { !$0.isHome }.map(\.id) == [a.id, c.id, b.id]
+                  && session.tabGroups.count == 2, "creating a group from a grouped tab does not split the old group's members")
+            store.moveDocumentTab(id: b.id, toDocumentIndex: 1)
+            check(session.tabGroup(containing: b.id)?.id == second, "drag-style reordering into a group updates membership")
+            session.moveTabGroup(second, before: groupID)
+            check(session.tabGroups.map(\.id) == [second, groupID]
+                  && session.tabs.filter { !$0.isHome }.map(\.id) == [b.id, c.id, a.id],
+                  "reordering a group moves its whole block in the shared tab order")
+            session.moveTabGroup(groupID, before: second)
+            check(session.tabGroups.map(\.id) == [groupID, second], "groups can move before another group without losing members")
+            store.renameTabGroup(second, name: "Papers")
+            check(session.tabGroups.allSatisfy { colors[$0.id] == $0.color }, "renaming and reordering preserve group colors")
+            store.setTabGroupColor(second, color: .teal)
+            check(session.tabGroups.first(where: { $0.id == second })?.color == .teal
+                  && session.tabGroups.first(where: { $0.id == groupID })?.color == colors[groupID],
+                  "choosing a group color updates only that group")
+            store.renameTabGroup(second, name: " \n ")
+            store.saveSession()
+            let recolored = AppStore()
+            let unnamedRestored = recolored.primarySession.tabGroups.first(where: { $0.id == second })
+            check(unnamedRestored?.color == .teal && unnamedRestored?.name == "" && unnamedRestored?.tabIDs.count == 2,
+                  "renaming a group to blank preserves its chosen color and members across session restoration")
+            store.renameTabGroup(second, name: "Papers")
+            let closedOrder = session.tabs.filter { session.tabGroup(containing: $0.id)?.id == second }.map { $0.title }
+            store.closeTabGroup(second)
+            check(session.tabGroups.count == 1 && session.tabs.filter { !$0.isHome }.count == 1,
+                  "closing a group closes only its member tabs and removes the empty group")
+            store.reopenClosedTab()
+            store.reopenClosedTab()
+            check(session.tabGroups.first(where: { $0.id == second })?.name == "Papers"
+                  && session.tabGroups.first(where: { $0.id == second })?.tabIDs.count == 2
+                  && session.tabGroups.first(where: { $0.id == second })?.color == .teal
+                  && session.tabs.filter { session.tabGroup(containing: $0.id)?.id == second }.map { $0.title } == closedOrder,
+                  "reopening closed grouped tabs restores their shared group, color and original order")
+            store.ungroupTabs(groupID)
+            store.ungroupTabs(second)
+            check(session.tabGroups.isEmpty && session.tabs.filter { !$0.isHome }.count == 3,
+                  "ungrouping leaves every PDF open")
+            withExtendedLifetime((restored, recolored)) {}
+        }
+        do {
+            let store = freshStore()
+            let a = store.openDocument(at: alpha, interactive: false)!
+            let b = store.openDocument(at: beta, interactive: false)!
+            let legacy = [SavedTabGroup(id: UUID(), name: "First", paths: [a.documentID.normalizedPath], isCollapsed: false),
+                          SavedTabGroup(id: UUID(), name: "Second", paths: [b.documentID.normalizedPath], isCollapsed: true)]
+            defaults.set(try JSONEncoder().encode(legacy), forKey: "expertPDFReader.TabGroups")
+            let restored = AppStore()
+            check(restored.primarySession.tabGroups.count == 2
+                  && Set(restored.primarySession.tabGroups.map(\.color)).count == 2,
+                  "groups saved before colors were introduced restore with distinct colors")
+            withExtendedLifetime(store) {}
+        }
+        do {
+            let store = freshStore()
+            let a = store.openDocument(at: alpha, interactive: false)!
+            let b = store.openDocument(at: beta, interactive: false)!
             store.selectedTabID = a.id
             check(defaults.string(forKey: "expertPDFReader.SelectedTab") == a.documentID.normalizedPath,
                   "selection persists the newly selected tab")
@@ -89,6 +179,75 @@ struct ReaderRegressionTests {
             reopened.beginSearch()
             check(menuInvalidations > 0, "active document changes invalidate menu command state")
             withExtendedLifetime(menuObservation) {}
+        }
+        do {
+            let store = freshStore()
+            let tab = store.openDocument(at: alpha, interactive: false)!
+            let session = store.primarySession
+            store.tabsInSidebar = true
+            store.toggleLeftPanel(in: session)
+            check(!tab.isLeftSidebarVisible && store.tabsInSidebar && store.activeDocumentTab === tab,
+                  "page navigation visibility stays independent of sidebar tabs")
+            store.showSidebarTab(.outline)
+            check(tab.isLeftSidebarVisible && tab.activeSidebarTab == .outline && store.tabsInSidebar,
+                  "opening the outline never replaces the sidebar tab list")
+            store.selectHomeTab(in: session.id)
+            store.toggleLeftPanel(in: session)
+            check(!session.isHomeSidebarVisible && tab.isLeftSidebarVisible && store.tabsInSidebar,
+                  "Home navigation can be hidden without changing document navigation or sidebar tabs")
+        }
+        do {
+            let store = freshStore()
+            let a = store.openDocument(at: alpha, interactive: false)!
+            let b = store.openDocument(at: beta, interactive: false)!
+            let spot = DocumentTabState.ReadingSpot(pageIndex: 2, point: CGPoint(x: 280, y: 420))
+            let scan = BookPageScan(readsRightToLeft: true)
+            var position = a.readingPosition
+            position.pageIndex = 2
+            position.readingSpot = spot
+            position.zoomScale = 1.7
+            position.isAutoScaling = false
+            position.layoutMode = .twoPagesCover
+            position.pageDirection = .leftToRight
+            position.bookPageScan = scan
+            a.restore(position)
+            b.currentPageIndex = 1
+            store.selectedTabID = a.id
+            store.saveSession()
+
+            let restored = AppStore()
+            let active = restored.activeDocumentTab!
+            check(restored.restoreTabsOnLaunch && restored.allOpenDocumentTabs.map(\.documentID) == [a.documentID, b.documentID]
+                  && active.documentID == a.documentID && active.currentPageIndex == 2 && active.readingSpot == spot,
+                  "tab restoration is on by default and restores tab order, selection and reading positions")
+            let savedPositions = defaults.data(forKey: "expertPDFReader.ReadingPositions")
+            restored.restoreTabsOnLaunch = false
+            check(restored.allOpenDocumentTabs.count == 2 && active.currentPageIndex == 2 && active.readingSpot == spot,
+                  "disabling tab restoration leaves the current session open")
+            check(defaults.data(forKey: "expertPDFReader.ReadingPositions") == savedPositions,
+                  "disabling tab restoration never clears saved reading positions")
+            restored.saveSession()
+
+            let restarted = AppStore()
+            check(!restarted.restoreTabsOnLaunch && restarted.allOpenDocumentTabs.isEmpty && restarted.activeDocumentTab == nil,
+                  "launching with tab restoration off opens Home without reopening PDFs")
+            let manual = restarted.openDocument(at: alpha, interactive: false)!
+            check(manual.currentPageIndex == 2 && manual.readingSpot == spot && manual.zoomScale == 1.7
+                  && !manual.isAutoScaling && manual.layoutMode == .twoPagesCover
+                  && manual.pageDirection == .leftToRight && manual.pageScan == scan,
+                  "manually opening a PDF still restores its page, scroll, zoom, layout and page scan")
+            manual.currentPageIndex = 3
+            let newSpot = DocumentTabState.ReadingSpot(pageIndex: 3, point: CGPoint(x: 200, y: 300))
+            manual.readingSpot = newSpot
+            restarted.saveSession()
+            let home = AppStore()
+            check(home.allOpenDocumentTabs.isEmpty, "tab restoration stays off after a session is saved")
+            home.restoreTabsOnLaunch = true
+            check(home.allOpenDocumentTabs.isEmpty, "enabling tab restoration takes effect on the next launch")
+            let resumed = AppStore()
+            check(resumed.restoreTabsOnLaunch && resumed.activeDocumentTab?.documentID == a.documentID
+                  && resumed.activeDocumentTab?.currentPageIndex == 3 && resumed.activeDocumentTab?.readingSpot == newSpot,
+                  "re-enabling tab restoration reopens the last session with reading progress saved while it was off")
         }
         do {
             let store = freshStore()

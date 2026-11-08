@@ -337,10 +337,6 @@ extension ReaderWindowSession {
         return rect.insetBy(dx: -12, dy: -16).contains(point)
     }
 
-    func isNewTabGroupDrop(at point: NSPoint) -> Bool {
-        visibleScreenRect(newTabGroupDropView)?.contains(point) == true
-    }
-
     private func visibleScreenRect(_ view: NSView?) -> NSRect? {
         guard let view, let window = view.window else { return nil }
         let visible = view.bounds.intersection(view.visibleRect)
@@ -378,24 +374,6 @@ extension ReaderWindowSession {
         guard let view = tabStripView as? TabStripAnchorView else { return }
         view.insertionPosition = nil
         view.displayIfNeeded()
-    }
-}
-
-struct TabDropZoneAnchor: NSViewRepresentable {
-    let onAttach: (NSView) -> Void
-    func makeNSView(context: Context) -> AnchorView { AnchorView() }
-    func updateNSView(_ view: AnchorView, context: Context) {
-        view.onAttach = onAttach
-        if view.window != nil { onAttach(view) }
-    }
-    final class AnchorView: NSView {
-        var onAttach: ((NSView) -> Void)?
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
-        override func isAccessibilityElement() -> Bool { false }
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            if window != nil { onAttach?(self) }
-        }
     }
 }
 

@@ -1396,7 +1396,6 @@ public final class ReaderWindowSession: ObservableObject, Identifiable {
     weak var tabStripView: NSView?
     let tabViews = ReaderTabViewRegistry()
     let tabGroupViews = ReaderTabViewRegistry()
-    weak var newTabGroupDropView: NSView?
     weak var sidebarTabHoverView: SidebarTabHoverView?
     /// A drag changes the displayed order only; Escape and leaving the strip restore it immediately.
     @Published var tabDragPreview: TabStripDragPreview?

@@ -35,7 +35,8 @@ swiftc -sdk "$SDK_PATH" -target "$(uname -m)-apple-macos14.0" -module-cache-path
 if [[ "${1:-}" == "--ui" || "${1:-}" == "--scene" ]]; then
     /usr/bin/codesign --force --sign - "$TEST_APP"
 fi
-# Input stays inside the QA process; no LaunchServices registration or foreground takeover is needed.
+# By default input stays inside the QA process; no LaunchServices registration or foreground takeover is needed.
+# An attended TAB_DRAG_QA_FOCUS=exits-top TAB_DRAG_QA_WINDOWSERVER=1 run also tests real mouse delivery.
 "$TEST_BINARY"
 if [[ "${1:-}" != "--ui" && "${1:-}" != "--scene" ]]; then
     swiftc -sdk "$SDK_PATH" -module-cache-path build/ModuleCache -parse-as-library \

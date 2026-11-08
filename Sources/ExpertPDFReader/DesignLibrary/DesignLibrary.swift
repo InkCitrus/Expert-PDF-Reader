@@ -256,8 +256,8 @@ public enum AppPalette {
         color == .orange || color == .yellow ? Color(hex: 0x262218) : .white
     }
 
-    public static func tabOutline(_ group: TabGroupColor?, _ isDark: Bool) -> Color {
-        let base = NSColor(group.map { tabGroupFill($0, isDark) } ?? accentBlue)
+    public static func tabOutline(_ group: TabGroupColor, _ isDark: Bool) -> Color {
+        let base = NSColor(tabGroupFill(group, isDark))
         return Color(nsColor: base.blended(withFraction: isDark ? 0.35 : 0, of: .white) ?? base)
     }
 

@@ -115,6 +115,9 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         check(session.tabStripView!.bounds.width > 48,
               "closing the drawer preserves the full text layout while its visible edge moves")
         await settle()
+        if session.tabStripView!.bounds.width > 48 {
+            print("INFO close widths strip=\(session.tabStripView!.bounds.width), hover=\(session.sidebarTabHoverView?.bounds.width ?? 0), preview=\(session.tabDragPreview != nil)")
+        }
         check(session.tabStripView!.bounds.width <= 48,
               "the closed drawer returns to compact hit regions after the animation")
         await hoverSidebar(true, in: session)
@@ -166,6 +169,24 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
                 let url = URL(fileURLWithPath: directory).appendingPathComponent("tab-drag-preview-\(isDark ? "dark" : "light").png")
                 try? bitmap.representation(using: .png, properties: [:])?.write(to: url)
             }
+            let sidebarLocation = TabDragLocation(screenPoint: location.screenPoint, grabOffset: location.grabOffset,
+                                                   tabSize: NSSize(width: 260, height: 44))
+            for (kind, title) in [("short", "Gamma"), ("long", "F77YB - Foundations of Statistical Inference - Chapter 5 - Drawing Conclusions from Data")] {
+                feedback.update(title: title, isDark: isDark, at: sidebarLocation, target: nil,
+                                tab: store.primarySession.activeDocumentTab, isSidebar: true)
+                check(abs(label.frame.midY - view.bounds.midY) < 1 && (kind != "short" || label.frame.height == 18),
+                      "\(isDark ? "dark" : "light") \(kind) drag title is vertically centered without an empty text line")
+                if kind == "long" {
+                    check(label.stringValue.contains("…") && label.stringValue.hasPrefix("F77YB") && label.stringValue.hasSuffix("Data"),
+                          "long drag titles preserve their distinguishing ending in two lines")
+                }
+                if let directory = ProcessInfo.processInfo.environment["TAB_DRAG_QA_EVIDENCE_DIR"],
+                   let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                    view.cacheDisplay(in: view.bounds, to: bitmap)
+                    let url = URL(fileURLWithPath: directory).appendingPathComponent("sidebar-drag-\(kind)-\(isDark ? "dark" : "light").png")
+                    try? bitmap.representation(using: .png, properties: [:])?.write(to: url)
+                }
+            }
         }
     }
 
@@ -176,7 +197,8 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
     }
 
     func dragView(_ title: String, view: TabInteractionView, from session: ReaderWindowSession, to point: NSPoint,
-                  grabFraction: CGFloat = 0.5, stepDelay: Double = 0, onMove: ((TabDragLocation) -> Void)? = nil) async {
+                  grabFraction: CGFloat = 0.5, stepDelay: Double = 0, cancel: Bool = false, holdAtEnd: Double = 0,
+                  onMove: ((TabDragLocation) -> Void)? = nil) async {
         let sourceWindow = session.nsWindow!
         sourceWindow.makeKeyAndOrderFront(nil)
         let originalFrame = sourceWindow.frame
@@ -196,10 +218,30 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
                     return
                 }
                 previewChecks += 1
+                if view.isSidebar && ["Alpha", "Beta", "Gamma"].contains(title),
+                   let content = panel.contentView,
+                   let label = content.subviews.compactMap({ $0 as? NSTextField }).first, !label.isHidden {
+                    anchored = anchored && label.frame.height <= 18
+                        && abs(label.frame.midY - content.bounds.midY) < 1
+                }
                 // AppKit rounds top-level window origins to integral screen points.
-                anchored = anchored && abs(location.screenPoint.x - panel.frame.minX - expectedOffset.x) <= 1
-                    && abs(panel.frame.maxY - location.screenPoint.y - expectedOffset.y) <= 1
-                    && panel.frame.size == tabFrame.size
+                if session.tabDragPreview?.tab.id == view.tabID,
+                   let row = view.tabID.flatMap({ session.tabViews.object(forKey: $0 as NSUUID) }), let window = row.window {
+                    let frame = window.convertToScreen(row.convert(row.bounds, to: nil))
+                    if view.isSidebar {
+                        anchored = anchored && abs(panel.frame.minX - frame.minX) <= 1
+                            && abs(panel.frame.width - frame.width) <= 1
+                            && abs(panel.frame.maxY - location.screenPoint.y - expectedOffset.y) <= 1
+                    } else {
+                        anchored = anchored && abs(panel.frame.minY - frame.minY) <= 1
+                            && abs(location.screenPoint.x - panel.frame.minX - expectedOffset.x) <= 1
+                    }
+                    anchored = anchored && panel.frame.height == tabFrame.height
+                } else {
+                    anchored = anchored && abs(location.screenPoint.x - panel.frame.minX - expectedOffset.x) <= 1
+                        && abs(panel.frame.maxY - location.screenPoint.y - expectedOffset.y) <= 1
+                        && panel.frame.size == tabFrame.size
+                }
             }
             return event
         }
@@ -221,13 +263,23 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
                 }
             } else { post(.leftMouseDragged, position, Double(t) * 0.35) }
         }
+        func finish() {
+            if cancel {
+                NSApp.postEvent(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                    timestamp: timestamp + 0.4, windowNumber: sourceWindow.windowNumber, context: nil,
+                    characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)!, atStart: false)
+            } else { post(.leftMouseUp, point, 0.4) }
+        }
         if stepDelay > 0 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 21 * stepDelay) { post(.leftMouseUp, point, 0.4) }
-            try? await Task.sleep(nanoseconds: UInt64(22 * stepDelay * 1_000_000_000))
-        } else { post(.leftMouseUp, point, 0.4) }
+            if holdAtEnd > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 20 * stepDelay + 0.01) { print("INFO inspecting dragged tab") }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 21 * stepDelay + holdAtEnd) { finish() }
+            try? await Task.sleep(nanoseconds: UInt64((22 * stepDelay + holdAtEnd) * 1_000_000_000))
+        } else { finish() }
         await settle()
         check(sourceWindow.frame == originalFrame, "dragging \(title) leaves the source window frame unchanged")
-        check(previewChecks > 0 && anchored, "drag preview preserves the \(Int(grabFraction * 100))% grab point and full tab size")
+        check(previewChecks > 0 && anchored, "dragged tab preserves its grab point, stays aligned inside the strip and follows the pointer freely outside it")
     }
 
     func click(_ view: NSView, at localPoint: NSPoint? = nil) async {
@@ -386,7 +438,9 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
                     let frame = window.convertToScreen(strip.convert(strip.bounds, to: nil))
                     let edge = sidebar ? NSPoint(x: frame.midX, y: frame.minY + 0.1)
                                        : NSPoint(x: frame.maxX - 0.1, y: frame.midY)
-                    check(lastVisible < 59 && primary.documentInsertionIndex(at: edge) == lastVisible + 1,
+                    let externalID = UUID()
+                    let placement = primary.tabDropPlacement(at: edge, dragging: externalID)
+                    check(lastVisible < 59 && primary.tabInsertionIndex(for: placement, excluding: externalID) == lastVisible + 1,
                           "\(sidebar ? "sidebar" : "top") dropping at the viewport edge inserts after the visible row rather than after all 60 tabs")
                 }
             }
@@ -487,6 +541,51 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         check(primary.tabs.map(\.id) == originalTabs.map(\.id), "closing the extra test tabs restores the original session")
     }
 
+    func checkGroupBoundaryDrag(_ session: ReaderWindowSession, groupID: UUID, sidebar: Bool) async {
+        let alpha = tab("Alpha", in: session), beta = tab("Beta", in: session), gamma = tab("Gamma", in: session)
+        let layout = sidebar ? "sidebar" : "top"
+        func frame(_ id: UUID) -> NSRect {
+            let view = session.tabViews.object(forKey: id as NSUUID)!
+            return window.convertToScreen(view.convert(view.bounds, to: nil))
+        }
+        let last = frame(gamma.id)
+        let inside = sidebar ? NSPoint(x: last.midX, y: last.minY + 5)
+                             : NSPoint(x: last.maxX - 5, y: last.midY)
+        var previewedEnd = false
+        var savedModelUntouched = true
+        let originalTabs = session.tabs.map(\.id), originalGroups = session.tabGroups
+        let betaView = session.tabViews.object(forKey: beta.id as NSUUID) as! TabInteractionView
+        let hold = sidebar && ProcessInfo.processInfo.environment["TAB_DRAG_QA_INSPECT"] == "layout" ? 15.0 : 0
+        await dragView("Beta", view: betaView, from: session, to: inside, stepDelay: 0.03, holdAtEnd: hold) { _ in
+            savedModelUntouched = savedModelUntouched && session.tabs.map(\.id) == originalTabs && session.tabGroups == originalGroups
+            if session.tabDragPreview?.placement == TabDropPlacement(beforeTabID: nil, groupID: groupID) {
+                previewedEnd = session.displayedDocumentTabs.map(\.id) == [alpha.id, gamma.id, beta.id]
+                    && session.displayedTabGroup(containing: beta.id)?.id == groupID
+            }
+        }
+        check(previewedEnd && savedModelUntouched,
+              "\(layout) dragging to a group's final edge previews the last member without saving an intermediate order")
+        check(session.tabGroup(containing: beta.id)?.id == groupID && names(session) == ["Alpha", "Gamma", "Beta"],
+              "\(layout) releasing at the inner end adds the tab last inside the group")
+        let end = frame(beta.id)
+        let outside = sidebar ? NSPoint(x: end.midX, y: end.minY - 12)
+                              : NSPoint(x: end.maxX + 12, y: end.midY)
+        var previewedOutside = false
+        await dragView("Beta", view: session.tabViews.object(forKey: beta.id as NSUUID) as! TabInteractionView,
+                       from: session, to: outside, stepDelay: 0.03, cancel: true) { _ in
+            previewedOutside = previewedOutside || (session.tabDragPreview?.placement.groupID == nil
+                && session.tabDragPreview != nil && session.displayedTabGroup(containing: beta.id) == nil)
+        }
+        check(previewedOutside && session.tabDragPreview == nil && session.tabGroup(containing: beta.id)?.id == groupID,
+              "\(layout) crossing the group end previews an ungrouped slot and Escape restores membership")
+        await dragView("Beta", view: session.tabViews.object(forKey: beta.id as NSUUID) as! TabInteractionView,
+                       from: session, to: outside, stepDelay: 0.03)
+        check(session.tabGroup(containing: beta.id) == nil && session.tabGroup(containing: gamma.id)?.id == groupID,
+              "\(layout) releasing beyond the end removes only the dragged tab from its group")
+        session.selectedTabID = alpha.id
+        await settle()
+    }
+
     func checkTabGroups(_ primary: ReaderWindowSession) async {
         let originalFrame = window.frame
         let originalAppearance = NSApp.appearance
@@ -520,6 +619,14 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
             if sidebar && ProcessInfo.processInfo.environment["TAB_DRAG_QA_INSPECT"] == "1" {
                 print("INFO inspecting sidebar groups; strip=\(primary.tabStripView?.bounds ?? .zero), groups=\(primary.tabGroups.count)")
                 try? await Task.sleep(nanoseconds: 45_000_000_000)
+            }
+            if sidebar && ProcessInfo.processInfo.environment["TAB_DRAG_QA_INSPECT"] == "layout" {
+                print("INFO inspecting expanded group gutter")
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
+                await hoverSidebar(false, in: primary)
+                print("INFO inspecting compact icon alignment")
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
+                await hoverSidebar(true, in: primary)
             }
             guard let header = primary.tabGroupViews.object(forKey: groupID as NSUUID) else {
                 print("INFO expected group \(groupID), model groups \(primary.tabGroups.map(\.id)), window visible \(window.isVisible), session window matches \(primary.nsWindow === window)")
@@ -568,6 +675,7 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
             check(primary.tabGroup(containing: beta.id) == nil && primary.tabGroups[0].tabIDs.count == 2,
                   "\(sidebar ? "sidebar" : "top") removing a tab from a group keeps every document open")
             if sidebar { await checkSidebarExpansionStaysLevel(in: primary) }
+            await checkGroupBoundaryDrag(primary, groupID: groupID, sidebar: sidebar)
             await drag("Gamma", from: primary, to: center("Beta", in: primary))
             check(primary.tabGroup(containing: gamma.id) == nil && primary.tabGroup(containing: alpha.id)?.id == groupID,
                   "\(sidebar ? "sidebar" : "top") dropping onto ungrouped documents removes group membership")
@@ -762,6 +870,11 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             await settle()
             let primary = store.primarySession
+            if ProcessInfo.processInfo.environment["TAB_DRAG_QA_FOCUS"] == "preview" {
+                checkPreviewThemes()
+                finish(domain)
+                return
+            }
             if ProcessInfo.processInfo.environment["TAB_DRAG_QA_FOCUS"] == "groups" {
                 await checkTabGroups(primary)
                 finish(domain)

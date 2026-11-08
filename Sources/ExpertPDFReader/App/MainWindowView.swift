@@ -337,6 +337,7 @@ struct TabBarView: View {
         .background(TabStripAnchor(session: session, axis: isSidebar ? .vertical : .horizontal))
         .background(isSidebar ? AppPalette.panelBackground(isDark) : AppPalette.tabStripBackground(isDark),
                     ignoresSafeAreaEdges: [])
+        .animation(AppAnimation.tab, value: session.tabDragPreview?.placement)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Text(L10n.tr("标签栏", "Tab Bar")))
         .contextMenu {
@@ -368,10 +369,7 @@ struct TabBarView: View {
     }
 
     private var documentTabs: [DocumentTabState] {
-        session.tabs.compactMap { tab in
-            if case .document(let state) = tab { return state }
-            return nil
-        }
+        session.displayedDocumentTabs
     }
 
     private enum Entry: Identifiable {
@@ -384,13 +382,13 @@ struct TabBarView: View {
 
     private var entries: [Entry] {
         var result: [Entry] = []
-        for group in session.tabGroups {
+        for group in session.displayedTabGroups {
             result.append(.group(group))
             if !group.isCollapsed {
                 result.append(contentsOf: documentTabs.filter { group.tabIDs.contains($0.id) }.map(Entry.document))
             }
         }
-        result.append(contentsOf: documentTabs.filter { session.tabGroup(containing: $0.id) == nil }.map(Entry.document))
+        result.append(contentsOf: documentTabs.filter { session.displayedTabGroup(containing: $0.id) == nil }.map(Entry.document))
         return result
     }
 
@@ -410,12 +408,12 @@ struct TabBarView: View {
                                                at: location, target: nil)
                            if session.containsTabStrip(location.screenPoint) {
                                session.showGroupInsertion(at: location.screenPoint)
-                           } else { session.showTabInsertion(at: nil) }
+                           } else { session.clearTabInsertion() }
                        }, onDragEnded: { location in
                            draggingGroupID = nil
                            onDragActivityChanged?(false)
                            dragFeedback.end()
-                           session.showTabInsertion(at: nil)
+                           session.clearTabInsertion()
                            if let location, session.containsTabStrip(location.screenPoint) {
                                session.moveTabGroup(group.id, before: session.groupInsertionTarget(at: location.screenPoint))
                            }
@@ -424,20 +422,31 @@ struct TabBarView: View {
     }
 
     private var ungroupedTabs: [DocumentTabState] {
-        documentTabs.filter { session.tabGroup(containing: $0.id) == nil }
+        documentTabs.filter { session.displayedTabGroup(containing: $0.id) == nil }
     }
 
-    private var showsUngroupedSection: Bool { !ungroupedTabs.isEmpty || draggingTabID != nil }
+    private var showsUngroupedSection: Bool { !ungroupedTabs.isEmpty || draggingTabID != nil || session.tabDragPreview != nil }
 
     private var sidebarList: some View {
         VStack(spacing: 6) {
-            ForEach(session.tabGroups) { group in
+            ForEach(session.displayedTabGroups) { group in
                 VStack(spacing: 2) {
                     groupHeader(group).frame(height: Self.sidebarRowHeight).id(group.id)
-                    if !group.isCollapsed {
-                        ForEach(documentTabs.filter { group.tabIDs.contains($0.id) }) { state in
-                            tabItem(state, count: documentTabs.count).frame(height: Self.sidebarRowHeight).id(state.id)
+                    if !group.isCollapsed && !group.tabIDs.isEmpty {
+                        VStack(spacing: 2) {
+                            ForEach(documentTabs.filter { group.tabIDs.contains($0.id) }) { state in
+                                tabItem(state, count: documentTabs.count).frame(height: Self.sidebarRowHeight).id(state.id)
+                            }
                         }
+                    }
+                }
+                .padding(.leading, 6)
+                .background(alignment: .leading) {
+                    if !group.isCollapsed && !group.tabIDs.isEmpty {
+                        Capsule().fill(AppPalette.tabOutline(group.color, isDark))
+                            .frame(width: 2)
+                            .padding(.top, 8)
+                            .allowsHitTesting(false)
                     }
                 }
                 .padding(2)
@@ -448,27 +457,29 @@ struct TabBarView: View {
                         tabItem(state, count: documentTabs.count).frame(height: Self.sidebarRowHeight).id(state.id)
                     }
                 }
-                .frame(minHeight: ungroupedTabs.isEmpty ? 28 : 0)
+                .padding(.leading, isCollapsed ? 8 : 0)
+                .padding(.trailing, isCollapsed ? 2 : 0)
+                .frame(minHeight: ungroupedTabs.isEmpty ? Self.sidebarRowHeight : 0)
                 .frame(maxWidth: .infinity)
-                .background(TabDropZoneAnchor { session.ungroupedTabDropView = $0 })
             }
         }
         .padding(.horizontal, 6)
         .padding(.top, 6)
         .padding(.bottom, 2)
+        .animation(AppAnimation.tab, value: session.tabDragPreview?.placement)
         .animation(AppAnimation.sidebarReveal, value: entries.map(\.id))
     }
 
     private var sidebarTabs: some View {
-        let groupHeight = session.tabGroups.reduce(CGFloat.zero) { height, group in
+        let groupHeight = session.displayedTabGroups.reduce(CGFloat.zero) { height, group in
             let rows = group.isCollapsed ? 0 : group.tabIDs.count
             return height + Self.sidebarRowHeight + CGFloat(rows) * (Self.sidebarRowHeight + 2) + 4
         }
         let count = ungroupedTabs.count
         let rowsHeight = CGFloat(count) * Self.sidebarRowHeight + CGFloat(max(0, count - 1)) * 2
         let ungroupedHeight: CGFloat = !showsUngroupedSection ? 0
-            : max(count == 0 ? 28 : 0, rowsHeight)
-        let sections = session.tabGroups.count + (showsUngroupedSection ? 1 : 0)
+            : max(count == 0 ? Self.sidebarRowHeight : 0, rowsHeight)
+        let sections = session.displayedTabGroups.count + (showsUngroupedSection ? 1 : 0)
         let naturalHeight = groupHeight + ungroupedHeight + CGFloat(max(0, sections - 1)) * 6 + 8
         return GeometryReader { geometry in
             let listHeight = min(naturalHeight, max(0, geometry.size.height - 50))
@@ -476,6 +487,8 @@ struct TabBarView: View {
                 scrollingTabs(.vertical) { sidebarList }
                 .frame(height: listHeight)
                 openFileButton
+                    .padding(.leading, isCollapsed ? 8 : 0)
+                    .padding(.trailing, isCollapsed ? 2 : 0)
                     .frame(height: Self.sidebarRowHeight)
                     .padding(.horizontal, 6)
                     .padding(.bottom, 6)
@@ -572,6 +585,7 @@ struct TabBarView: View {
                         }
                     }
                     .onChange(of: entries.map(\.id)) { _, _ in
+                        guard draggingTabID == nil, session.tabDragPreview == nil else { return }
                         DispatchQueue.main.async {
                             scrollProxy.scrollTo(session.selectedTabScrollID, anchor: anchor)
                         }
@@ -590,8 +604,8 @@ struct TabBarView: View {
                         tabSeparator.opacity(session.selectedTabID == state.id ? 0 : 1)
                     }
                     .overlay(alignment: .bottom) {
-                        let color = session.tabGroup(containing: state.id)?.color
-                        if session.selectedTabID == state.id {
+                        let color = session.displayedTabGroup(containing: state.id)?.color
+                        if session.selectedTabID == state.id && session.tabDragPreview == nil {
                             TabContour()
                                 .stroke(AppPalette.tabOutline(color, isDark),
                                         style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
@@ -607,7 +621,7 @@ struct TabBarView: View {
                 }
             }
         }
-        .animation(AppAnimation.tab, value: documentTabs.map(\.id))
+        .animation(AppAnimation.tab, value: entries.map(\.id))
     }
 
     private func tabItem(_ state: DocumentTabState, count: Int) -> some View {
@@ -617,9 +631,10 @@ struct TabBarView: View {
             state: state,
             disambiguatedFolder: store.disambiguatedFolder(for: state),
             documentTabCount: count,
-            isSelected: session.selectedTabID == state.id,
+            isSelected: session.selectedTabID == state.id && (session.tabDragPreview == nil || session.tabDragPreview?.tab.id == state.id),
             isHovered: hoveredTabID == state.id,
-            isDragging: draggingTabID == state.id || session.tabGroup(containing: state.id)?.id == draggingGroupID && draggingGroupID != nil,
+            isDragging: draggingTabID == state.id || session.tabDragPreview?.tab.id == state.id
+                || session.tabGroup(containing: state.id)?.id == draggingGroupID && draggingGroupID != nil,
             isDark: isDark,
             isSidebar: isSidebar,
             isCollapsed: isCollapsed,
@@ -632,10 +647,15 @@ struct TabBarView: View {
                 isNewGroupDropTargeted = session.isNewTabGroupDrop(at: location.screenPoint)
                 let target = store.tabDropTarget(at: location.screenPoint)
                 dragFeedback.update(title: state.title, isDark: isDark, at: location,
-                                    target: isNewGroupDropTargeted ? nil : target)
+                                    target: isNewGroupDropTargeted ? nil : target, tab: state, isSidebar: isSidebar)
             },
             onDragEnded: { location in
                 let createsGroup = location.map { session.isNewTabGroupDrop(at: $0.screenPoint) } ?? false
+                let target = location.flatMap { store.tabDropTarget(at: $0.screenPoint) }
+                let placement: TabDropPlacement?
+                if case .tabStrip(let targetSession) = target, let location {
+                    placement = targetSession.tabDropPlacement(at: location.screenPoint, dragging: state.id)
+                } else { placement = nil }
                 draggingTabID = nil
                 isNewGroupDropTargeted = false
                 onDragActivityChanged?(false)
@@ -646,18 +666,17 @@ struct TabBarView: View {
                     return
                 }
                 let point = location.screenPoint
-                switch store.tabDropTarget(at: point) {
+                switch target {
                 case .tabStrip(let target):
+                    guard let placement else { return }
+                    let index = target.tabInsertionIndex(for: placement, excluding: state.id)
                     if target === session {
-                        if let index = session.nearestDocumentIndex(at: point) {
-                            store.moveDocumentTab(id: state.id, toDocumentIndex: index,
-                                                  intoGroup: session.tabGroup(at: point)?.id, in: session.id)
-                            session.selectedTabID = state.id
-                        }
+                        store.moveDocumentTab(id: state.id, toDocumentIndex: index,
+                                              intoGroup: placement.groupID, in: session.id)
+                        session.selectedTabID = state.id
                     } else {
                         store.moveTab(id: state.id, from: session.id, to: target.id,
-                                      atDocumentIndex: target.documentInsertionIndex(at: point),
-                                      intoGroup: target.tabGroup(at: point)?.id)
+                                      atDocumentIndex: index, intoGroup: placement.groupID)
                     }
                 case .comparison(let tab):
                     tab.setSecondaryDocument(from: state)
@@ -685,7 +704,9 @@ struct TabBarView: View {
     private var openFileButton: some View {
         Group {
             if draggingTabID != nil {
-                newGroupDropZone.padding(.horizontal, 4).padding(.vertical, 4)
+                newGroupDropZone
+                    .padding(.leading, isSidebar ? 4 : 32)
+                    .padding(.trailing, 4).padding(.vertical, 4)
             } else {
                 Button {
                     store.activateWindowSession(session.id)
@@ -897,7 +918,7 @@ struct DocumentTabItemView: View {
                 .transition(.opacity)
             }
         }
-        .padding(.leading, isCollapsed ? 0 : (isSidebar ? (session.tabGroup(containing: state.id) != nil ? 8 : 10) : 12))
+        .padding(.leading, isCollapsed ? 0 : (isSidebar ? (session.displayedTabGroup(containing: state.id) != nil ? 2 : 10) : 12))
         .padding(.trailing, isCollapsed ? 0 : ((isSidebar || showsCloseButton) ? 8 : 12))
         .frame(maxHeight: .infinity)
         .background {
@@ -911,11 +932,11 @@ struct DocumentTabItemView: View {
             }
         }
         .background {
-            if isSidebar && session.tabGroup(containing: state.id) != nil {
+            if isSidebar && session.displayedTabGroup(containing: state.id) != nil {
                 AppPalette.accentBlue.opacity(isDark ? 0.06 : 0.04)
             }
         }
-        .opacity(isDragging ? 0.3 : 1)
+        .opacity(isDragging ? (session.tabDragPreview?.tab.id == state.id ? 0 : 0.3) : 1)
         .overlay {
             TabInteractionArea(session: session, tabID: state.id, toolTip: state.documentID.url.path,
                                excludedTrailingWidth: showsCloseButton ? 30 : 0, isSidebar: isSidebar,

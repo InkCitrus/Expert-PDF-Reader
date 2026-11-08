@@ -21,7 +21,7 @@ public enum SamplePDFGenerator {
         public let pages: [(title: String, subtitle: String, sections: [(heading: String, body: String)])]
     }
 
-    public static let guideDirectoryName = "Guides_v13"
+    public static let guideDirectoryName = "Guides_v15"
 
     public static func supportDirectory() -> URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!

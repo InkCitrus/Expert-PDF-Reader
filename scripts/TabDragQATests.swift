@@ -1,4 +1,5 @@
 import AppKit
+import CoreGraphics
 import Foundation
 import PDFKit
 import SwiftUI
@@ -205,6 +206,19 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         let tabFrame = sourceWindow.convertToScreen(view.convert(view.bounds, to: nil))
         let start = NSPoint(x: tabFrame.minX + tabFrame.width * grabFraction, y: tabFrame.maxY - 13)
         let expectedOffset = NSPoint(x: start.x - tabFrame.minX, y: tabFrame.maxY - start.y)
+        // Opt in only for an attended run in this disposable QA app.
+        let windowServerInput = ProcessInfo.processInfo.environment["TAB_DRAG_QA_WINDOWSERVER"] == "1"
+        if windowServerInput {
+            NSApp.activate(ignoringOtherApps: true)
+            await settle()
+            guard CGPreflightPostEventAccess(),
+                  NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier,
+                  sourceWindow.frame.contains(start), sourceWindow.frame.contains(point), stepDelay > 0 else {
+                print("INFO WindowServer permission=\(CGPreflightPostEventAccess()), foreground=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "none"), source=\(start), destination=\(point), window=\(sourceWindow.frame)")
+                check(false, "WindowServer input requires existing event permission and a foreground QA window")
+                return
+            }
+        }
         var previewChecks = 0
         var anchored = true
         // Install immediately before delivery: pending SwiftUI updates can replace the view's callbacks.
@@ -248,6 +262,14 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         defer { if let monitor { NSEvent.removeMonitor(monitor) } }
         let timestamp = ProcessInfo.processInfo.systemUptime
         func post(_ type: NSEvent.EventType, _ globalPoint: NSPoint, _ delta: Double) {
+            if windowServerInput {
+                let mouseType: CGEventType = type == .leftMouseDown ? .leftMouseDown
+                    : (type == .leftMouseUp ? .leftMouseUp : .leftMouseDragged)
+                let quartzPoint = CGPoint(x: globalPoint.x, y: CGDisplayBounds(CGMainDisplayID()).height - globalPoint.y)
+                CGEvent(mouseEventSource: nil, mouseType: mouseType, mouseCursorPosition: quartzPoint,
+                        mouseButton: .left)?.post(tap: .cghidEventTap)
+                return
+            }
             let event = NSEvent.mouseEvent(with: type, location: sourceWindow.convertPoint(fromScreen: globalPoint),
                 modifierFlags: [], timestamp: timestamp + delta, windowNumber: sourceWindow.windowNumber,
                 context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)!
@@ -541,6 +563,128 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         check(primary.tabs.map(\.id) == originalTabs.map(\.id), "closing the extra test tabs restores the original session")
     }
 
+    func checkSelectedTabRendering(_ session: ReaderWindowSession) async {
+        let savedAppearance = store.appearanceMode
+        store.tabsInSidebar = false
+        for group in session.tabGroups { store.ungroupTabs(group.id, in: session.id) }
+        let alpha = tab("Alpha", in: session), beta = tab("Beta", in: session)
+        let groupID = store.createTabGroup(name: "Coursework", containing: alpha.id, in: session.id)!
+        store.moveTab(tab("Gamma", in: session).id, intoGroup: groupID, in: session.id)
+        func capture(_ state: DocumentTabState, name: String) -> Int {
+            guard let row = session.tabViews.object(forKey: state.id as NSUUID),
+                  let host = window.titlebarAccessoryViewControllers.map(\.view).first(where: { row.isDescendant(of: $0) }),
+                  let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return -1 }
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            if let directory = ProcessInfo.processInfo.environment["TAB_DRAG_QA_EVIDENCE_DIR"] {
+                try? bitmap.representation(using: .png, properties: [:])?.write(
+                    to: URL(fileURLWithPath: directory).appendingPathComponent("tab-style-\(name).png"))
+            }
+            let frame = host.convert(row.bounds, from: row)
+            let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
+            var bluePixels = 0
+            for x in 4...8 {
+                for y in 0..<Int(frame.height) {
+                    let px = Int((frame.minX + CGFloat(x)) * scale)
+                    let py = Int((frame.minY + CGFloat(y)) * scale)
+                    if let color = bitmap.colorAt(x: px, y: py)?.usingColorSpace(.sRGB),
+                       color.blueComponent - color.redComponent > 0.2,
+                       color.blueComponent - color.greenComponent > 0.15 { bluePixels += 1 }
+                }
+            }
+            return bluePixels
+        }
+        for mode in [AppAppearanceMode.light, .dark] {
+            store.appearanceMode = mode
+            session.selectedTabID = alpha.id
+            await settle()
+            check(capture(alpha, name: "\(mode.rawValue)-grouped") > 2,
+                  "\(mode.rawValue) selected grouped tab renders its colored curved outline")
+            session.selectedTabID = beta.id
+            await settle()
+            check(capture(beta, name: "\(mode.rawValue)-ordinary") == 0,
+                  "\(mode.rawValue) selected ordinary tab has no colored outline or top line beside a group")
+        }
+        store.ungroupTabs(groupID, in: session.id)
+        for state in [beta, tab("Gamma", in: session)] { store.closeTab(id: state.id, in: session.id) }
+        session.selectedTabID = alpha.id
+        for mode in [AppAppearanceMode.light, .dark] {
+            store.appearanceMode = mode
+            await settle()
+            check(capture(alpha, name: "\(mode.rawValue)-single") == 0,
+                  "\(mode.rawValue) a single ordinary tab uses a flat selection background without a top line")
+        }
+        if ProcessInfo.processInfo.environment["TAB_DRAG_QA_INSPECT"] == "styles" {
+            print("INFO inspecting a single ordinary tab in dark appearance")
+            try? await Task.sleep(nanoseconds: 45_000_000_000)
+        }
+        for name in ["Beta", "Gamma"] {
+            store.openDocument(at: fixtureDirectory.appendingPathComponent(name).appendingPathExtension("pdf"), interactive: false)
+        }
+        session.selectedTabID = alpha.id
+        store.appearanceMode = savedAppearance
+        await settle()
+    }
+
+    func checkGroupExitTargets(_ session: ReaderWindowSession, layouts: [Bool] = [false, true]) async {
+        let alpha = tab("Alpha", in: session), beta = tab("Beta", in: session), gamma = tab("Gamma", in: session)
+        let originalFrame = window.frame
+        window.setContentSize(NSSize(width: 1400, height: 780))
+        keepWindowOnScreen()
+        for sidebar in layouts {
+            store.tabsInSidebar = sidebar
+            await settle()
+            if sidebar { await hoverSidebar(true, in: session) }
+            for memberCount in [1, 2] {
+                for useOpenFile in [false, true] {
+                    for group in session.tabGroups { store.ungroupTabs(group.id, in: session.id) }
+                    for (index, state) in [alpha, beta, gamma].enumerated() {
+                        store.moveDocumentTab(id: state.id, toDocumentIndex: index, intoGroup: nil, in: session.id)
+                    }
+                    let groupID = store.createTabGroup(name: "Coursework", containing: alpha.id, in: session.id)!
+                    if memberCount == 2 { store.moveTab(gamma.id, intoGroup: groupID, in: session.id) }
+                    session.selectedTabID = beta.id
+                    await settle()
+                    func frame(_ id: UUID) -> NSRect {
+                        let view = session.tabViews.object(forKey: id as NSUUID)!
+                        return window.convertToScreen(view.convert(view.bounds, to: nil))
+                    }
+                    let betaFrame = frame(beta.id)
+                    let last = session.tabs.last { !$0.isHome }!
+                    let end = frame(last.id)
+                    let point = useOpenFile
+                        ? (sidebar ? NSPoint(x: end.midX, y: end.minY - 24) : NSPoint(x: end.maxX + 50, y: end.midY))
+                        : NSPoint(x: betaFrame.minX + betaFrame.width * 0.4, y: betaFrame.midY)
+                    var unexpectedSheet = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.95) {
+                        if let sheet = self.window.attachedSheet {
+                            unexpectedSheet = true
+                            self.window.endSheet(sheet, returnCode: .cancel)
+                            sheet.orderOut(nil)
+                        }
+                    }
+                    var finalPreviewIsUngrouped = false
+                    let view = session.tabViews.object(forKey: alpha.id as NSUUID) as! TabInteractionView
+                    await dragView("Alpha", view: view, from: session, to: point,
+                                   grabFraction: memberCount == 1 ? 0.15 : 0.7, stepDelay: 0.03) { _ in
+                        finalPreviewIsUngrouped = session.tabDragPreview?.tab.id == alpha.id
+                            && session.tabDragPreview?.placement.groupID == nil
+                    }
+                    let scenario = "\(sidebar ? "sidebar" : "top") \(memberCount == 1 ? "only" : "first") group member → \(useOpenFile ? "Open File area" : "ordinary tab")"
+                    check(finalPreviewIsUngrouped && !unexpectedSheet, "\(scenario) previews an ungrouped slot without opening a group dialog")
+                    check(session.tabGroup(containing: alpha.id) == nil && names(session).count == 3,
+                          "\(scenario) actually leaves the group on release without losing a document")
+                    check(memberCount == 1 ? session.tabGroups.isEmpty : session.tabGroup(containing: gamma.id)?.id == groupID,
+                          "\(scenario) preserves the other group members and prunes only an empty group")
+                }
+            }
+            if sidebar { await hoverSidebar(false, in: session) }
+        }
+        for group in session.tabGroups { store.ungroupTabs(group.id, in: session.id) }
+        store.tabsInSidebar = false
+        window.setFrame(originalFrame, display: true)
+        await settle()
+    }
+
     func checkGroupBoundaryDrag(_ session: ReaderWindowSession, groupID: UUID, sidebar: Bool) async {
         let alpha = tab("Alpha", in: session), beta = tab("Beta", in: session), gamma = tab("Gamma", in: session)
         let layout = sidebar ? "sidebar" : "top"
@@ -682,31 +826,6 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
             store.moveTab(gamma.id, intoGroup: groupID, in: primary.id)
             primary.selectedTabID = alpha.id
             await settle()
-            if sidebar, let strip = primary.tabStripView,
-               let betaView = primary.tabViews.object(forKey: beta.id as NSUUID) as? TabInteractionView {
-                // A few tabs put Open File immediately after the list. Its drag target occupies the same row.
-                let last = primary.tabViews.object(forKey: beta.id as NSUUID)!
-                let lastFrame = window.convertToScreen(last.convert(last.bounds, to: nil))
-                let target = NSPoint(x: window.frame.minX + strip.bounds.width * 0.5, y: lastFrame.minY - 40)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-                    guard let sheet = self.window.attachedSheet, let root = sheet.contentView else { return }
-                    func fill(_ view: NSView) {
-                        if let field = view as? NSTextField, field.isEditable { field.stringValue = "New from Drag" }
-                        for child in view.subviews { fill(child) }
-                    }
-                    func confirm(_ view: NSView) -> NSButton? {
-                        if let button = view as? NSButton, button.title == L10n.tr("创建分组", "Create Group") { return button }
-                        return view.subviews.lazy.compactMap(confirm).first
-                    }
-                    fill(root)
-                    confirm(root)?.performClick(nil)
-                }
-                await dragView("Beta", view: betaView, from: primary, to: target, stepDelay: 0.03)
-                await settle()
-                let created = primary.tabGroup(containing: beta.id)
-                check(created?.name == "New from Drag", "the New Group drop target creates a named group from the dragged tab")
-                if let created { store.ungroupTabs(created.id, in: primary.id) }
-            }
             if sidebar { await hoverSidebar(false, in: primary) }
         }
         store.renameTabGroup(groupID, name: "Lectures", in: primary.id)
@@ -870,6 +989,21 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             await settle()
             let primary = store.primarySession
+            if ProcessInfo.processInfo.environment["TAB_DRAG_QA_FOCUS"] == "styles" {
+                await checkSelectedTabRendering(primary)
+                finish(domain)
+                return
+            }
+            if ProcessInfo.processInfo.environment["TAB_DRAG_QA_FOCUS"] == "exits" {
+                await checkGroupExitTargets(primary)
+                finish(domain)
+                return
+            }
+            if ProcessInfo.processInfo.environment["TAB_DRAG_QA_FOCUS"] == "exits-top" {
+                await checkGroupExitTargets(primary, layouts: [false])
+                finish(domain)
+                return
+            }
             if ProcessInfo.processInfo.environment["TAB_DRAG_QA_FOCUS"] == "preview" {
                 checkPreviewThemes()
                 finish(domain)
@@ -941,6 +1075,8 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
             await checkSplitComparison(primary)
             await checkManyTabs(primary)
             await checkTabGroups(primary)
+            await checkGroupExitTargets(primary)
+            await checkSelectedTabRendering(primary)
             let renamed = fixtureDirectory.appendingPathComponent("Alpha-renamed.pdf")
             let active = primary.activeDocumentTab!
             try! FileManager.default.moveItem(at: active.documentID.url, to: renamed)

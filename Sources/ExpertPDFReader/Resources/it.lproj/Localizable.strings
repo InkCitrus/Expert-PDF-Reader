@@ -498,3 +498,9 @@
 
 "颜色|||Color" = "Colore";
 "Color" = "Colore";
+
+/* Copy a page as an image. */
+"复制当前页为图片|||Copy Current Page as Image" = "Copia pagina corrente come immagine";
+"Copy Current Page as Image" = "Copia pagina corrente come immagine";
+"无法将此页复制为图片。|||This page could not be copied as an image." = "Impossibile copiare questa pagina come immagine.";
+"This page could not be copied as an image." = "Impossibile copiare questa pagina come immagine.";

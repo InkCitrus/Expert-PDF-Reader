@@ -289,6 +289,8 @@ public enum L10n {
 
     private static let catalog: [String: [String: String]] = [
         "zh-Hant": [
+            "复制当前页为图片|||Copy Current Page as Image": "複製目前頁面為圖片",
+            "无法将此页复制为图片。|||This page could not be copied as an image.": "無法將此頁複製為圖片。",
             "颜色|||Color": "顏色",
             "蓝色|||Blue": "藍色",
             "紫色|||Purple": "紫色",
@@ -539,6 +541,8 @@ public enum L10n {
             "页码|||Page": "頁碼",
         ],
         "ja": [
+            "复制当前页为图片|||Copy Current Page as Image": "現在のページを画像としてコピー",
+            "无法将此页复制为图片。|||This page could not be copied as an image.": "このページを画像としてコピーできませんでした。",
             "颜色|||Color": "カラー",
             "蓝色|||Blue": "ブルー",
             "紫色|||Purple": "パープル",
@@ -789,6 +793,8 @@ public enum L10n {
             "页码|||Page": "ページ",
         ],
         "ko": [
+            "复制当前页为图片|||Copy Current Page as Image": "현재 페이지를 이미지로 복사",
+            "无法将此页复制为图片。|||This page could not be copied as an image.": "이 페이지를 이미지로 복사할 수 없습니다.",
             "颜色|||Color": "색상",
             "蓝色|||Blue": "파란색",
             "紫色|||Purple": "보라색",
@@ -1039,6 +1045,8 @@ public enum L10n {
             "页码|||Page": "페이지",
         ],
         "fr": [
+            "复制当前页为图片|||Copy Current Page as Image": "Copier la page actuelle en image",
+            "无法将此页复制为图片。|||This page could not be copied as an image.": "Impossible de copier cette page en image.",
             "颜色|||Color": "Couleur",
             "蓝色|||Blue": "Bleu",
             "紫色|||Purple": "Violet",
@@ -1289,6 +1297,8 @@ public enum L10n {
             "页码|||Page": "Page",
         ],
         "de": [
+            "复制当前页为图片|||Copy Current Page as Image": "Aktuelle Seite als Bild kopieren",
+            "无法将此页复制为图片。|||This page could not be copied as an image.": "Diese Seite konnte nicht als Bild kopiert werden.",
             "颜色|||Color": "Farbe",
             "蓝色|||Blue": "Blau",
             "紫色|||Purple": "Violett",
@@ -1539,6 +1549,8 @@ public enum L10n {
             "页码|||Page": "Seite",
         ],
         "es": [
+            "复制当前页为图片|||Copy Current Page as Image": "Copiar página actual como imagen",
+            "无法将此页复制为图片。|||This page could not be copied as an image.": "No se pudo copiar esta página como imagen.",
             "颜色|||Color": "Color",
             "蓝色|||Blue": "Azul",
             "紫色|||Purple": "Morado",
@@ -1789,6 +1801,8 @@ public enum L10n {
             "页码|||Page": "Página",
         ],
         "it": [
+            "复制当前页为图片|||Copy Current Page as Image": "Copia pagina corrente come immagine",
+            "无法将此页复制为图片。|||This page could not be copied as an image.": "Impossibile copiare questa pagina come immagine.",
             "颜色|||Color": "Colore",
             "蓝色|||Blue": "Blu",
             "紫色|||Purple": "Viola",
@@ -2039,6 +2053,8 @@ public enum L10n {
             "页码|||Page": "Pagina",
         ],
         "pt": [
+            "复制当前页为图片|||Copy Current Page as Image": "Copiar página atual como imagem",
+            "无法将此页复制为图片。|||This page could not be copied as an image.": "Não foi possível copiar esta página como imagem.",
             "颜色|||Color": "Cor",
             "蓝色|||Blue": "Azul",
             "紫色|||Purple": "Roxo",
@@ -2289,6 +2305,8 @@ public enum L10n {
             "页码|||Page": "Página",
         ],
         "ru": [
+            "复制当前页为图片|||Copy Current Page as Image": "Скопировать текущую страницу как изображение",
+            "无法将此页复制为图片。|||This page could not be copied as an image.": "Не удалось скопировать эту страницу как изображение.",
             "颜色|||Color": "Цвет",
             "蓝色|||Blue": "Синий",
             "紫色|||Purple": "Фиолетовый",
@@ -2539,6 +2557,8 @@ public enum L10n {
             "页码|||Page": "Страница",
         ],
         "uk": [
+            "复制当前页为图片|||Copy Current Page as Image": "Скопіювати поточну сторінку як зображення",
+            "无法将此页复制为图片。|||This page could not be copied as an image.": "Не вдалося скопіювати цю сторінку як зображення.",
             "颜色|||Color": "Колір",
             "蓝色|||Blue": "Синій",
             "紫色|||Purple": "Фіолетовий",

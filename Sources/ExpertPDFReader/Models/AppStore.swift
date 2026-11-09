@@ -684,6 +684,16 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     var activeZoomScale: CGFloat { targetsSecondaryPane ? secondaryZoomScale : zoomScale }
     var activePaneFitsWidth: Bool { targetsSecondaryPane ? secondaryIsAutoScaling : isAutoScaling }
 
+    var currentPageForCopying: PDFPage? {
+        let source = activeThumbnailSource
+        return source.document.page(at: source.pageIndex)
+    }
+
+    func copyCurrentPageAsImage(in window: NSWindow?) {
+        guard let page = currentPageForCopying, PageImageClipboard.canCopy(page) else { return }
+        PageImageClipboard.beginCopy(page, in: window)
+    }
+
     var activeThumbnailSource: ReaderThumbnailSource {
         if targetsSecondaryPane, let document = secondaryPDFDocument, let id = secondaryDocumentID {
             let password = document === pdfDocument ? self.password : secondaryDocumentPassword

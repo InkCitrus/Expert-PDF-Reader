@@ -335,6 +335,13 @@ struct ReaderMenuCommands: Commands {
             .keyboardShortcut("w", modifiers: [.command, .shift])
         }
 
+        CommandGroup(after: .pasteboard) {
+            Button(L10n.tr("复制当前页为图片", "Copy Current Page as Image")) {
+                store.activeDocumentTab?.copyCurrentPageAsImage(in: store.activeSession.nsWindow)
+            }
+            .disabled(!PageImageClipboard.canCopy(store.activeDocumentTab?.currentPageForCopying))
+        }
+
         // View Menu: the reader's commands join the system View menu (above Enter Full Screen)
         // instead of a second menu titled View
         CommandGroup(before: .toolbar) {

@@ -52,6 +52,108 @@ struct ReaderRegressionTests {
 
         let alpha = try fixture("Alpha"), beta = try fixture("Beta"), gamma = try fixture("Gamma")
         do {
+            let document = PDFDocument(url: alpha)!, page = document.page(at: 0)!
+            let start = CGPoint(x: 50, y: 505), end = CGPoint(x: 500, y: 505)
+            let normal = page.selection(from: start, to: end)!
+            check(NativePDFSelection.corrected(normal, in: document, from: page, at: start, to: page, at: end) == nil,
+                  "normal native text selection is left unchanged")
+            let contaminated = normal.copy() as! PDFSelection
+            contaminated.add(page.selection(for: CGRect(x: 285, y: 20, width: 40, height: 25))!)
+            let corrected = NativePDFSelection.corrected(contaminated, in: document, from: page, at: start, to: page, at: end)
+            if corrected?.text.string != normal.string?.trimmingCharacters(in: .newlines) {
+                print("INFO corrected row expected=\(String(reflecting: normal.string)), actual=\(String(reflecting: corrected?.text.string)), ranges=\(corrected?.selection.selectionsByLine().map { $0.bounds(for: page) } ?? [])")
+            }
+            check(corrected?.text.string == normal.string?.trimmingCharacters(in: .newlines)
+                  && corrected!.selection.selectionsByLine().allSatisfy { $0.bounds(for: page).minY > 450 },
+                  "physical row correction excludes unrelated text even when the PDF ranges include it")
+            let reverse = NativePDFSelection.corrected(contaminated, in: document, from: page, at: end, to: page, at: start)
+            check(reverse?.text.string == corrected?.text.string,
+                  "reverse dragging selects the same physical row in reading order")
+        }
+        do {
+            let board = NSPasteboard.withUniqueName()
+            defer { board.releaseGlobally() }
+            let evidence = ProcessInfo.processInfo.environment["COPY_PAGE_QA_EVIDENCE_DIR"].map { URL(fileURLWithPath: $0) }
+            if let evidence { try FileManager.default.createDirectory(at: evidence, withIntermediateDirectories: true) }
+            func saveImage(_ name: String) throws {
+                if let evidence, let data = board.data(forType: .png) {
+                    try data.write(to: evidence.appendingPathComponent(name).appendingPathExtension("png"))
+                }
+            }
+            func hasInk(_ image: NSBitmapImageRep?) -> Bool {
+                guard let image else { return false }
+                for y in stride(from: 0, to: image.pixelsHigh, by: 8) {
+                    for x in stride(from: 0, to: image.pixelsWide, by: 8) {
+                        if let color = image.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
+                           color.redComponent < 0.5 && color.greenComponent < 0.5 && color.blueComponent < 0.5 { return true }
+                    }
+                }
+                return false
+            }
+            let document = PDFDocument(url: alpha)!
+            let page = document.page(at: 0)!
+            board.setString("Previous clipboard", forType: .string)
+            let copied = try await PageImageClipboard.copy(page, to: board)
+            let png = board.data(forType: .png).flatMap { NSBitmapImageRep(data: $0) }
+            let tiff = board.data(forType: .tiff).flatMap { NSBitmapImageRep(data: $0) }
+            check(copied && png?.pixelsWide == 1800 && png?.pixelsHigh == 2400
+                  && tiff?.pixelsWide == 1800 && tiff?.pixelsHigh == 2400
+                  && board.string(forType: .string) == nil,
+                  "page-image copy writes a complete 216-dpi page as PNG and TIFF, replacing stale text")
+            check(hasInk(png), "page-image copy renders the actual document content")
+            try saveImage("page")
+            let paper = png?.colorAt(x: 20, y: 20)?.usingColorSpace(.sRGB)
+            check(paper != nil && paper!.redComponent > 0.98 && paper!.alphaComponent > 0.98,
+                  "copied page images use opaque original white paper")
+            page.rotation = 90
+            try await PageImageClipboard.copy(page, to: board)
+            let rotated = board.data(forType: .png).flatMap { NSBitmapImageRep(data: $0) }
+            check(rotated?.pixelsWide == 2400 && rotated?.pixelsHigh == 1800,
+                  "page-image copy respects page rotation without changing the source page")
+            check(hasInk(rotated), "rotated page images retain the document content")
+            try saveImage("rotated-page")
+            check(page.rotation == 90 && page.bounds(for: .cropBox).size == CGSize(width: 600, height: 800),
+                  "export leaves source rotation and crop bounds intact")
+            page.rotation = 0
+            page.setBounds(CGRect(x: 40, y: 300, width: 520, height: 300), for: .cropBox)
+            try await PageImageClipboard.copy(page, to: board)
+            let crop = board.data(forType: .png).flatMap { NSBitmapImageRep(data: $0) }
+            check(crop?.pixelsWide == 1560 && crop?.pixelsHigh == 900,
+                  "copied images respect the page crop rather than the window viewport")
+            check(hasInk(crop), "a nonzero crop origin is translated correctly into the copied image")
+            try saveImage("cropped-page")
+
+            let pending = Task { try await PageImageClipboard.copy(page, to: board) }
+            // Let the copy snapshot its page and clipboard version before changing the clipboard.
+            await Task.yield()
+            board.clearContents()
+            board.setString("Newer copy", forType: .string)
+            let didReplace = try await pending.value
+            check(!didReplace && board.string(forType: .string) == "Newer copy",
+                  "an asynchronous page render does not replace a newer clipboard operation")
+            let store = freshStore()
+            let tab = store.openDocument(at: alpha, interactive: false)!
+            tab.currentPageIndex = 2
+            tab.splitMode = .vertical
+            tab.setSecondaryDocument(url: beta)
+            tab.secondaryPageIndex = 1
+            tab.activatePane(isSecondary: true)
+            check(tab.currentPageForCopying === tab.secondaryPDFDocument?.page(at: 1),
+                  "copy-current-page targets the active comparison document and page")
+            tab.activatePane(isSecondary: false)
+            check(tab.currentPageForCopying === tab.pdfDocument.page(at: 2),
+                  "copy-current-page returns to the primary document when that pane becomes active")
+            check(!PageImageClipboard.canCopy(nil), "copy-current-page is unavailable without a document page")
+            if let evidence {
+                let guides = evidence.appendingPathComponent("guides")
+                try FileManager.default.createDirectory(at: guides, withIntermediateDirectories: true)
+                for language in AppLanguage.allCases where language != .system {
+                    SamplePDFGenerator.generateSamplePDF(at: guides.appendingPathComponent(language.rawValue).appendingPathExtension("pdf"),
+                                                        guide: SamplePDFGenerator.guideContent(for: language))
+                }
+            }
+        }
+        do {
             let store = freshStore()
             let a = store.openDocument(at: alpha, interactive: false)!
             let b = store.openDocument(at: beta, interactive: false)!

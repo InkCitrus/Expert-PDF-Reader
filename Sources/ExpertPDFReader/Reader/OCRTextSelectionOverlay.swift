@@ -307,6 +307,9 @@ final class OCRTextSelectionOverlay: NSView, NSMenuItemValidation {
         let copy = NSMenuItem(title: L10n.tr("复制", "Copy"), action: #selector(copy(_:)), keyEquivalent: "")
         copy.target = self
         menu.addItem(copy)
+        if let pdfView = pdfView as? ThemedPDFView {
+            menu.addItem(pdfView.copyPageImageMenuItem(for: event))
+        }
         return menu
     }
 

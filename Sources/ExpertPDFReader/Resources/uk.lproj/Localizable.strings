@@ -498,3 +498,9 @@
 
 "颜色|||Color" = "Колір";
 "Color" = "Колір";
+
+/* Copy a page as an image. */
+"复制当前页为图片|||Copy Current Page as Image" = "Скопіювати поточну сторінку як зображення";
+"Copy Current Page as Image" = "Скопіювати поточну сторінку як зображення";
+"无法将此页复制为图片。|||This page could not be copied as an image." = "Не вдалося скопіювати цю сторінку як зображення.";
+"This page could not be copied as an image." = "Не вдалося скопіювати цю сторінку як зображення.";

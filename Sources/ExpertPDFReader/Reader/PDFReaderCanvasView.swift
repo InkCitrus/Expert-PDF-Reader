@@ -694,8 +694,8 @@ final class ThemedPDFView: PDFView {
     override func menu(for event: NSEvent) -> NSMenu? {
         let native = super.menu(for: event)
         let menu = NSMenu()
-        // Keep PDFKit's standard text actions (Look Up, Translate, Search, Copy). View controls
-        // belong to the app's toolbar: PDFKit's independent controls bypass the bound layout state.
+        // Preserve native text actions and the zoom/navigation sections, including Automatically
+        // Resize and Actual Size. The separate layout section bypasses the app's bound layout state.
         if let native, let copyIndex = native.items.firstIndex(where: { $0.action == #selector(copy(_:)) }) {
             for item in Array(native.items.prefix(through: copyIndex)) {
                 native.removeItem(item)
@@ -704,6 +704,22 @@ final class ThemedPDFView: PDFView {
         }
         if !menu.items.isEmpty { menu.addItem(.separator()) }
         menu.addItem(copyPageImageMenuItem(for: event))
+        let retainedActions: Set<Selector> = [#selector(zoomIn(_:)), #selector(zoomOut(_:)),
+                                               #selector(goToNextPage(_:)), #selector(goToPreviousPage(_:))]
+        var sections: [[NSMenuItem]] = [[]]
+        for item in native?.items ?? [] {
+            if item.isSeparatorItem { sections.append([]) }
+            else { sections[sections.count - 1].append(item) }
+        }
+        // Identify sections by public actions, without matching localized menu titles or calling
+        // PDFKit's private layout selectors.
+        for section in sections where section.contains(where: { $0.action.map(retainedActions.contains) == true }) {
+            menu.addItem(.separator())
+            for item in section {
+                native?.removeItem(item)
+                menu.addItem(item)
+            }
+        }
         return menu
     }
 

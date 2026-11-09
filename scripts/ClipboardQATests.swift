@@ -87,8 +87,14 @@ final class ClipboardQARunner: NSObject, NSApplicationDelegate {
             let menu = view.menu(for: event)!
             let viewActions: Set<Selector> = [#selector(PDFView.zoomIn(_:)), #selector(PDFView.zoomOut(_:)),
                                              #selector(PDFView.goToNextPage(_:)), #selector(PDFView.goToPreviousPage(_:))]
-            check(!menu.items.contains { $0.action.map { viewActions.contains($0) } == true },
-                  "the text context menu excludes independent PDFKit view controls")
+            check(viewActions.allSatisfy { action in menu.items.contains { $0.action == action } },
+                  "the context menu retains native zoom and page navigation")
+            let removedLayoutActions = Set(["_setSinglePage:", "_setSinglePageScrolling:", "_setDoublePage:", "_setDoublePageScrolling:"])
+            check(!menu.items.contains { $0.action.map { removedLayoutActions.contains(NSStringFromSelector($0)) } == true },
+                  "the context menu removes only the four independent PDFKit layout choices")
+            check(menu.items.contains { $0.action.map(NSStringFromSelector) == "_setAutoSize:" }
+                  && menu.items.contains { $0.action.map(NSStringFromSelector) == "_setActualSize:" },
+                  "the native zoom section still includes Automatically Resize and Actual Size")
             if let index = menu.items.firstIndex(where: { $0.action == NSSelectorFromString("copyPageAsImage:") }) {
                 let before = board.changeCount
                 menu.performActionForItem(at: index)
@@ -108,6 +114,25 @@ final class ClipboardQARunner: NSObject, NSApplicationDelegate {
                     try? data.write(to: URL(fileURLWithPath: directory).appendingPathComponent("context-menu-page.png"))
                 }
             } else { check(false, "the context menu provides Copy Current Page as Image") }
+            @MainActor func perform(_ action: Selector) {
+                if let index = menu.items.firstIndex(where: { $0.action == action }) { menu.performActionForItem(at: index) }
+                else { check(false, "the expected native command exists: \(NSStringFromSelector(action))") }
+            }
+            let initialScale = view.scaleFactor
+            perform(#selector(PDFView.zoomIn(_:)))
+            check(view.scaleFactor > initialScale, "the retained Zoom In command increases the live page scale")
+            let increasedScale = view.scaleFactor
+            perform(#selector(PDFView.zoomOut(_:)))
+            check(view.scaleFactor < increasedScale, "the retained Zoom Out command decreases the live page scale")
+            perform(NSSelectorFromString("_setActualSize:"))
+            check(abs(view.scaleFactor - 1) < 0.005, "the retained Actual Size command restores 100 percent")
+            perform(NSSelectorFromString("_setAutoSize:"))
+            check(view.autoScales, "the retained Automatically Resize command restores automatic scaling")
+            let pageIndex = document.index(for: view.currentPage!)
+            perform(#selector(PDFView.goToNextPage(_:)))
+            check(document.index(for: view.currentPage!) == pageIndex + 1, "the retained Next Page command advances the live document")
+            perform(#selector(PDFView.goToPreviousPage(_:)))
+            check(document.index(for: view.currentPage!) == pageIndex, "the retained Previous Page command returns to the original page")
             window.orderOut(nil)
             print(failures.isEmpty ? "All clipboard UI checks passed" : "Clipboard UI checks failed")
             fflush(stdout)

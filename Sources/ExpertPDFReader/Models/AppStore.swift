@@ -736,6 +736,9 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     @Published private(set) var secondaryZoomCommandToken: Int = 0
     private(set) var pendingSecondaryZoomAction: ZoomAction?
     @Published public var pageJumpToken: Int = 0
+    /// Page-space destination for the next jump (outline entries); `nil` lands on the page top.
+    /// Components equal to kPDFDestinationUnspecifiedValue keep the current position on that axis.
+    @Published public var pageJumpPoint: CGPoint?
     @Published private(set) var secondaryPageJumpToken: Int = 0
     /// Bumped when crop boxes change after layout (Clear Margins finishing in the background)
     @Published public var clearMarginsLayoutToken: Int = 0
@@ -962,16 +965,18 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         }
     }
 
-    public func navigateToPage(_ index: Int, recordHistory: Bool = true) {
+    public func navigateToPage(_ index: Int, point: CGPoint? = nil, recordHistory: Bool = true) {
         let clamped = max(0, min(max(0, pageCount - 1), index))
-        guard clamped != currentPageIndex else { return }
+        // A precise point on the current page still scrolls; only a plain same-page jump is a no-op
+        guard clamped != currentPageIndex || point != nil else { return }
         readingSpot = nil
-        if recordHistory && !isNavigatingHistory {
+        if recordHistory && !isNavigatingHistory && clamped != currentPageIndex {
             backStack.append(currentPageIndex)
             if backStack.count > 50 { backStack.removeFirst() }
             forwardStack.removeAll()
         }
         currentPageIndex = clamped
+        pageJumpPoint = point
         pageJumpToken &+= 1
         if syncScrollAndZoom && secondaryPDFDocument == pdfDocument {
             secondaryPageIndex = clamped
@@ -995,6 +1000,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     public func goBack() {
         guard let prev = backStack.popLast() else { return }
         readingSpot = nil
+        pageJumpPoint = nil
         isNavigatingHistory = true
         forwardStack.append(currentPageIndex)
         currentPageIndex = prev
@@ -1005,6 +1011,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     public func goForward() {
         guard let next = forwardStack.popLast() else { return }
         readingSpot = nil
+        pageJumpPoint = nil
         isNavigatingHistory = true
         backStack.append(currentPageIndex)
         currentPageIndex = next
@@ -1082,6 +1089,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         let delta = clockwise ? 90 : -90
         let newRotation = ((page.rotation + delta) % 360 + 360) % 360
         page.rotation = newRotation
+        pageJumpPoint = nil
         pageJumpToken &+= 1
     }
 
@@ -1618,6 +1626,13 @@ public final class AppStore: ObservableObject {
         }
     }
 
+    @Published public var accentColor: AppAccentColor {
+        didSet {
+            UserDefaults.standard.set(accentColor.rawValue, forKey: "expertPDFReader.accentColor")
+            AppPalette.accent = accentColor
+        }
+    }
+
     @Published public var tabsInSidebar: Bool {
         didSet { UserDefaults.standard.set(tabsInSidebar, forKey: "expertPDFReader.tabsInSidebar") }
     }
@@ -1885,6 +1900,10 @@ public final class AppStore: ObservableObject {
         let savedAppRaw = defaults.string(forKey: "expertPDFReader.appearanceMode")
             ?? AppAppearanceMode.system.rawValue
         self.appearanceMode = AppAppearanceMode(rawValue: savedAppRaw) ?? .system
+        let savedAccentRaw = defaults.string(forKey: "expertPDFReader.accentColor") ?? AppAccentColor.blue.rawValue
+        let resolvedAccent = AppAccentColor(rawValue: savedAccentRaw) ?? .blue
+        self.accentColor = resolvedAccent
+        AppPalette.accent = resolvedAccent
         self.tabsInSidebar = defaults.bool(forKey: "expertPDFReader.tabsInSidebar")
 
         let formatter = DateFormatter()

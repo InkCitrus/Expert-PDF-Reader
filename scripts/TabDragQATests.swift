@@ -894,6 +894,77 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         await settle()
     }
 
+    func checkSidebarPopupResize(_ primary: ReaderWindowSession) async {
+        let originalFrame = window.frame
+        let originalSidebar = store.tabsInSidebar
+        window.setContentSize(NSSize(width: 1100, height: 700))
+        keepWindowOnScreen()
+        store.tabsInSidebar = true
+        await settle()
+        await hoverSidebar(true, in: primary)
+        guard let strip = primary.tabStripView else {
+            check(false, "the expanded floating sidebar has a tab strip")
+            return
+        }
+        let popupWidth = strip.bounds.width
+        func horizontalHandles(_ view: NSView) -> [ReaderResizeHandle.Handle] {
+            var result: [ReaderResizeHandle.Handle] = []
+            if let handle = view as? ReaderResizeHandle.Handle, handle.axis == .horizontal { result.append(handle) }
+            for subview in view.subviews { result += horizontalHandles(subview) }
+            return result
+        }
+        // The popup handle reports the popup width; the navigation handle reports the (different) panel width.
+        guard let handle = horizontalHandles(window.contentView!).first(where: { abs($0.length - popupWidth) < 1 }) else {
+            check(false, "the expanded floating sidebar exposes a resize handle at its trailing edge")
+            return
+        }
+        await dragDivider(in: handle, by: NSPoint(x: 80, y: 0))
+        let widened = primary.tabStripView?.bounds.width ?? 0
+        check(abs(widened - popupWidth - 80) < 2,
+              "dragging the floating sidebar boundary widens it (\(popupWidth) → \(widened))")
+        await dragDivider(in: handle, by: NSPoint(x: -120, y: 0))
+        let narrowed = primary.tabStripView?.bounds.width ?? 0
+        check(abs(narrowed - widened + 120) < 2,
+              "dragging the floating sidebar boundary back narrows it (\(widened) → \(narrowed))")
+        await hoverSidebar(false, in: primary)
+        await hoverSidebar(true, in: primary)
+        let reopened = primary.tabStripView?.bounds.width ?? 0
+        check(abs(reopened - narrowed) < 2,
+              "the resized floating sidebar width persists after collapsing and reopening")
+        await hoverSidebar(false, in: primary)
+        store.tabsInSidebar = originalSidebar
+        window.setFrame(originalFrame, display: true)
+        await settle()
+    }
+
+    func checkResizeCursorStability(_ primary: ReaderWindowSession) async {
+        guard let handle = resizeHandle(in: window.contentView!, axis: .horizontal) else {
+            check(false, "a resize handle is present for cursor stability checks")
+            return
+        }
+        func enterExit(_ type: NSEvent.EventType, at point: NSPoint) -> NSEvent {
+            NSEvent.enterExitEvent(with: type, location: handle.convert(point, to: nil),
+                modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil)!
+        }
+        handle.mouseEntered(with: enterExit(.mouseEntered, at: NSPoint(x: handle.bounds.midX, y: handle.bounds.midY)))
+        let enteredCursor = NSCursor.current
+        check(enteredCursor === NSCursor.resizeLeftRight, "hovering the divider shows the left-right resize cursor")
+        handle.updateTrackingAreas()
+        let areaBefore = handle.trackingAreas.first
+        // Repeated SwiftUI layout passes must not recreate the tracking area: removing an area the
+        // pointer is inside synthesizes mouseExited (→ arrow) with no matching mouseEntered, dropping
+        // the resize cursor under a stationary pointer.
+        for _ in 0..<5 { handle.updateTrackingAreas() }
+        check(areaBefore != nil && handle.trackingAreas.first === areaBefore,
+              "the resize handle keeps one stable tracking area across layout passes")
+        check(NSCursor.current === enteredCursor,
+              "repeated layout passes do not reset the resize cursor to the arrow")
+        handle.mouseExited(with: enterExit(.mouseExited, at: NSPoint(x: handle.bounds.maxX + 40, y: handle.bounds.midY)))
+        check(NSCursor.current === NSCursor.arrow, "leaving the divider restores the arrow cursor")
+        await settle()
+    }
+
     func checkSplitComparison(_ primary: ReaderWindowSession) async {
         let alpha = tab("Alpha", in: primary)
         let beta = tab("Beta", in: primary)
@@ -1084,6 +1155,8 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
             }
             await checkSidebarTabs(primary)
             await checkTopTabsSidebarResize(primary)
+            await checkSidebarPopupResize(primary)
+            await checkResizeCursorStability(primary)
             await checkSplitComparison(primary)
             await checkManyTabs(primary)
             await checkTabGroups(primary)

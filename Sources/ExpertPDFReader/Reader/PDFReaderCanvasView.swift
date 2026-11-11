@@ -25,6 +25,8 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
     public let searchMatches: [SearchMatchItem]
     public let selectedMatchIndex: Int
     public let pageJumpToken: Int
+    /// Page-space destination for the jump (outline entries); `nil` lands on the page top
+    public let pageJumpPoint: CGPoint?
     public let zoomCommandToken: Int
     public let pendingZoomAction: DocumentTabState.ZoomAction?
     /// Initial zoom mode: `false` opens at `zoomScale` instead of fitting the width
@@ -58,6 +60,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         searchMatches: [SearchMatchItem] = [],
         selectedMatchIndex: Int = 0,
         pageJumpToken: Int = 0,
+        pageJumpPoint: CGPoint? = nil,
         zoomCommandToken: Int = 0,
         pendingZoomAction: DocumentTabState.ZoomAction? = nil,
         isAutoScaling: Bool = true,
@@ -84,6 +87,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         self.searchMatches = searchMatches
         self.selectedMatchIndex = selectedMatchIndex
         self.pageJumpToken = pageJumpToken
+        self.pageJumpPoint = pageJumpPoint
         self.zoomCommandToken = zoomCommandToken
         self.pendingZoomAction = pendingZoomAction
         self.isAutoScaling = isAutoScaling
@@ -287,9 +291,13 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         // 3. Page Navigation Jump
         if coordinator.lastPageJumpToken != pageJumpToken {
             coordinator.lastPageJumpToken = pageJumpToken
-            if let targetPage = pdfDocument.page(at: currentPageIndex),
-               pdfView.currentPage !== targetPage {
-                pdfView.go(to: targetPage)
+            if let targetPage = pdfDocument.page(at: currentPageIndex) {
+                if let point = pageJumpPoint {
+                    // Outline entry: scroll to the exact destination, even within the current page
+                    pdfView.go(to: PDFDestination(page: targetPage, at: point))
+                } else if pdfView.currentPage !== targetPage {
+                    pdfView.go(to: targetPage)
+                }
             }
         } else if let current = pdfView.currentPage, Coordinator.isLive(pdfView) {
             let actualIdx = pdfDocument.index(for: current)

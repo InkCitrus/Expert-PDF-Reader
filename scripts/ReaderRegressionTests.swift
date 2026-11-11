@@ -513,6 +513,60 @@ struct ReaderRegressionTests {
               && ReaderLayoutMode.twoPagesCover.pageIndex(afterStepping:-1,from:2,pageCount:6) == 0,
               "single pages, odd final spreads and the second cover-spread page have consistent boundaries")
 
+        // Outline entries jump to a precise destination, including several sections on one page
+        let outlineTab = freshStore().openDocument(at: try fixture("SpreadNavigation"), interactive: false)!
+        outlineTab.navigateToPage(2)
+        let tokenAfterPageJump = outlineTab.pageJumpToken
+        check(outlineTab.currentPageIndex == 2 && outlineTab.pageJumpPoint == nil,
+              "a plain page jump lands on the page top with no destination point")
+        outlineTab.navigateToPage(2, point: CGPoint(x: 70, y: 200))
+        check(outlineTab.pageJumpToken == tokenAfterPageJump + 1 && outlineTab.pageJumpPoint == CGPoint(x: 70, y: 200),
+              "an outline entry on the current page scrolls to its destination instead of doing nothing")
+        check(outlineTab.backStack.count == 1,
+              "a same-page outline jump does not add a page to the back history")
+        outlineTab.navigateToPage(3, point: CGPoint(x: 70, y: 400))
+        check(outlineTab.currentPageIndex == 3 && outlineTab.backStack.count == 2,
+              "a cross-page outline jump records the previous page once")
+        let tokenBeforeNoop = outlineTab.pageJumpToken
+        outlineTab.navigateToPage(3)
+        check(outlineTab.pageJumpToken == tokenBeforeNoop,
+              "a plain jump to the current page stays a no-op")
+        outlineTab.goBack()
+        check(outlineTab.currentPageIndex == 2 && outlineTab.pageJumpPoint == nil,
+              "going back clears the outline destination point")
+
+        // The active outline row must follow a single consistent reading position, not flip between
+        // PDFKit's middle-of-view "current page" and the top-of-view reading line while scrolling.
+        let chapter = PDFOutlineNode(title: "Matrices", pageIndex: 34, point: nil, children: [])
+        let inner = PDFOutlineNode(title: "Inner", pageIndex: 50, point: CGPoint(x: 0, y: 600), children: [])
+        let rotation = PDFOutlineNode(title: "Rotation", pageIndex: 52, point: CGPoint(x: 0, y: 700), children: [])
+        let application = PDFOutlineNode(title: "Application", pageIndex: 54, point: CGPoint(x: 0, y: 700), children: [])
+        let sections = [chapter, inner, rotation, application]
+        func active(_ locationPage: Int, _ line: CGFloat, fallback: Int = 99) -> UUID? {
+            PDFOutlinePanel.activeSection(in: sections, locationPage: locationPage, readingLineY: line, fallbackPage: fallback)
+        }
+        check(active(50, 500, fallback: 52) == inner.id,
+              "a known reading line on the top-of-view page wins over a disagreeing current page")
+        check(active(50, 700) == chapter.id && active(50, 600) == inner.id,
+              "a same-page section becomes active once its heading reaches the reading line")
+        check(active(52, 700) == rotation.id && active(54, 700) == application.id,
+              "advancing the reading page advances the active section")
+        check(active(-1, 0, fallback: 52) == rotation.id,
+              "before the first reading report the current page selects the last section on it")
+        let openTop = PDFOutlineNode(title: "Open", pageIndex: 52, point: nil, children: [])
+        check(PDFOutlinePanel.activeSection(in: [inner, openTop], locationPage: 52, readingLineY: 900, fallbackPage: 52) == openTop.id,
+              "a section with an unspecified destination height counts as reached on its page")
+        let scroll: [(Int, CGFloat)] = [(50, 700), (50, 600), (50, 100), (52, 750), (52, 700), (52, 100), (54, 700)]
+        var lastIndex = -1
+        var monotonic = true
+        for (page, line) in scroll {
+            let id = PDFOutlinePanel.activeSection(in: sections, locationPage: page, readingLineY: line, fallbackPage: page)
+            let index = sections.firstIndex { $0.id == id } ?? -1
+            if index < lastIndex { monotonic = false }
+            lastIndex = index
+        }
+        check(monotonic, "scrolling forward never makes the highlighted section jump backward")
+
         let mixed = PDFDocument(url: try fixture("MixedNumbers", mixedNumbers: true))!
         let numbers = BookPageScanner.scan(mixed).printedNumbers
         check(numbers?.label(at: 1) == nil && numbers?.label(at: 4) == nil

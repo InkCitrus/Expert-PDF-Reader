@@ -179,6 +179,7 @@ struct SearchResultRow: View {
     let isDark: Bool
     let action: () -> Void
 
+    @Environment(\.appAccentColor) private var accent
     @State private var isHovered = false
 
     var body: some View {
@@ -193,7 +194,7 @@ struct SearchResultRow: View {
                 .padding(.vertical, 8)
                 .background(
                     isSelected
-                        ? AppPalette.accentBlue.opacity(isDark ? 0.22 : 0.12)
+                        ? accent.opacity(isDark ? 0.22 : 0.12)
                         : (isHovered ? AppPalette.rowHover(isDark) : Color.clear)
                 )
                 .contentShape(Rectangle())
@@ -213,7 +214,7 @@ struct SearchResultRow: View {
         while cursor < snippet.endIndex,
               let range = snippet.range(of: needle, options: .caseInsensitive, range: cursor..<snippet.endIndex) {
             result = result + Text(snippet[cursor..<range.lowerBound])
-            result = result + Text(snippet[range]).bold().foregroundColor(AppPalette.accentBlue)
+            result = result + Text(snippet[range]).bold().foregroundColor(accent)
             cursor = range.upperBound
         }
         return result + Text(snippet[cursor...])

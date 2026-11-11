@@ -10,6 +10,7 @@ public struct PDFReaderView: View {
     @ObservedObject var tab: DocumentTabState
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appAccentColor) private var accent
     @State private var draggedPaneLength: CGFloat?
     private var isDark: Bool { colorScheme == .dark }
 
@@ -130,6 +131,7 @@ public struct PDFReaderView: View {
             searchMatches: tab.searchMatches,
             selectedMatchIndex: tab.selectedMatchIndex,
             pageJumpToken: tab.pageJumpToken,
+            pageJumpPoint: tab.pageJumpPoint,
             zoomCommandToken: tab.zoomCommandToken,
             pendingZoomAction: tab.pendingZoomAction,
             isAutoScaling: tab.isAutoScaling,
@@ -240,7 +242,7 @@ public struct PDFReaderView: View {
     private func paneFocusIndicator(isSecondary: Bool) -> some View {
         if tab.splitMode != .disabled && !tab.isPageOverviewVisible && tab.targetsSecondaryPane == isSecondary {
             Rectangle()
-                .strokeBorder(AppPalette.accentBlue.opacity(0.45), lineWidth: 1)
+                .strokeBorder(accent.opacity(0.45), lineWidth: 1)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }

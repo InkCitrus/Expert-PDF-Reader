@@ -178,8 +178,69 @@ public enum AppAppearanceMode: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+/// User-selectable UI accent (selection, links, active rows, search highlights). Each preset is a single
+/// sRGB color tuned to read on both light and dark chrome, mirroring the system accent-color choices.
+public enum AppAccentColor: String, CaseIterable, Identifiable, Codable {
+    case blue = "blue"
+    case purple = "purple"
+    case pink = "pink"
+    case red = "red"
+    case orange = "orange"
+    case yellow = "yellow"
+    case green = "green"
+    case teal = "teal"
+    case graphite = "graphite"
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .blue:     return L10n.tr("蓝色", "Blue")
+        case .purple:   return L10n.tr("紫色", "Purple")
+        case .pink:     return L10n.tr("粉色", "Pink")
+        case .red:      return L10n.tr("红色", "Red")
+        case .orange:   return L10n.tr("橙色", "Orange")
+        case .yellow:   return L10n.tr("黄色", "Yellow")
+        case .green:    return L10n.tr("绿色", "Green")
+        case .teal:     return L10n.tr("青色", "Teal")
+        case .graphite: return L10n.tr("石墨色", "Graphite")
+        }
+    }
+
+    public var color: Color {
+        switch self {
+        case .blue:     return Color(hex: 0x3A82F7)
+        case .purple:   return Color(hex: 0x9135D7)
+        case .pink:     return Color(hex: 0xD6336C)
+        case .red:      return Color(hex: 0xDE1427)
+        case .orange:   return Color(hex: 0xF0801A)
+        case .yellow:   return Color(hex: 0xE8A400)
+        case .green:    return Color(hex: 0x1B802E)
+        case .teal:     return Color(hex: 0x007E87)
+        case .graphite: return Color(hex: 0x646970)
+        }
+    }
+}
+
+/// The accent color flows through the SwiftUI environment so leaf views that don't observe the store
+/// (outline rows, search results, Home buttons) still repaint when the user picks a new accent.
+private struct AppAccentColorKey: EnvironmentKey {
+    static let defaultValue: Color = AppPalette.accentBlue
+}
+
+extension EnvironmentValues {
+    var appAccentColor: Color {
+        get { self[AppAccentColorKey.self] }
+        set { self[AppAccentColorKey.self] = newValue }
+    }
+}
+
 /// The app's color tokens; most are light / dark pairs.
 public enum AppPalette {
+    /// The user's chosen accent; AppStore keeps this in sync with the persisted setting. SwiftUI views
+    /// read the accent from the environment (see `appAccentColor`); AppKit reads `accentBlue` directly.
+    public static var accent: AppAccentColor = .blue
+
     // Primary Brand & Tint Colors
     public static let primaryTint = Color(hex: 0x2FA5FF)
     public static let brightPrimaryTint = Color(hex: 0x7BC6FF)
@@ -235,8 +296,8 @@ public enum AppPalette {
         Color(hex: isDark ? 0x232326 : 0xF8F8FB)
     }
 
-    // Primary action blue (prominent buttons, links, selection rings)
-    public static let accentBlue = Color(hex: 0x3A82F7)
+    // Primary action accent (prominent buttons, links, selection rings); follows the user's accent choice
+    public static var accentBlue: Color { accent.color }
 
     public static func tabGroupFill(_ color: TabGroupColor, _ isDark: Bool) -> Color {
         switch color {

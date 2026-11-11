@@ -14,6 +14,7 @@ public struct ReaderToolbarView: View {
     @FocusState private var isSearchFieldFocused: Bool
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appAccentColor) private var accent
     private var isDark: Bool { colorScheme == .dark }
 
     public static let height: CGFloat = 40
@@ -66,7 +67,7 @@ public struct ReaderToolbarView: View {
                         icon: mode.toolbarIconName,
                         tooltip: "\(L10n.tr("阅读主题", "Reading Theme")): \(mode.title)",
                         isActive: store.readingThemeMode == mode,
-                        activeTint: AppPalette.accentBlue,
+                        activeTint: accent,
                         iconWidth: density.iconWidth,
                         isDark: isDark
                     ) {
@@ -295,7 +296,7 @@ public struct ReaderToolbarView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .stroke(AppPalette.accentBlue.opacity(isSearchFieldFocused ? 0.75 : 0), lineWidth: 1.5)
+                .stroke(accent.opacity(isSearchFieldFocused ? 0.75 : 0), lineWidth: 1.5)
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Text(L10n.tr("搜索", "Search")))
@@ -816,6 +817,7 @@ struct PageThumbnailCell: View {
 
     @State private var isHovered = false
     @State private var thumbnail: NSImage?
+    @Environment(\.appAccentColor) private var accent
 
     private static func aspectRatio(of page: PDFPage) -> CGFloat {
         let size = page.bounds(for: .cropBox).size
@@ -878,8 +880,8 @@ struct PageThumbnailCell: View {
                             RoundedRectangle(cornerRadius: 5, style: .continuous)
                                 .stroke(
                                     isCurrent
-                                        ? AppPalette.accentBlue
-                                        : (isHovered ? AppPalette.accentBlue.opacity(0.35) : Color.clear),
+                                        ? accent
+                                        : (isHovered ? accent.opacity(0.35) : Color.clear),
                                     lineWidth: 2
                                 )
                         )
@@ -893,7 +895,7 @@ struct PageThumbnailCell: View {
                     .padding(.vertical, 2)
                     .background(
                         RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .fill(isCurrent ? AppPalette.accentBlue : Color.clear)
+                            .fill(isCurrent ? accent : Color.clear)
                     )
             }
             .contentShape(Rectangle())
@@ -917,9 +919,12 @@ struct PDFOutlineNode: Identifiable {
     let id = UUID()
     let title: String
     let pageIndex: Int?
-    /// Destination's y in page space (origin bottom-left); `nil` means the top of the page
-    let top: CGFloat?
+    /// Destination point in page space (origin bottom-left); `nil` means the top of the page.
+    /// A component of kPDFDestinationUnspecifiedValue keeps the current position on that axis.
+    let point: CGPoint?
     let children: [PDFOutlineNode]
+    /// Destination's y; `nil` when unspecified (the position on the page is left open)
+    var top: CGFloat? { point.flatMap { $0.y < 1_000_000 ? $0.y : nil } }
 }
 
 struct PDFOutlinePanel: View {
@@ -963,7 +968,7 @@ struct PDFOutlinePanel: View {
                                 onToggle: { toggle(row.node) },
                                 onSelect: {
                                     if let pIdx = row.node.pageIndex {
-                                        tab.navigateToPage(pIdx)
+                                        tab.navigateToPage(pIdx, point: row.node.point)
                                     }
                                 }
                             )
@@ -992,14 +997,22 @@ struct PDFOutlinePanel: View {
 
     /// The section being read: the last visible row starting before the current page, or on it above the
     /// reading line, so the right one of several sections on the same page is highlighted.
+    /// The page and the reading line both come from `location` (the top-of-view destination), published
+    /// together. Mixing in `tab.currentPageIndex` — which PDFKit derives from the middle of the view and
+    /// updates on a different cadence — made the highlight flip back and forth while scrolling.
     private func activeNodeID(in rows: [OutlineRow]) -> UUID? {
-        let page = tab.currentPageIndex
-        let knowsPosition = location.pageIndex == page
-        return rows.last(where: { row in
-            guard let nodePage = row.node.pageIndex, nodePage <= page else { return false }
-            guard nodePage == page, knowsPosition, let top = row.node.top else { return true }
-            return top >= location.readingLineY
-        })?.node.id
+        Self.activeSection(in: rows.map(\.node), locationPage: location.pageIndex,
+                           readingLineY: location.readingLineY, fallbackPage: tab.currentPageIndex)
+    }
+
+    static func activeSection(in nodes: [PDFOutlineNode], locationPage: Int,
+                              readingLineY: CGFloat, fallbackPage: Int) -> UUID? {
+        let page = locationPage >= 0 ? locationPage : fallbackPage
+        return nodes.last(where: { node in
+            guard let nodePage = node.pageIndex, nodePage <= page else { return false }
+            guard nodePage == page, let top = node.top else { return true }
+            return top >= readingLineY
+        })?.id
     }
 
     private func toggle(_ node: PDFOutlineNode) {
@@ -1053,20 +1066,20 @@ struct PDFOutlinePanel: View {
         for i in 0..<parent.numberOfChildren {
             guard let child = parent.child(at: i) else { continue }
             var pageIdx: Int?
+            var point: CGPoint?
             let destination = child.destination ?? (child.action as? PDFActionGoTo)?.destination
             if let page = destination?.page {
                 let idx = tab.pdfDocument.index(for: page)
                 if idx >= 0 && idx < tab.pageCount {
                     pageIdx = idx
+                    point = destination?.point
                 }
             }
-            // kPDFDestinationUnspecifiedValue (FLT_MAX) leaves the position on the page open
-            let top = destination.map(\.point.y).flatMap { $0 < 1_000_000 ? $0 : nil }
             result.append(
                 PDFOutlineNode(
                     title: child.label ?? L10n.tr("未命名章节", "Untitled Section"),
                     pageIndex: pageIdx,
-                    top: top,
+                    point: point,
                     children: buildOutlineNodes(from: child)
                 )
             )
@@ -1086,6 +1099,7 @@ struct PDFOutlineRowView: View {
     let onSelect: () -> Void
 
     @State private var isHovered = false
+    @Environment(\.appAccentColor) private var accent
 
     var body: some View {
         HStack(alignment: .top, spacing: 4) {
@@ -1108,7 +1122,7 @@ struct PDFOutlineRowView: View {
 
             Text(node.title)
                 .font(.system(size: 12.5, weight: level == 0 ? .medium : .regular))
-                .foregroundColor(isActive ? AppPalette.accentBlue : AppPalette.labelPrimary(isDark))
+                .foregroundColor(isActive ? accent : AppPalette.labelPrimary(isDark))
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1119,7 +1133,7 @@ struct PDFOutlineRowView: View {
                 Text(label)
                     .font(.system(size: 11))
                     .monospacedDigit()
-                    .foregroundColor(isActive ? AppPalette.accentBlue : AppPalette.labelTertiary(isDark))
+                    .foregroundColor(isActive ? accent : AppPalette.labelTertiary(isDark))
                     .padding(.top, 2)
                     .accessibilityHidden(true)
             }
@@ -1129,7 +1143,7 @@ struct PDFOutlineRowView: View {
         .padding(.vertical, 8)
         .background(
             isActive
-                ? AppPalette.accentBlue.opacity(isDark ? 0.20 : 0.10)
+                ? accent.opacity(isDark ? 0.20 : 0.10)
                 : (isHovered ? AppPalette.rowHover(isDark) : Color.clear)
         )
         .overlay(alignment: .bottom) {
@@ -1194,6 +1208,7 @@ struct BookmarkRowView: View {
     let onDelete: () -> Void
 
     @State private var isHovered = false
+    @Environment(\.appAccentColor) private var accent
 
     var body: some View {
         HStack(spacing: 8) {
@@ -1203,7 +1218,7 @@ struct BookmarkRowView: View {
 
             Text(bookmark.title)
                 .font(.system(size: 12.5, weight: isCurrent ? .medium : .regular))
-                .foregroundColor(isCurrent ? AppPalette.accentBlue : AppPalette.labelPrimary(isDark))
+                .foregroundColor(isCurrent ? accent : AppPalette.labelPrimary(isDark))
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -1216,7 +1231,7 @@ struct BookmarkRowView: View {
         .padding(.vertical, 9)
         .background(
             isCurrent
-                ? AppPalette.accentBlue.opacity(isDark ? 0.20 : 0.10)
+                ? accent.opacity(isDark ? 0.20 : 0.10)
                 : (isHovered ? AppPalette.rowHover(isDark) : Color.clear)
         )
         .overlay(alignment: .bottom) {

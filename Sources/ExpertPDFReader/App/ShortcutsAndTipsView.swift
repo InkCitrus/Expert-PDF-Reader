@@ -96,6 +96,7 @@ public struct ShortcutsAndTipsSheetView: View {
     @ObservedObject var session: ReaderWindowSession
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appAccentColor) private var accent
     private var isDark: Bool { colorScheme == .dark }
 
     @State private var selectedCategory: ShortcutGuideCategory = .all
@@ -158,11 +159,11 @@ public struct ShortcutsAndTipsSheetView: View {
         HStack(spacing: 12) {
             ZStack {
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(AppPalette.accentBlue.opacity(isDark ? 0.20 : 0.12))
+                    .fill(accent.opacity(isDark ? 0.20 : 0.12))
                     .frame(width: 36, height: 36)
                 Image(systemName: "keyboard")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(AppPalette.accentBlue)
+                    .foregroundColor(accent)
             }
 
             VStack(alignment: .leading, spacing: 2) {
@@ -237,7 +238,7 @@ public struct ShortcutsAndTipsSheetView: View {
                         .background {
                             if isSelected {
                                 Capsule()
-                                    .fill(AppPalette.accentBlue)
+                                    .fill(accent)
                                     .matchedGeometryEffect(id: "shortcutCategoryPill", in: categoryNamespace)
                             } else {
                                 Capsule()
@@ -278,7 +279,7 @@ public struct ShortcutsAndTipsSheetView: View {
                             HStack(spacing: 6) {
                                 Image(systemName: group.category.iconName)
                                     .font(.system(size: 11.5, weight: .semibold))
-                                    .foregroundColor(AppPalette.accentBlue)
+                                    .foregroundColor(accent)
                                 Text(group.category.title)
                                     .font(.system(size: 12.5, weight: .bold))
                                     .foregroundColor(AppPalette.labelSecondary(isDark))
@@ -333,7 +334,7 @@ public struct ShortcutsAndTipsSheetView: View {
                         .font(.system(size: 12.5, weight: .medium))
                     KeycapBadgeView("⌘?", isDark: isDark, compact: true)
                 }
-                .foregroundColor(AppPalette.accentBlue)
+                .foregroundColor(accent)
             }
             .buttonStyle(.plain)
 
@@ -347,7 +348,7 @@ public struct ShortcutsAndTipsSheetView: View {
                     .foregroundColor(.white)
                     .padding(.horizontal, 18)
                     .frame(height: 28)
-                    .background(Capsule().fill(AppPalette.accentBlue))
+                    .background(Capsule().fill(accent))
                     .contentShape(Capsule())
             }
             .buttonStyle(.plain)
@@ -609,13 +610,14 @@ private struct ShortcutEntryRow: View {
     let entry: ShortcutsAndTipsSheetView.ShortcutEntry
     let isDark: Bool
 
+    @Environment(\.appAccentColor) private var accent
     @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: entry.icon)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(AppPalette.accentBlue)
+                .foregroundColor(accent)
                 .frame(width: 22)
 
             VStack(alignment: .leading, spacing: 2) {

@@ -491,13 +491,14 @@ struct HomeLinkButton: View {
     let title: String
     let action: () -> Void
 
+    @Environment(\.appAccentColor) private var accent
     @State private var isHovered = false
 
     var body: some View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 13.5))
-                .foregroundColor(AppPalette.accentBlue.opacity(isHovered ? 0.75 : 1))
+                .foregroundColor(accent.opacity(isHovered ? 0.75 : 1))
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
@@ -508,6 +509,7 @@ struct HomePrimaryButton: View {
     let title: String
     let action: () -> Void
 
+    @Environment(\.appAccentColor) private var accent
     @State private var isHovered = false
 
     var body: some View {
@@ -517,7 +519,7 @@ struct HomePrimaryButton: View {
                 .foregroundColor(.white)
                 .padding(.horizontal, 18)
                 .frame(height: 30)
-                .background(Capsule().fill(AppPalette.accentBlue.opacity(isHovered ? 0.88 : 1)))
+                .background(Capsule().fill(accent.opacity(isHovered ? 0.88 : 1)))
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -532,6 +534,7 @@ struct HomeDropAreaCard: View {
     var isCompact: Bool = false
     let onOpenFilePicker: () -> Void
 
+    @Environment(\.appAccentColor) private var accent
     @State private var isHovered = false
 
     private var cardBackground: some View {
@@ -539,15 +542,15 @@ struct HomeDropAreaCard: View {
         let outerStrokeOpacity: Double = isDark ? 0.22 : 0.13
         let dashOpacity: Double = isHovered ? 0.75 : 0.42
         return RoundedRectangle(cornerRadius: 16, style: .continuous)
-            .fill(AppPalette.accentBlue.opacity(fillOpacity))
+            .fill(accent.opacity(fillOpacity))
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(AppPalette.accentBlue.opacity(outerStrokeOpacity), lineWidth: 3)
+                    .strokeBorder(accent.opacity(outerStrokeOpacity), lineWidth: 3)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 11, style: .continuous)
                     .strokeBorder(
-                        AppPalette.accentBlue.opacity(dashOpacity),
+                        accent.opacity(dashOpacity),
                         style: StrokeStyle(lineWidth: 1.5, dash: [8, 6])
                     )
                     .padding(6)
@@ -567,7 +570,7 @@ struct HomeDropAreaCard: View {
 
             Text(L10n.tr("或将 PDF 文件拖放到此处", "or drag and drop PDF files here"))
                 .font(.system(size: 12.5))
-                .foregroundColor(AppPalette.accentBlue.opacity(0.85))
+                .foregroundColor(accent.opacity(0.85))
                 .accessibilityHidden(true)
         }
         .frame(maxWidth: .infinity)
@@ -588,6 +591,8 @@ struct HomeDropAreaCard: View {
 struct PDFStackIllustration: View {
     let isDark: Bool
 
+    @Environment(\.appAccentColor) private var accent
+
     var body: some View {
         ZStack {
             paper(showsLines: true)
@@ -600,7 +605,7 @@ struct PDFStackIllustration: View {
                 .overlay(
                     Text("PDF")
                         .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(AppPalette.accentBlue.opacity(0.75))
+                        .foregroundColor(accent.opacity(0.75))
                         .offset(y: 9)
                 )
         }
@@ -612,14 +617,14 @@ struct PDFStackIllustration: View {
             .frame(width: 42, height: 54)
             .overlay(
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .stroke(AppPalette.accentBlue.opacity(0.28), lineWidth: 1)
+                    .stroke(accent.opacity(0.28), lineWidth: 1)
             )
             .overlay(alignment: .topLeading) {
                 if showsLines {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(0..<4, id: \.self) { line in
                             Capsule()
-                                .fill(AppPalette.accentBlue.opacity(0.25))
+                                .fill(accent.opacity(0.25))
                                 .frame(width: line == 3 ? 14 : 24, height: 2)
                         }
                     }
@@ -639,6 +644,7 @@ struct HomeThemeModeCard: View {
     let isDark: Bool
     let action: () -> Void
 
+    @Environment(\.appAccentColor) private var accent
     @State private var isHovered = false
 
     var body: some View {
@@ -676,7 +682,7 @@ struct HomeThemeModeCard: View {
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 13))
-                            .foregroundColor(AppPalette.accentBlue)
+                            .foregroundColor(accent)
                             .transition(.scale.combined(with: .opacity))
                     }
                 }
@@ -691,7 +697,7 @@ struct HomeThemeModeCard: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(isSelected ? AppPalette.accentBlue : Color.clear, lineWidth: 2)
+                    .stroke(isSelected ? accent : Color.clear, lineWidth: 2)
             )
             .offset(y: isHovered ? -1.5 : 0)
             .shadow(color: Color.black.opacity(isHovered ? (isDark ? 0.30 : 0.08) : 0), radius: 6, x: 0, y: 3)
@@ -858,16 +864,18 @@ struct HomeEmptyStateView: View {
 struct DropOverlayView: View {
     let isDark: Bool
 
+    @Environment(\.appAccentColor) private var accent
+
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(AppPalette.accentBlue.opacity(0.10))
+                .fill(accent.opacity(0.10))
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(AppPalette.accentBlue, style: StrokeStyle(lineWidth: 2, dash: [10, 6]))
+                .strokeBorder(accent, style: StrokeStyle(lineWidth: 2, dash: [10, 6]))
             VStack(spacing: 10) {
                 Image(systemName: "arrow.down.doc.fill")
                     .font(.system(size: 40))
-                    .foregroundColor(AppPalette.accentBlue)
+                    .foregroundColor(accent)
                 Text(L10n.tr("松开鼠标即可打开 PDF", "Release to open PDF"))
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(AppPalette.labelPrimary(isDark))

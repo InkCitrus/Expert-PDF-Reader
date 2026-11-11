@@ -21,7 +21,7 @@ public enum SamplePDFGenerator {
         public let pages: [(title: String, subtitle: String, sections: [(heading: String, body: String)])]
     }
 
-    public static let guideDirectoryName = "Guides_v15"
+    public static let guideDirectoryName = "Guides_v16"
 
     public static func supportDirectory() -> URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -660,7 +660,8 @@ public enum SamplePDFGenerator {
                         subtitle: "即时全文检索、上下文摘要高亮与方向键翻页",
                         sections: [
                             ("全文检索与上下文高亮 (Full-Text Search)", "按 ⌘F 激活右上角搜索框，输入关键词即可在右侧面板按页列出所有匹配结果与上下文摘要，并在 PDF 页面上高亮标记匹配文本，支持 ⌘G / ⇧⌘G 快速跳转上下处匹配。"),
-                            ("左右方向键快速翻页", "阅读时直接按键盘 ← 或 → 方向键即可快速切换到上一页或下一页；点击右下角页码浮窗可直接输入页码跳转。")
+                            ("左右方向键快速翻页", "阅读时直接按键盘 ← 或 → 方向键即可快速切换到上一页或下一页；点击右下角页码浮窗可直接输入页码跳转。"),
+                            ("复制当前页为图片", "右键页面，或选择「编辑」>「复制当前页为图片」。分屏时复制当前操作一侧的页面，保留原始配色。")
                         ]
                     )
                 ]
@@ -728,7 +729,8 @@ public enum SamplePDFGenerator {
                         subtitle: "即時全文檢索、上下文摘要醒目顯示與方向鍵翻頁",
                         sections: [
                             ("全文檢索與上下文醒目顯示 (Full-Text Search)", "按 ⌘F 啟用右上角搜尋框，輸入關鍵字即可在右側面板按頁列出所有符合結果與上下文摘要，並在 PDF 頁面上標記符合文字，支援 ⌘G / ⇧⌘G 快速跳轉。"),
-                            ("左右方向鍵快速翻頁", "閱讀時直接按鍵盤 ← 或 → 方向鍵即可快速切換到上一頁或下一頁；點按右下角頁碼浮窗可直接輸入頁碼跳轉。")
+                            ("左右方向鍵快速翻頁", "閱讀時直接按鍵盤 ← 或 → 方向鍵即可快速切換到上一頁或下一頁；點按右下角頁碼浮窗可直接輸入頁碼跳轉。"),
+                            ("複製目前頁面為圖片", "在頁面按右鍵，或選擇「編輯」>「複製目前頁面為圖片」。分割畫面時複製目前操作一側，保留原始配色。")
                         ]
                     )
                 ]
@@ -796,7 +798,8 @@ public enum SamplePDFGenerator {
                         subtitle: "高速テキスト検索と ← / → 矢印キーによるページめくり",
                         sections: [
                             ("全文検索と文脈スニペット (⌘F)", "⌘F で検索欄にフォーカスし、キーワードを入力すると右パネルにページ順で文脈付きの一致箇所が一覧表示されます。⌘G / ⇧⌘G で次・前の一致箇所へ移動できます。"),
-                            ("左右の矢印キーで素早くページ移動", "読書中に ← / → キーを押すだけで前後のページへ移動できます。右下のページ番号をクリックすると指定ページへ直接ジャンプできます。")
+                            ("左右の矢印キーで素早くページ移動", "読書中に ← / → キーを押すだけで前後のページへ移動できます。右下のページ番号をクリックすると指定ページへ直接ジャンプできます。"),
+                            ("現在のページを画像としてコピー", "ページを右クリックするか「編集」>「現在のページを画像としてコピー」を選択。分割表示では操作中のペインを元の配色でコピーします。")
                         ]
                     )
                 ]
@@ -864,7 +867,8 @@ public enum SamplePDFGenerator {
                         subtitle: "실시간 문맥 요약 하이라이트 및 ← / → 방향키 페이지 이동",
                         sections: [
                             ("전체 텍스트 검색 (⌘F)", "⌘F를 눌러 키워드를 입력하면 오른쪽 패널에 페이지별 문맥 요약이 표시되고 본문에서 일치하는 단어가 강조됩니다. ⌘G / ⇧⌘G로 다음/이전 결과를 탐색하세요."),
-                            ("좌우 방향키로 빠른 페이지 이동", "읽는 도중 키보드의 ← 또는 → 방향키를 눌러 이전/다음 페이지로 즉시 이동할 수 있습니다.")
+                            ("좌우 방향키로 빠른 페이지 이동", "읽는 도중 키보드의 ← 또는 → 방향키를 눌러 이전/다음 페이지로 즉시 이동할 수 있습니다."),
+                            ("현재 페이지를 이미지로 복사", "페이지를 우클릭하거나 편집 > 현재 페이지를 이미지로 복사를 선택하세요. 분할 보기에서는 활성 창의 페이지를 원래 색상으로 복사합니다.")
                         ]
                     )
                 ]
@@ -932,7 +936,8 @@ public enum SamplePDFGenerator {
                         subtitle: "Extraits contextuels mis en évidence et touches fléchées ← / →",
                         sections: [
                             ("Recherche plein texte instantanée (⌘F)", "Appuyez sur ⌘F pour rechercher un terme dans tout le document, afficher les extraits par page et naviguer entre les résultats avec ⌘G / ⇧⌘G."),
-                            ("Changement de page avec les flèches ← / →", "Utilisez directement les touches fléchées gauche (←) et droite (→) pour passer à la page précédente ou suivante.")
+                            ("Changement de page avec les flèches ← / →", "Utilisez directement les touches fléchées gauche (←) et droite (→) pour passer à la page précédente ou suivante."),
+                            ("Copier la page actuelle en image", "Clic droit sur la page ou Édition > Copier la page actuelle en image. Copie le volet actif avec les couleurs originales.")
                         ]
                     )
                 ]
@@ -1000,7 +1005,8 @@ public enum SamplePDFGenerator {
                         subtitle: "Kontexttreffer nach Seiten und Blättern mit den Pfeiltasten ← / →",
                         sections: [
                             ("Schnelle Volltextsuche (⌘F)", "Drücken Sie ⌘F, um das gesamte Dokument zu durchsuchen, Treffer mit Textausschnitten nach Seiten aufzulisten und mit ⌘G / ⇧⌘G durchzuspringen."),
-                            ("Seitenwechsel mit den Pfeiltasten ← / →", "Mit den Pfeiltasten Links (←) und Rechts (→) blättern Sie direkt zur vorherigen oder nächsten Seite.")
+                            ("Seitenwechsel mit den Pfeiltasten ← / →", "Mit den Pfeiltasten Links (←) und Rechts (→) blättern Sie direkt zur vorherigen oder nächsten Seite."),
+                            ("Aktuelle Seite als Bild kopieren", "Rechtsklick auf die Seite oder Bearbeiten > Aktuelle Seite als Bild kopieren. Kopiert den aktiven Bereich in Originalfarben.")
                         ]
                     )
                 ]
@@ -1068,7 +1074,8 @@ public enum SamplePDFGenerator {
                         subtitle: "Fragmentos resaltados por página y cambio de página con ← / →",
                         sections: [
                             ("Búsqueda de texto completo (⌘F)", "Pulse ⌘F para buscar palabras clave, ver coincidencias agrupadas por página con contexto y saltar entre ellas con ⌘G / ⇧⌘G."),
-                            ("Navegación rápida con teclas ← / →", "Pulse las flechas izquierda (←) y derecha (→) para pasar directamente a la página anterior o siguiente.")
+                            ("Navegación rápida con teclas ← / →", "Pulse las flechas izquierda (←) y derecha (→) para pasar directamente a la página anterior o siguiente."),
+                            ("Copiar página actual como imagen", "Haz clic derecho o elige Edición > Copiar página actual como imagen. Copia el panel activo con sus colores originales.")
                         ]
                     )
                 ]
@@ -1136,7 +1143,8 @@ public enum SamplePDFGenerator {
                         subtitle: "Risultati contestuali per pagina e frecce ← / → per sfogliare",
                         sections: [
                             ("Ricerca nel testo completo (⌘F)", "Premi ⌘F per cercare parole chiave nel documento, visualizzare gli estratti per pagina e scorrere i risultati con ⌘G / ⇧⌘G."),
-                            ("Cambio pagina rapido con i tasti ← / →", "Usa i tasti freccia sinistra (←) e destra (→) per passare immediatamente alla pagina precedente o successiva.")
+                            ("Cambio pagina rapido con i tasti ← / →", "Usa i tasti freccia sinistra (←) e destra (→) per passare immediatamente alla pagina precedente o successiva."),
+                            ("Copia pagina corrente come immagine", "Fai clic destro o scegli Modifica > Copia pagina corrente come immagine. Copia il riquadro attivo nei colori originali.")
                         ]
                     )
                 ]
@@ -1204,7 +1212,8 @@ public enum SamplePDFGenerator {
                         subtitle: "Trechos destacados por página e navegação com as setas ← / →",
                         sections: [
                             ("Pesquisa de texto completo (⌘F)", "Pressione ⌘F para pesquisar palavras-chave no documento, ver ocorrências agrupadas por página e navegar com ⌘G / ⇧⌘G."),
-                            ("Mudança rápida de página com ← / →", "Use as teclas de seta para a esquerda (←) e direita (→) para ir diretamente para a página anterior ou seguinte.")
+                            ("Mudança rápida de página com ← / →", "Use as teclas de seta para a esquerda (←) e direita (→) para ir diretamente para a página anterior ou seguinte."),
+                            ("Copiar página atual como imagem", "Clique com o botão direito ou escolha Editar > Copiar página atual como imagem. Copia o painel ativo nas cores originais.")
                         ]
                     )
                 ]
@@ -1272,7 +1281,8 @@ public enum SamplePDFGenerator {
                         subtitle: "Контекстные фрагменты по страницам и клавиши со стрелками ← / →",
                         sections: [
                             ("Полнотекстовый поиск (⌘F)", "Нажмите ⌘F для поиска слов по документу, просмотра совпадений с контекстом по страницам и перехода между ними с помощью ⌘G / ⇧⌘G."),
-                            ("Переключение страниц стрелками ← / →", "Нажимайте клавиши со стрелками влево (←) и вправо (→) для быстрого перехода к предыдущей или следующей странице.")
+                            ("Переключение страниц стрелками ← / →", "Нажимайте клавиши со стрелками влево (←) и вправо (→) для быстрого перехода к предыдущей или следующей странице."),
+                            ("Скопировать текущую страницу как изображение", "Щёлкните страницу правой кнопкой или выберите Правка > Скопировать текущую страницу как изображение. Копируется активная панель в исходных цветах.")
                         ]
                     )
                 ]
@@ -1340,7 +1350,8 @@ public enum SamplePDFGenerator {
                         subtitle: "Контекстні фрагменти за сторінками та клавіші зі стрілками ← / →",
                         sections: [
                             ("Повнотекстовий пошук (⌘F)", "Натисніть ⌘F для пошуку слів у документі, перегляду збігів із контекстом за сторінками та переходу між ними за допомогою ⌘G / ⇧⌘G."),
-                            ("Перемикання сторінок стрілками ← / →", "Натискайте клавіші зі стрілками ліворуч (←) і праворуч (→) для швидкого переходу до попередньої або наступної сторінки.")
+                            ("Перемикання сторінок стрілками ← / →", "Натискайте клавіші зі стрілками ліворуч (←) і праворуч (→) для швидкого переходу до попередньої або наступної сторінки."),
+                            ("Скопіювати поточну сторінку як зображення", "Натисніть сторінку правою кнопкою або виберіть Редагування > Скопіювати поточну сторінку як зображення. Копіюється активна панель у початкових кольорах.")
                         ]
                     )
                 ]
@@ -1408,7 +1419,8 @@ public enum SamplePDFGenerator {
                         subtitle: "Instant search snippets by page and ← / → arrow key page turning",
                         sections: [
                             ("Instant Full-Text Search (⌘F)", "Press ⌘F to search keywords across the document, view matches grouped by page with highlighted context snippets in the right dock, and step through matches with ⌘G / ⇧⌘G."),
-                            ("Left / Right Arrow Key Page Turning", "Press the Left (←) or Right (→) arrow key at any time while reading to step directly to the previous or next page, or click the bottom-right page pill to jump to a specific page number.")
+                            ("Left / Right Arrow Key Page Turning", "Press the Left (←) or Right (→) arrow key at any time while reading to step directly to the previous or next page, or click the bottom-right page pill to jump to a specific page number."),
+                            ("Copy Current Page as Image", "Right-click a page or use Edit > Copy Current Page as Image. Copies the active pane in original colors.")
                         ]
                     )
                 ]

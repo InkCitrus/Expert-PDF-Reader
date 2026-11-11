@@ -10,9 +10,12 @@ public struct MainWindowView: View {
     @ObservedObject var session: ReaderWindowSession
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("expertPDFReader.sidebarTabsWidth") private var sidebarWidth: Double?
+    @AppStorage("expertPDFReader.sidebarTabsPopupWidth") private var sidebarPopupWidth: Double?
     @State private var sidebarResizeWidth: CGFloat?
+    @State private var sidebarPopupResizeWidth: CGFloat?
     @State private var isSidebarHovered = false
     @State private var isSidebarDragging = false
+    @State private var isSidebarResizing = false
     @State private var isSidebarMenuTracking = false
     @State private var sidebarExpandedContent = false
     @State private var isDropTargeted = false
@@ -72,7 +75,7 @@ public struct MainWindowView: View {
             WindowChromeConfigurator(
                 windowTitle: store.windowTitle(for: session),
                 representedURL: store.windowRepresentedURL(for: session),
-                tabBar: AnyView(titlebarContent),
+                tabBar: AnyView(titlebarContent.environment(\.appAccentColor, store.accentColor.color)),
                 tabBarBackground: NSColor(AppPalette.tabStripBackground(isDark)),
                 onWindowAttached: { window in
                     session.nsWindow = window
@@ -84,6 +87,7 @@ public struct MainWindowView: View {
             .frame(width: 0, height: 0)
             .allowsHitTesting(false)
         )
+        .environment(\.appAccentColor, store.accentColor.color)
     }
 
     private var titlebarContent: some View {
@@ -137,8 +141,14 @@ public struct MainWindowView: View {
             min(max(width, minimumWidth), maximumWidth)
         }
         let width = boundedWidth(sidebarResizeWidth ?? preferredWidth)
-        let isCollapsed = !isSidebarHovered && !isSidebarDragging && !isSidebarMenuTracking
-        let popupWidth = min(520, max(360, windowWidth * 0.45))
+        let isCollapsed = !isSidebarHovered && !isSidebarDragging && !isSidebarMenuTracking && !isSidebarResizing
+        let defaultPopupWidth = min(520, max(360, windowWidth * 0.45))
+        let popupMin: CGFloat = 280
+        // Even a minimum-size window must fit the default popup, or the list opens narrower than intended
+        let popupMax = max(defaultPopupWidth, min(720, windowWidth - railWidth - 320))
+        func boundedPopup(_ w: CGFloat) -> CGFloat { min(max(w, popupMin), popupMax) }
+        let storedPopupWidth = sidebarPopupWidth.map { CGFloat($0) } ?? defaultPopupWidth
+        let popupWidth = boundedPopup(sidebarPopupResizeWidth ?? storedPopupWidth)
         let expandedLayout = !isCollapsed || sidebarExpandedContent
 
         return HStack(spacing: 0) {
@@ -191,6 +201,25 @@ public struct MainWindowView: View {
                     .overlay(alignment: .trailing) {
                         AppPalette.panelHairline(isDark).frame(width: 1).allowsHitTesting(false)
                     }
+                    .overlay(alignment: .trailing) {
+                        if expandedLayout {
+                            ReaderResizeHandle(axis: .horizontal, length: popupWidth) { newWidth, ended in
+                                let bounded = boundedPopup(newWidth)
+                                if ended {
+                                    sidebarPopupWidth = Double(bounded)
+                                    sidebarPopupResizeWidth = nil
+                                    isSidebarResizing = false
+                                } else {
+                                    isSidebarResizing = true
+                                    sidebarPopupResizeWidth = bounded
+                                }
+                            }
+                            .frame(width: gripWidth)
+                            .padding(.bottom, TabBarView.sidebarFooterHeight)
+                            .opacity(isCollapsed ? 0 : 1)
+                            .allowsHitTesting(!isCollapsed)
+                        }
+                    }
                     .shadow(color: .black.opacity(isCollapsed ? 0 : (isDark ? 0.28 : 0.12)), radius: 10, x: 4, y: 0)
                     .background(SidebarTabHoverArea(session: session) { isSidebarHovered = $0 })
                     .animation(AppAnimation.sidebarReveal, value: isCollapsed)
@@ -201,7 +230,11 @@ public struct MainWindowView: View {
                         } catch { return }
                         sidebarExpandedContent = false
                     }
-                    .onDisappear { sidebarExpandedContent = false }
+                    .onDisappear {
+                        sidebarExpandedContent = false
+                        sidebarPopupResizeWidth = nil
+                        isSidebarResizing = false
+                    }
             }
         }
     }
@@ -229,6 +262,8 @@ public struct MainWindowView: View {
 
 }
 
+/// A draggable panel divider. Like native macOS split views it shows no grip widget — the resize
+/// cursor appearing over the boundary is the affordance. The `Handle` keeps that cursor reliable.
 struct ReaderResizeHandle: NSViewRepresentable {
     let axis: Axis
     let length: CGFloat
@@ -257,17 +292,47 @@ struct ReaderResizeHandle: NSViewRepresentable {
         override var mouseDownCanMoveWindow: Bool { false }
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+        override var frame: NSRect {
+            didSet {
+                // Moving the boundary under a stationary pointer must re-evaluate the cursor rect,
+                // or the old cursor lingers until the mouse moves.
+                if frame != oldValue { window?.invalidateCursorRects(for: self) }
+            }
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            window?.invalidateCursorRects(for: self)
+        }
+
         override func resetCursorRects() {
             addCursorRect(bounds, cursor: resizeCursor)
         }
 
         override func updateTrackingAreas() {
             super.updateTrackingAreas()
+            // Keep one stable area across layout passes. Removing an area the pointer is inside
+            // synthesizes mouseExited (→ arrow) without a matching mouseEntered, so recreating it on
+            // every SwiftUI layout drops the resize cursor until the mouse next moves. .inVisibleRect
+            // already tracks geometry changes, so only (re)install when the area is gone.
+            if let cursorTrackingArea, trackingAreas.contains(cursorTrackingArea) { return }
             if let cursorTrackingArea { removeTrackingArea(cursorTrackingArea) }
-            let area = NSTrackingArea(rect: .zero, options: [.cursorUpdate, .activeInKeyWindow, .inVisibleRect],
+            // activeAlways so the cursor responds even when the window is not key; enter/exit re-assert
+            // the resize cursor against PDFKit/SwiftUI resetting it. (mouseMoved is deliberately avoided:
+            // re-setting the cursor on every move churns the main thread during sidebar animations.)
+            let area = NSTrackingArea(rect: .zero,
+                                      options: [.cursorUpdate, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
                                       owner: self, userInfo: nil)
             addTrackingArea(area)
             cursorTrackingArea = area
+        }
+
+        override func mouseEntered(with event: NSEvent) {
+            resizeCursor.set()
+        }
+
+        override func mouseExited(with event: NSEvent) {
+            if dragStart == nil { NSCursor.arrow.set() }
         }
 
         override func cursorUpdate(with event: NSEvent) {
@@ -321,6 +386,8 @@ struct TabBarView: View {
     private static let minimumTabWidth: CGFloat = 168
     private static let maximumTabWidth: CGFloat = 340
     private static let sidebarRowHeight: CGFloat = 44
+    /// The Open File row plus its bottom inset; the popup resize boundary stays above it so the row keeps its clicks
+    static let sidebarFooterHeight: CGFloat = sidebarRowHeight + 6
     /// Leave room between the last tab and the help button.
     private static let reservedTrailingWidth: CGFloat = 48
 
@@ -819,6 +886,7 @@ struct DocumentTabItemView: View {
     let onDragEnded: (TabDragLocation?) -> Void
 
     @State private var isCloseHovered = false
+    @Environment(\.appAccentColor) private var accent
 
     private var showsCloseButton: Bool {
         !isCollapsed && (isSelected || isHovered)
@@ -829,14 +897,14 @@ struct DocumentTabItemView: View {
             if isCollapsed {
                 Image(systemName: "doc.text")
                     .font(.system(size: 17))
-                    .foregroundStyle(isSelected ? AppPalette.accentBlue : AppPalette.labelSecondary(isDark))
+                    .foregroundStyle(isSelected ? accent : AppPalette.labelSecondary(isDark))
                     .frame(maxWidth: .infinity)
                     .accessibilityHidden(true)
             } else {
                 if isSidebar {
                     Image(systemName: "doc.text")
                         .font(.system(size: 17))
-                        .foregroundStyle(isSelected ? AppPalette.accentBlue : AppPalette.labelSecondary(isDark))
+                        .foregroundStyle(isSelected ? accent : AppPalette.labelSecondary(isDark))
                         .accessibilityHidden(true)
                 }
                 HStack(spacing: 5) {
@@ -912,7 +980,7 @@ struct DocumentTabItemView: View {
         }
         .background {
             if isSidebar && session.displayedTabGroup(containing: state.id) != nil {
-                AppPalette.accentBlue.opacity(isDark ? 0.06 : 0.04)
+                accent.opacity(isDark ? 0.06 : 0.04)
             }
         }
         .opacity(isDragging ? (session.tabDragPreview?.tab.id == state.id ? 0 : 0.3) : 1)

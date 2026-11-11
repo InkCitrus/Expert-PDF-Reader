@@ -25,6 +25,8 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
     public let searchMatches: [SearchMatchItem]
     public let selectedMatchIndex: Int
     public let pageJumpToken: Int
+    /// Page-space destination for the jump (outline entries); `nil` lands on the page top
+    public let pageJumpPoint: CGPoint?
     public let zoomCommandToken: Int
     public let pendingZoomAction: DocumentTabState.ZoomAction?
     /// Initial zoom mode: `false` opens at `zoomScale` instead of fitting the width
@@ -58,6 +60,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         searchMatches: [SearchMatchItem] = [],
         selectedMatchIndex: Int = 0,
         pageJumpToken: Int = 0,
+        pageJumpPoint: CGPoint? = nil,
         zoomCommandToken: Int = 0,
         pendingZoomAction: DocumentTabState.ZoomAction? = nil,
         isAutoScaling: Bool = true,
@@ -84,6 +87,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         self.searchMatches = searchMatches
         self.selectedMatchIndex = selectedMatchIndex
         self.pageJumpToken = pageJumpToken
+        self.pageJumpPoint = pageJumpPoint
         self.zoomCommandToken = zoomCommandToken
         self.pendingZoomAction = pendingZoomAction
         self.isAutoScaling = isAutoScaling
@@ -287,9 +291,13 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         // 3. Page Navigation Jump
         if coordinator.lastPageJumpToken != pageJumpToken {
             coordinator.lastPageJumpToken = pageJumpToken
-            if let targetPage = pdfDocument.page(at: currentPageIndex),
-               pdfView.currentPage !== targetPage {
-                pdfView.go(to: targetPage)
+            if let targetPage = pdfDocument.page(at: currentPageIndex) {
+                if let point = pageJumpPoint {
+                    // Outline entry: scroll to the exact destination, even within the current page
+                    pdfView.go(to: PDFDestination(page: targetPage, at: point))
+                } else if pdfView.currentPage !== targetPage {
+                    pdfView.go(to: targetPage)
+                }
             }
         } else if let current = pdfView.currentPage, Coordinator.isLive(pdfView) {
             let actualIdx = pdfDocument.index(for: current)
@@ -629,6 +637,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
 
 final class ThemedPDFView: PDFView {
     lazy var ocrSelectionOverlay = OCRTextSelectionOverlay(pdfView: self)
+    private lazy var nativeSelectionTracker = NativePDFSelectionTracker(pdfView: self)
 
     func installOCRSelection() {
         if ocrSelectionOverlay.superview == nil { addSubview(ocrSelectionOverlay, positioned: .above, relativeTo: nil) }
@@ -640,6 +649,9 @@ final class ThemedPDFView: PDFView {
         let eventType = NSApp.currentEvent?.type
         if (eventType == .leftMouseDown || eventType == .rightMouseDown), bounds.contains(location) {
             onPaneActivation?()
+        }
+        if eventType == .leftMouseDown, bounds.contains(location), let event = NSApp.currentEvent {
+            nativeSelectionTracker.begin(event)
         }
         if ocrSelectionOverlay.superview != nil,
            let target = ocrSelectionOverlay.hitTest(location) { return target }
@@ -676,8 +688,57 @@ final class ThemedPDFView: PDFView {
 
     private var textRecognitionTask: Task<Void, Never>?
 
+    func copyPageImageMenuItem(for event: NSEvent) -> NSMenuItem {
+        let point = convert(event.locationInWindow, from: nil)
+        let page = page(for: point, nearest: false) ?? currentPage
+        let item = NSMenuItem(title: L10n.tr("复制当前页为图片", "Copy Current Page as Image"),
+                             action: PageImageClipboard.canCopy(page) ? #selector(copyPageAsImage(_:)) : nil,
+                             keyEquivalent: "")
+        item.target = self
+        item.representedObject = page
+        return item
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let native = super.menu(for: event)
+        let menu = NSMenu()
+        // Preserve native text actions and the zoom/navigation sections, including Automatically
+        // Resize and Actual Size. The separate layout section bypasses the app's bound layout state.
+        if let native, let copyIndex = native.items.firstIndex(where: { $0.action == #selector(copy(_:)) }) {
+            for item in Array(native.items.prefix(through: copyIndex)) {
+                native.removeItem(item)
+                menu.addItem(item)
+            }
+        }
+        if !menu.items.isEmpty { menu.addItem(.separator()) }
+        menu.addItem(copyPageImageMenuItem(for: event))
+        let retainedActions: Set<Selector> = [#selector(zoomIn(_:)), #selector(zoomOut(_:)),
+                                               #selector(goToNextPage(_:)), #selector(goToPreviousPage(_:))]
+        var sections: [[NSMenuItem]] = [[]]
+        for item in native?.items ?? [] {
+            if item.isSeparatorItem { sections.append([]) }
+            else { sections[sections.count - 1].append(item) }
+        }
+        // Identify sections by public actions, without matching localized menu titles or calling
+        // PDFKit's private layout selectors.
+        for section in sections where section.contains(where: { $0.action.map(retainedActions.contains) == true }) {
+            menu.addItem(.separator())
+            for item in section {
+                native?.removeItem(item)
+                menu.addItem(item)
+            }
+        }
+        return menu
+    }
+
+    @objc private func copyPageAsImage(_ sender: NSMenuItem) {
+        guard let page = sender.representedObject as? PDFPage, PageImageClipboard.canCopy(page) else { return }
+        PageImageClipboard.beginCopy(page, in: window)
+    }
+
     override func copy(_ sender: Any?) {
         if ocrSelectionOverlay.copySelectionIfPresent() { return }
+        if nativeSelectionTracker.copyIfCorrected(to: .general) { return }
         if let selection = currentSelection, selection.pages.count == 1,
            let page = selection.pages.first, page.rotation == 0,
            PDFSelectionVisibility.requiresVisualSelection(on: page),

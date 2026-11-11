@@ -31,6 +31,7 @@ A native macOS PDF reader built for reading: tabs, Split View, and Day / Sepia /
   - **Mission Control**: window titles and represented file icons stay in sync with the active document across macOS Mission Control, App Exposé, Stage Manager and Dock.
   - **Split View**: vertical (left / right) or horizontal (top / bottom) Split View with Swap Sides, Sync Scroll & Zoom, and the Home tab as a picker for the second document.
 - **Reading**
+  - **Copy Current Page as Image**: right-click a page or use **Edit** to copy a high-resolution PNG/TIFF image for pasting into chats or notes. Exports keep the original page colors; Split View uses the active pane.
   - Single Page, Two Pages and Two Pages with Single Cover (`⌘1`, `⌘2`, `⌘3`); the pages of a spread meet at the spine. Books bound on the right are detected (from the PDF, or from where the page numbers sit on vertically set pages) and read right to left; View › Page Direction overrides it.
   - **Printed page numbers**: the page counter and Go to Page use the numbers printed on the pages — read from the pages themselves when the PDF's own page labels are missing or wrong — and show both pages of a spread. Roman-numeral front matter followed by Arabic numbering is recognized, the outline and thumbnails show the same numbers, and Go to Page also takes `(n)` for the n-th page of the file.
   - **`←` / `→`** turn the page in the focused pane.

@@ -51,18 +51,35 @@ final class OCRTextSelectionOverlay: NSView, NSMenuItemValidation {
             observations.append(center.addObserver(forName: name, object: pdfView, queue: .main) { [weak self] _ in
                 guard let self else { return }
                 self.needsDisplay = true
-                self.window?.invalidateCursorRects(for: self)
+                ReaderCursorArbiter.shared.schedule(self.window)
             })
         }
         if let scroll = pdfView.subviews.compactMap({ $0 as? NSScrollView }).first {
             scroll.contentView.postsBoundsChangedNotifications = true
             observations.append(center.addObserver(forName: NSView.boundsDidChangeNotification, object: scroll.contentView, queue: .main) { [weak self] _ in
                 self?.needsDisplay = true
+                ReaderCursorArbiter.shared.schedule(self?.window)
             })
         }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let window {
+            // Priority -1 sits below the panels (0) and dividers (1): a floating sidebar still wins arrow
+            // over the scanned page beneath it. The cursor is read from the live pointer, so it tracks resize.
+            ReaderCursorArbiter.shared.register(self, priority: -1) { [weak self] _ in
+                guard let self, let window = self.window else { return nil }
+                return self.selectionCursor(at: window.mouseLocationOutsideOfEventStream)
+            }
+            ReaderCursorArbiter.shared.schedule(window)
+        } else {
+            ReaderCursorArbiter.shared.unregister(self)
+        }
+    }
+
     deinit {
         recognition?.cancel()
         autoscrollTimer?.invalidate()
@@ -108,15 +125,13 @@ final class OCRTextSelectionOverlay: NSView, NSMenuItemValidation {
         return self
     }
 
-    override func resetCursorRects() {
-        guard let pdfView else { return }
-        for page in pdfView.visiblePages where page.rotation % 360 == 0
-            && (PDFSelectionVisibility.cachedDecision(for: page) ?? page.hasFullPageScanImage) {
-            let rect = convert(pdfView.convert(page.bounds(for: .cropBox), from: page), from: pdfView).intersection(bounds)
-            guard !rect.isNull, !rect.isEmpty else { continue }
-            let vertical = cache.object(forKey: page)?.value.isVertical ?? ((pdfView as? ThemedPDFView)?.readsRightToLeft == true)
-            addCursorRect(rect, cursor: vertical ? .iBeamCursorForVerticalLayout : .iBeam)
-        }
+    /// The I-beam the arbiter shows where OCR selection is available, or nil so PDFKit keeps its native
+    /// text cursor. Replaces passive cursor rects, which AppKit resolved independently of the arbiter and
+    /// leaked through the hit-test-transparent sidebar backgrounds as a stray I-beam over the popup.
+    private func selectionCursor(at windowPoint: NSPoint) -> NSCursor? {
+        guard let page = page(at: convert(windowPoint, from: nil)) else { return nil }
+        let vertical = cache.object(forKey: page)?.value.isVertical ?? ((pdfView as? ThemedPDFView)?.readsRightToLeft == true)
+        return vertical ? .iBeamCursorForVerticalLayout : .iBeam
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -135,6 +150,7 @@ final class OCRTextSelectionOverlay: NSView, NSMenuItemValidation {
         isTracking = true
         copyWhenReady = nil
         if selectsText { prepareSelectionTexts() }
+        selectionCursor(at: event.locationInWindow)?.set()
         needsDisplay = true
     }
 
@@ -241,7 +257,7 @@ final class OCRTextSelectionOverlay: NSView, NSMenuItemValidation {
                 self.cache.setObject(CachedText(text), forKey: page)
                 self.selectionTexts[ObjectIdentifier(page)] = text
                 self.needsDisplay = true
-                self.window?.invalidateCursorRects(for: self)
+                ReaderCursorArbiter.shared.schedule(self.window)
                 self.prepareSelectionTexts()
             case .failure(let error):
                 if self.selectedPage === page && self.selectsText {

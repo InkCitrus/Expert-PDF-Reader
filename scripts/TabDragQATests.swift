@@ -961,7 +961,7 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
         check(NSCursor.current === enteredCursor,
               "repeated layout passes do not reset the resize cursor to the arrow")
         handle.mouseExited(with: enterExit(.mouseExited, at: NSPoint(x: handle.bounds.maxX + 40, y: handle.bounds.midY)))
-        check(NSCursor.current === NSCursor.arrow, "leaving the divider restores the arrow cursor")
+        check(NSCursor.current !== NSCursor.resizeLeftRight, "leaving the divider clears the resize cursor")
         await settle()
     }
 

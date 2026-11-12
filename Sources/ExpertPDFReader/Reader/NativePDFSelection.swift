@@ -41,7 +41,11 @@ enum NativePDFSelection {
               let lastLine = lineBounds(on: last.page, at: last.point) else { return nil }
         func verticalRange(on page: PDFPage) -> ClosedRange<CGFloat> {
             let box = page.bounds(for: .cropBox)
-            return (page === last.page ? lastLine.minY : box.minY)...(page === first.page ? firstLine.maxY : box.maxY)
+            let lower = page === last.page ? lastLine.minY : box.minY
+            let upper = page === first.page ? firstLine.maxY : box.maxY
+            // The nearest-line fallback can resolve a "first" line below the "last" line, inverting the
+            // span; normalize so forming the closed range never traps.
+            return min(lower, upper)...max(lower, upper)
         }
         let outside = originalLines.contains { line in
             line.pages.contains { page in

@@ -71,6 +71,29 @@ struct ReaderRegressionTests {
                   "reverse dragging selects the same physical row in reading order")
         }
         do {
+            // Two columns: a high left line and a low right line. A drag whose higher point sits in the
+            // right column and lower point in the left column resolves the "first" line below the "last"
+            // line, which used to invert verticalRange's closed range and trap.
+            let url = root.appendingPathComponent("TwoColumns").appendingPathExtension("pdf")
+            var box = CGRect(x: 0, y: 0, width: 600, height: 800)
+            let context = CGContext(url as CFURL, mediaBox: &box, nil)!
+            context.beginPDFPage(nil)
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 14)]
+            ("High left column line." as NSString).draw(at: CGPoint(x: 50, y: 500), withAttributes: attributes)
+            ("Low right column line." as NSString).draw(at: CGPoint(x: 400, y: 100), withAttributes: attributes)
+            NSGraphicsContext.restoreGraphicsState()
+            context.endPDFPage()
+            context.closePDF()
+            let document = PDFDocument(url: url)!, page = document.page(at: 0)!
+            let original = page.selection(for: CGRect(x: 0, y: 0, width: 600, height: 800))!
+            let result = NativePDFSelection.corrected(original, in: document, from: page,
+                                                      at: CGPoint(x: 500, y: 300), to: page, at: CGPoint(x: 50, y: 250))
+            check(result == nil || result?.text.string.isEmpty == false,
+                  "inverted first/last line bounds normalize instead of trapping")
+        }
+        do {
             let board = NSPasteboard.withUniqueName()
             defer { board.releaseGlobally() }
             let evidence = ProcessInfo.processInfo.environment["COPY_PAGE_QA_EVIDENCE_DIR"].map { URL(fileURLWithPath: $0) }

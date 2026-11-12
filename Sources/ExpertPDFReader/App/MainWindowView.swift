@@ -196,6 +196,7 @@ public struct MainWindowView: View {
                 sidebarTabsColumn(width: expandedLayout ? popupWidth : railWidth, isCollapsed: !expandedLayout)
                     .transaction { $0.animation = nil }
                     .frame(width: isCollapsed ? railWidth : popupWidth, alignment: .leading)
+                    .background(PanelCursorRect(priority: 2))
                     .clipped()
                     .contentShape(Rectangle())
                     .overlay(alignment: .trailing) {
@@ -203,7 +204,7 @@ public struct MainWindowView: View {
                     }
                     .overlay(alignment: .trailing) {
                         if expandedLayout {
-                            ReaderResizeHandle(axis: .horizontal, length: popupWidth) { newWidth, ended in
+                            ReaderResizeHandle(axis: .horizontal, length: popupWidth, priority: 3) { newWidth, ended in
                                 let bounded = boundedPopup(newWidth)
                                 if ended {
                                     sidebarPopupWidth = Double(bounded)
@@ -251,6 +252,7 @@ public struct MainWindowView: View {
         }
         .frame(width: width)
         .background(AppPalette.panelBackground(isDark), ignoresSafeAreaEdges: [])
+        .background(PanelCursorRect())
     }
 
     private func sidebarTabsColumn(width: CGFloat, isCollapsed: Bool) -> some View {
@@ -262,25 +264,167 @@ public struct MainWindowView: View {
 
 }
 
+/// Window-level cursor arbitration. PDFKit sets its own cursor (pointingHand over image-only pages, iBeam
+/// over text) from `-[PDFView mouseMoved:]` on every move, which beats passive cursor rects from views in
+/// front of it — the sidebar popup floats over the page. `ThemedPDFView.mouseMoved` consults `cursor(at:in:)`
+/// and, when a registered region covers the pointer, sets that cursor synchronously *instead of* letting
+/// PDFKit set its own, so there is no per-frame flash. The deferred `schedule` path only re-asserts after a
+/// relayout under a stationary pointer. Priorities: divider (1) > panel (0) > scanned-page OCR text (-1),
+/// which returns nil off selectable glyphs so PDFKit keeps its native text cursor. A mid-drag region forces
+/// its cursor even outside its bounds; an editable text view under the pointer (the sidebar search field,
+/// inline tab rename) keeps its own iBeam.
+final class ReaderCursorArbiter {
+    static let shared = ReaderCursorArbiter()
+
+    private final class Region {
+        weak var view: NSView?
+        let priority: Int
+        let cursor: (NSView) -> NSCursor?
+        let forced: () -> Bool
+        init(view: NSView, priority: Int, cursor: @escaping (NSView) -> NSCursor?, forced: @escaping () -> Bool) {
+            self.view = view
+            self.priority = priority
+            self.cursor = cursor
+            self.forced = forced
+        }
+    }
+
+    private var regions: [Region] = []
+    private var pending = false
+
+    func register(_ view: NSView, priority: Int, cursor: @escaping (NSView) -> NSCursor?, forced: @escaping () -> Bool = { false }) {
+        regions.removeAll { $0.view === view }
+        regions.append(Region(view: view, priority: priority, cursor: cursor, forced: forced))
+    }
+
+    func unregister(_ view: NSView) {
+        regions.removeAll { $0.view === view }
+    }
+
+    /// Coalesce every region's request in one event cycle into a single deferred evaluation.
+    func schedule(_ window: NSWindow?) {
+        guard let window, !pending else { return }
+        pending = true
+        DispatchQueue.main.async { [weak self, weak window] in
+            guard let self else { return }
+            self.pending = false
+            guard let window else { return }
+            self.evaluate(in: window)
+        }
+    }
+
+    /// The cursor a registered region wants at this window point, or nil to leave PDFKit's cursor alone.
+    /// Called synchronously from `ThemedPDFView.mouseMoved` so the region cursor replaces PDFKit's in the
+    /// same event (no flash), and from the deferred relayout path.
+    func cursor(at point: NSPoint, in window: NSWindow) -> NSCursor? {
+        let live = regions.filter { $0.view?.window === window }.sorted { $0.priority > $1.priority }
+        return resolve(point, live, window)
+    }
+
+    private func resolve(_ point: NSPoint, _ live: [Region], _ window: NSWindow) -> NSCursor? {
+        if let forced = live.first(where: { $0.forced() }), let view = forced.view {
+            return forced.cursor(view)
+        }
+        guard let region = live.first(where: { region in
+            guard let view = region.view else { return false }
+            return view.bounds.contains(view.convert(point, from: nil))
+        }), let view = region.view else { return nil }
+        if let hit = window.contentView?.hitTest(point), Self.isEditableTextView(hit) { return nil }
+        return region.cursor(view)
+    }
+
+    private func evaluate(in window: NSWindow) {
+        cursor(at: window.mouseLocationOutsideOfEventStream, in: window)?.set()
+    }
+
+    private static func isEditableTextView(_ view: NSView) -> Bool {
+        if let field = view as? NSTextField { return field.isEditable }
+        if let text = view as? NSTextView { return text.isEditable }
+        return false
+    }
+}
+
+/// SwiftUI views register no cursor rects, so AppKit's cursor resolution falls through to the page behind
+/// a panel. This hit-test-transparent background participates in `ReaderCursorArbiter` so the panel actively
+/// re-asserts the arrow cursor over the PDF's iBeam, while still deferring to its own editable text fields.
+struct PanelCursorRect: NSViewRepresentable {
+    var cursor: NSCursor = .arrow
+    var priority: Int = 0
+
+    func makeNSView(context: Context) -> View {
+        let view = View()
+        view.priority = priority
+        return view
+    }
+    func updateNSView(_ view: View, context: Context) {
+        view.cursor = cursor
+        view.priority = priority
+    }
+
+    final class View: NSView {
+        var cursor: NSCursor = .arrow
+        var priority: Int = 0
+        private var tracking: NSTrackingArea?
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let window {
+                ReaderCursorArbiter.shared.register(self, priority: priority) { [weak self] _ in self?.cursor ?? .arrow }
+                ReaderCursorArbiter.shared.schedule(window)
+            } else {
+                ReaderCursorArbiter.shared.unregister(self)
+            }
+        }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            if let tracking, trackingAreas.contains(tracking) { return }
+            if let tracking { removeTrackingArea(tracking) }
+            let area = NSTrackingArea(rect: .zero,
+                                      options: [.cursorUpdate, .mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+                                      owner: self, userInfo: nil)
+            addTrackingArea(area)
+            tracking = area
+        }
+
+        override func mouseMoved(with event: NSEvent) { ReaderCursorArbiter.shared.schedule(window) }
+        override func mouseEntered(with event: NSEvent) { ReaderCursorArbiter.shared.schedule(window) }
+        override func mouseExited(with event: NSEvent) { ReaderCursorArbiter.shared.schedule(window) }
+        override func cursorUpdate(with event: NSEvent) { ReaderCursorArbiter.shared.schedule(window) }
+    }
+}
+
 /// A draggable panel divider. Like native macOS split views it shows no grip widget — the resize
 /// cursor appearing over the boundary is the affordance. The `Handle` keeps that cursor reliable.
 struct ReaderResizeHandle: NSViewRepresentable {
     let axis: Axis
     let length: CGFloat
+    var priority: Int = 1
     let onResize: (CGFloat, Bool) -> Void
 
-    func makeNSView(context: Context) -> Handle { Handle() }
+    func makeNSView(context: Context) -> Handle {
+        let handle = Handle()
+        handle.priority = priority
+        return handle
+    }
 
     func updateNSView(_ view: Handle, context: Context) {
         view.axis = axis
         view.length = length
+        view.priority = priority
         view.onResize = onResize
     }
 
     final class Handle: NSView {
+        var priority: Int = 1
         var axis: Axis = .horizontal {
             didSet {
-                if axis != oldValue { window?.invalidateCursorRects(for: self) }
+                if axis != oldValue {
+                    window?.invalidateCursorRects(for: self)
+                    ReaderCursorArbiter.shared.schedule(window)
+                }
             }
         }
         var length: CGFloat = 0
@@ -294,49 +438,60 @@ struct ReaderResizeHandle: NSViewRepresentable {
 
         override var frame: NSRect {
             didSet {
-                // Moving the boundary under a stationary pointer must re-evaluate the cursor rect,
-                // or the old cursor lingers until the mouse moves.
-                if frame != oldValue { window?.invalidateCursorRects(for: self) }
+                // Moving the boundary under a stationary pointer must re-evaluate the cursor, or the old
+                // cursor lingers until the mouse moves.
+                if frame != oldValue {
+                    window?.invalidateCursorRects(for: self)
+                    ReaderCursorArbiter.shared.schedule(window)
+                }
             }
         }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            window?.invalidateCursorRects(for: self)
-        }
-
-        override func resetCursorRects() {
-            addCursorRect(bounds, cursor: resizeCursor)
+            if let window {
+                // The divider outranks its own panel's arrow where the band straddles the panel edge.
+                ReaderCursorArbiter.shared.register(self, priority: priority,
+                                                    cursor: { [weak self] _ in self?.resizeCursor },
+                                                    forced: { [weak self] in self?.dragStart != nil })
+                window.invalidateCursorRects(for: self)
+                ReaderCursorArbiter.shared.schedule(window)
+            } else {
+                ReaderCursorArbiter.shared.unregister(self)
+            }
         }
 
         override func updateTrackingAreas() {
             super.updateTrackingAreas()
             // Keep one stable area across layout passes. Removing an area the pointer is inside
-            // synthesizes mouseExited (→ arrow) without a matching mouseEntered, so recreating it on
-            // every SwiftUI layout drops the resize cursor until the mouse next moves. .inVisibleRect
-            // already tracks geometry changes, so only (re)install when the area is gone.
+            // synthesizes mouseExited without a matching mouseEntered, so recreating it on every SwiftUI
+            // layout drops the cursor until the mouse next moves. .inVisibleRect tracks geometry changes.
             if let cursorTrackingArea, trackingAreas.contains(cursorTrackingArea) { return }
             if let cursorTrackingArea { removeTrackingArea(cursorTrackingArea) }
-            // activeAlways so the cursor responds even when the window is not key; enter/exit re-assert
-            // the resize cursor against PDFKit/SwiftUI resetting it. (mouseMoved is deliberately avoided:
-            // re-setting the cursor on every move churns the main thread during sidebar animations.)
             let area = NSTrackingArea(rect: .zero,
-                                      options: [.cursorUpdate, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                      options: [.cursorUpdate, .mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
                                       owner: self, userInfo: nil)
             addTrackingArea(area)
             cursorTrackingArea = area
         }
 
-        override func mouseEntered(with event: NSEvent) {
-            resizeCursor.set()
+        // No passive cursor rect: AppKit would re-assert resize even where a higher-priority region (the
+        // floating popup) covers this divider, fighting the arbiter's arrow each frame. Resolve through the
+        // arbiter synchronously instead, so the divider yields to whatever is visually on top.
+        private func applyArbiterCursor(_ event: NSEvent) {
+            guard let window else { return }
+            let cursor = ReaderCursorArbiter.shared.cursor(at: event.locationInWindow, in: window)
+            (cursor ?? resizeCursor).set()
         }
+
+        override func mouseMoved(with event: NSEvent) { applyArbiterCursor(event) }
+        override func mouseEntered(with event: NSEvent) { applyArbiterCursor(event) }
+        override func cursorUpdate(with event: NSEvent) { applyArbiterCursor(event) }
 
         override func mouseExited(with event: NSEvent) {
-            if dragStart == nil { NSCursor.arrow.set() }
-        }
-
-        override func cursorUpdate(with event: NSEvent) {
-            resizeCursor.set()
+            guard let window else { return }
+            let cursor = ReaderCursorArbiter.shared.cursor(at: event.locationInWindow, in: window)
+            (cursor ?? NSCursor.arrow).set()
         }
 
         private func position(_ event: NSEvent) -> CGFloat {
@@ -350,6 +505,7 @@ struct ReaderResizeHandle: NSViewRepresentable {
 
         override func mouseDragged(with event: NSEvent) {
             guard let dragStart else { return }
+            resizeCursor.set()
             onResize?(dragStart.length + position(event) - dragStart.position, false)
         }
 
@@ -357,6 +513,7 @@ struct ReaderResizeHandle: NSViewRepresentable {
             guard let dragStart else { return }
             self.dragStart = nil
             onResize?(dragStart.length + position(event) - dragStart.position, true)
+            ReaderCursorArbiter.shared.schedule(window)
         }
     }
 }

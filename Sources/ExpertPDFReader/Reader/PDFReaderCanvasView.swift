@@ -661,6 +661,19 @@ final class ThemedPDFView: PDFView {
         }
         return super.hitTest(point)
     }
+
+    // PDFKit sets its cursor (pointingHand over scans, iBeam over text) from mouseMoved on every move,
+    // flashing over the sidebar popup and dividers that float above the page. When a registered panel or
+    // divider covers the pointer, set its cursor here synchronously and skip PDFKit so nothing flashes;
+    // otherwise let PDFKit manage the page cursor normally.
+    override func mouseMoved(with event: NSEvent) {
+        if let window, let cursor = ReaderCursorArbiter.shared.cursor(at: event.locationInWindow, in: window) {
+            cursor.set()
+            return
+        }
+        super.mouseMoved(with: event)
+    }
+
     var currentTheme: PDFViewTheme = .day
     var isDarkUI: Bool = false
     var onStepPage: ((Int) -> Void)?

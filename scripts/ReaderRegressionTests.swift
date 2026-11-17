@@ -52,6 +52,32 @@ struct ReaderRegressionTests {
 
         let alpha = try fixture("Alpha"), beta = try fixture("Beta"), gamma = try fixture("Gamma")
         do {
+            // A tall delimiter alongside ordinary text reproduces oversized PDFKit line metrics.
+            let url = root.appendingPathComponent("MixedFontMetrics.pdf")
+            var box = CGRect(x: 0, y: 0, width: 600, height: 800)
+            let context = CGContext(url as CFURL, mediaBox: &box, nil)!
+            context.beginPDFPage(nil)
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            ("A short row, with punctuation." as NSString).draw(at: CGPoint(x: 50, y: 650),
+                withAttributes: [.font: NSFont.systemFont(ofSize: 12)])
+            ("|" as NSString).draw(at: CGPoint(x: 350, y: 620), withAttributes: [.font: NSFont.systemFont(ofSize: 100)])
+            NSGraphicsContext.restoreGraphicsState()
+            context.endPDFPage()
+            context.closePDF()
+            let document = PDFDocument(url: url)!, page = document.page(at: 0)!
+            let a = CGPoint(x: 48, y: 655), b = CGPoint(x: 240, y: 655)
+            let original = page.selection(from: a, to: b)!
+            let result = NativePDFSelection.corrected(original, in: document, from: page, at: a, to: page, at: b, force: true)
+            check(result?.text.string.trimmingCharacters(in: .whitespacesAndNewlines) == "A short row, with punctuation.",
+                  "glyph-based selection preserves native punctuation beside tall equation delimiters")
+            check(result?.highlights.isEmpty == false && result!.highlights.allSatisfy { $0.rect.height < 20 },
+                  "mixed font metrics cannot inflate a short row's highlight into a neighboring equation")
+            let reverse = NativePDFSelection.corrected(original, in: document, from: page, at: b, to: page, at: a, force: true)
+            check(reverse?.text.string == result?.text.string,
+                  "reversing a physical drag preserves the same ranges and punctuation")
+        }
+        do {
             let document = PDFDocument(url: alpha)!, page = document.page(at: 0)!
             let start = CGPoint(x: 50, y: 505), end = CGPoint(x: 500, y: 505)
             let normal = page.selection(from: start, to: end)!

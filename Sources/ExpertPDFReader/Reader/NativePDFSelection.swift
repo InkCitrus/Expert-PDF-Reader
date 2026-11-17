@@ -1,118 +1,236 @@
 import AppKit
 import PDFKit
 
-/// A PDF's drawing order need not follow its visual reading order. Keep native selection unless
-/// it includes physical lines outside the user's drag, then build ranges from page geometry.
+/// PDFKit's extracted text ranges and drawing glyph indices are different coordinate systems.
+/// Map visible glyphs through point selections; never index page.string with characterBounds indices.
+@MainActor
+final class NativePDFPageGeometry {
+    struct Glyph {
+        let bounds: CGRect
+        let ranges: [NSRange]
+    }
+    struct Row {
+        var bounds: CGRect
+        var glyphs: [Glyph]
+    }
+    private static let cache = NSMapTable<PDFPage, NativePDFPageGeometry>(keyOptions: .weakMemory, valueOptions: .strongMemory)
+    let cropBox: CGRect
+    let rows: [Row]
+    let needsDirectSelection: Bool
+
+    static func geometry(for page: PDFPage) -> NativePDFPageGeometry {
+        let box = page.bounds(for: .cropBox)
+        if let saved = cache.object(forKey: page), saved.cropBox == box { return saved }
+        let result = NativePDFPageGeometry(page: page)
+        cache.setObject(result, forKey: page)
+        return result
+    }
+
+    private init(page: PDFPage) {
+        cropBox = page.bounds(for: .cropBox)
+        var glyphs: [Glyph] = []
+        for index in 0..<page.numberOfCharacters {
+            let box = page.characterBounds(at: index)
+            guard !box.isNull, !box.isInfinite, box.width > 0, box.height > 0,
+                  box.intersects(cropBox),
+                  let selection = page.selection(from: CGPoint(x: box.minX, y: box.midY),
+                                                 to: CGPoint(x: box.maxX, y: box.midY)) else { continue }
+            var ranges = (0..<selection.numberOfTextRanges(on: page)).map { selection.range(at: $0, on: page) }
+                .filter { $0.location != NSNotFound && $0.length > 0 }
+            // Point selections snap to caret stops. Preserve adjacent punctuation whose advance
+            // overlaps the same visible glyph, rather than silently dropping commas or ligatures.
+            let punctuation = CharacterSet.punctuationCharacters.union(.whitespaces)
+            for range in ranges {
+                for index in max(0, range.location - 1)...min(page.numberOfCharacters - 1, NSMaxRange(range)) {
+                    guard let neighbor = page.selection(for: NSRange(location: index, length: 1)),
+                          let text = neighbor.string, !text.isEmpty,
+                          text.unicodeScalars.allSatisfy(punctuation.contains),
+                          neighbor.bounds(for: page).intersects(box) else { continue }
+                    ranges.append(NSRange(location: index, length: 1))
+                }
+            }
+            if !ranges.isEmpty { glyphs.append(Glyph(bounds: box, ranges: ranges)) }
+        }
+        let heights = glyphs.map { $0.bounds.height }.sorted()
+        let typicalHeight = heights.isEmpty ? 1 : heights[heights.count / 2]
+        var rows: [Row] = []
+        // Tall delimiters belong to equations, not to the neighboring body-text baseline.
+        for glyph in glyphs.sorted(by: { $0.bounds.midY > $1.bounds.midY }) {
+            if let row = rows.indices.last(where: {
+                abs(rows[$0].bounds.midY - glyph.bounds.midY) <= typicalHeight
+                    && max(rows[$0].bounds.height, glyph.bounds.height) <= typicalHeight * 3
+            }) {
+                rows[row].glyphs.append(glyph)
+                rows[row].bounds = rows[row].bounds.union(glyph.bounds)
+            } else { rows.append(Row(bounds: glyph.bounds, glyphs: [glyph])) }
+        }
+        let nativeLines = page.selection(for: cropBox)?.selectionsByLine() ?? []
+        let oversized = nativeLines.contains { $0.bounds(for: page).height > typicalHeight * 4 }
+        let interleaved = rows.contains { row in
+            let order = row.glyphs.sorted { $0.bounds.minX < $1.bounds.minX }.compactMap { $0.ranges.first?.location }
+            return zip(order, order.dropFirst()).contains { $0 > $1 }
+        }
+        self.needsDirectSelection = oversized || interleaved
+        self.rows = rows.sorted { $0.bounds.midY > $1.bounds.midY }.map {
+            Row(bounds: $0.bounds, glyphs: $0.glyphs.sorted { $0.bounds.minX < $1.bounds.minX })
+        }
+    }
+
+    func nearestRow(to point: CGPoint) -> Int? {
+        rows.indices.min {
+            func distance(_ box: CGRect) -> CGFloat {
+                let dy = max(0, max(box.minY - point.y, point.y - box.maxY))
+                let dx = max(0, max(box.minX - point.x, point.x - box.maxX))
+                return dy * dy + dx * dx
+            }
+            return distance(rows[$0].bounds) < distance(rows[$1].bounds)
+        }
+    }
+
+    /// Row labels must come from the mapped native ranges. Selecting the row by its two endpoints
+    /// can jump to another baseline at whitespace and reintroduce unrelated text into accessibility.
+    func text(for row: Row, on page: PDFPage) -> String {
+        var seen = IndexSet(), runs: [(Range<Int>, CGRect)] = []
+        for glyph in row.glyphs {
+            for range in glyph.ranges {
+                let fresh = IndexSet(integersIn: range.location..<NSMaxRange(range)).subtracting(seen)
+                for part in fresh.rangeView {
+                    if let previous = runs.last, previous.0.upperBound == part.lowerBound {
+                        runs[runs.count - 1] = (previous.0.lowerBound..<part.upperBound, previous.1.union(glyph.bounds))
+                    } else { runs.append((part, glyph.bounds)) }
+                }
+                seen.formUnion(fresh)
+            }
+        }
+        var result = "", previous: CGRect?
+        for (range, bounds) in runs {
+            guard let text = page.selection(for: NSRange(location: range.lowerBound, length: range.count))?.string else { continue }
+            let clean = text.trimmingCharacters(in: .newlines)
+            if let previous, let last = result.last, !last.isWhitespace,
+               let first = clean.first, !first.isWhitespace,
+               bounds.minX - previous.maxX > min(bounds.height, previous.height) * 0.25 { result += " " }
+            result += clean
+            previous = bounds
+        }
+        return PDFTextCleanup.normalize(result).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 @MainActor
 enum NativePDFSelection {
+    struct Highlight {
+        let page: PDFPage
+        let rect: CGRect
+    }
     struct Result {
         let selection: PDFSelection
         let text: NSAttributedString
+        let highlights: [Highlight]
     }
 
     static func corrected(_ original: PDFSelection, in document: PDFDocument,
                           from startPage: PDFPage, at start: CGPoint,
-                          to endPage: PDFPage, at end: CGPoint) -> Result? {
+                          to endPage: PDFPage, at end: CGPoint, force: Bool = false) -> Result? {
         var first = (page: startPage, point: start), last = (page: endPage, point: end)
-        if document.index(for: first.page) > document.index(for: last.page)
-            || (first.page === last.page && first.point.y < last.point.y) {
+        let startIndex = document.index(for: first.page), endIndex = document.index(for: last.page)
+        guard (0..<document.pageCount).contains(startIndex), (0..<document.pageCount).contains(endIndex),
+              first.page.rotation % 360 == 0, last.page.rotation % 360 == 0 else { return nil }
+        if startIndex > endIndex || (startPage === endPage && start.y < end.y) { swap(&first, &last) }
+        let firstGeometry = NativePDFPageGeometry.geometry(for: first.page)
+        let lastGeometry = first.page === last.page ? firstGeometry : NativePDFPageGeometry.geometry(for: last.page)
+        guard var firstRow = firstGeometry.nearestRow(to: first.point),
+              var lastRow = lastGeometry.nearestRow(to: last.point) else { return nil }
+        if first.page === last.page, firstRow > lastRow {
             swap(&first, &last)
+            swap(&firstRow, &lastRow)
         }
-        let a = document.index(for: first.page), b = document.index(for: last.page)
-        let originalLines = original.selectionsByLine()
-        func lineBounds(on page: PDFPage, at point: CGPoint) -> CGRect? {
-            if let line = page.selectionForLine(at: point) {
-                let bounds = line.bounds(for: page)
-                if !bounds.isEmpty && !bounds.isInfinite && !bounds.isNull { return bounds }
-            }
-            // A drag may end in the margin after the final character of a line.
-            return originalLines.filter { $0.pages.contains { $0 === page } }.map { $0.bounds(for: page) }
-                .filter { !$0.isEmpty && !$0.isInfinite && !$0.isNull }.min {
-                func distance(_ box: CGRect) -> CGFloat {
-                    let dx = max(0, max(box.minX - point.x, point.x - box.maxX))
-                    let dy = max(0, max(box.minY - point.y, point.y - box.maxY))
-                    return dx * dx + dy * dy
-                }
-                return distance($0) < distance($1)
-            }
-        }
-        guard (0..<document.pageCount).contains(a), (a..<document.pageCount).contains(b),
-              let firstLine = lineBounds(on: first.page, at: first.point),
-              let lastLine = lineBounds(on: last.page, at: last.point) else { return nil }
-        func verticalRange(on page: PDFPage) -> ClosedRange<CGFloat> {
-            let box = page.bounds(for: .cropBox)
-            let lower = page === last.page ? lastLine.minY : box.minY
-            let upper = page === first.page ? firstLine.maxY : box.maxY
-            // The nearest-line fallback can resolve a "first" line below the "last" line, inverting the
-            // span; normalize so forming the closed range never traps.
-            return min(lower, upper)...max(lower, upper)
-        }
-        let outside = originalLines.contains { line in
-            line.pages.contains { page in
-                let index = document.index(for: page)
-                guard (a...b).contains(index) else { return true }
-                let bounds = line.bounds(for: page), allowed = verticalRange(on: page)
-                return !bounds.isEmpty && (bounds.maxY < allowed.lowerBound || bounds.minY > allowed.upperBound)
-            }
-        }
-        guard outside else { return nil }
         let selection = PDFSelection(document: document)
-        for index in a...b {
-            guard let page = document.page(at: index) else { continue }
-            let box = page.bounds(for: .cropBox)
-            let top = page === first.page ? firstLine : CGRect(x: box.minX, y: box.maxY, width: box.width, height: 0)
-            let bottom = page === last.page ? lastLine : CGRect(x: box.minX, y: box.minY, width: box.width, height: 0)
-            var rects: [CGRect] = []
-            if first.page === last.page && firstLine.minY <= lastLine.maxY && lastLine.minY <= firstLine.maxY {
-                rects = [CGRect(x: min(start.x, end.x), y: min(firstLine.minY, lastLine.minY),
-                                width: abs(start.x - end.x), height: max(firstLine.maxY, lastLine.maxY) - min(firstLine.minY, lastLine.minY))]
-            } else {
-                if page === first.page {
-                    rects.append(CGRect(x: first.point.x, y: top.minY, width: box.maxX - first.point.x, height: top.height))
-                }
-                rects.append(CGRect(x: box.minX, y: bottom.maxY, width: box.width, height: max(0, top.minY - bottom.maxY)))
-                if page === last.page {
-                    rects.append(CGRect(x: box.minX, y: bottom.minY, width: last.point.x - box.minX, height: bottom.height))
-                }
-            }
-            for rect in rects where rect.width > 0 && rect.height > 0 {
-                if let part = page.selection(for: rect.intersection(box)) { selection.add(part) }
-            }
-        }
-        guard selection.string?.isEmpty == false else { return nil }
         let text = NSMutableAttributedString(string: "")
-        for index in a...b {
+        var highlights: [Highlight] = []
+        var outside = false
+        for index in document.index(for: first.page)...document.index(for: last.page) {
             guard let page = document.page(at: index) else { continue }
-            let fragments = selection.selectionsByLine().filter { $0.pages.contains { $0 === page } }
-                .sorted { $0.bounds(for: page).midY > $1.bounds(for: page).midY }
-            var rows: [(bounds: CGRect, parts: [PDFSelection])] = []
-            for fragment in fragments {
-                let bounds = fragment.bounds(for: page)
-                if let row = rows.indices.last, rows[row].bounds.minY <= bounds.midY,
-                   rows[row].bounds.maxY >= bounds.midY, bounds.minY <= rows[row].bounds.midY,
-                   bounds.maxY >= rows[row].bounds.midY {
-                    rows[row].parts.append(fragment)
-                    rows[row].bounds = rows[row].bounds.union(bounds)
-                } else { rows.append((bounds, [fragment])) }
-            }
-            for row in rows {
+            let geometry = NativePDFPageGeometry.geometry(for: page)
+            let lo = page === first.page ? firstRow : 0
+            let hi = page === last.page ? lastRow : geometry.rows.count - 1
+            guard lo <= hi, geometry.rows.indices.contains(lo), geometry.rows.indices.contains(hi) else { continue }
+            var wanted = IndexSet()
+            for rowIndex in lo...hi {
+                let row = geometry.rows[rowIndex]
+                let sameRow = first.page === last.page && firstRow == lastRow
+                let left = sameRow ? min(start.x, end.x) : (page === first.page && rowIndex == lo ? first.point.x : -CGFloat.infinity)
+                let right = sameRow ? max(start.x, end.x) : (page === last.page && rowIndex == hi ? last.point.x : CGFloat.infinity)
+                let glyphs = row.glyphs.filter { $0.bounds.midX >= left && $0.bounds.midX <= right }
+                guard !glyphs.isEmpty else { continue }
+                let rect = glyphs.dropFirst().reduce(glyphs[0].bounds) { $0.union($1.bounds) }
+                highlights.append(Highlight(page: page, rect: rect))
+                var rowRanges = IndexSet()
+                for glyph in glyphs { for range in glyph.ranges { rowRanges.insert(integersIn: range.location..<NSMaxRange(range)) } }
+                wanted.formUnion(rowRanges)
                 if text.length > 0 { text.append(NSAttributedString(string: "\n")) }
-                for fragment in row.parts.sorted(by: { $0.bounds(for: page).minX < $1.bounds(for: page).minX }) {
-                    let raw = fragment.attributedString ?? NSAttributedString(string: fragment.string ?? "")
-                    let trimmed = raw.string.trimmingCharacters(in: .newlines)
-                    guard !trimmed.isEmpty else { continue }
-                    let part = raw.attributedSubstring(from: (raw.string as NSString).range(of: trimmed))
-                    if text.length > 0, let previous = text.string.last, !previous.isWhitespace,
-                       let next = part.string.first, !next.isWhitespace { text.append(NSAttributedString(string: " ")) }
-                    text.append(part)
+                // Keep physical order even when native drawing commands interleave text runs.
+                var seen = IndexSet(), runs: [(Range<Int>, CGRect)] = []
+                for glyph in glyphs {
+                    for nativeRange in glyph.ranges {
+                        let fresh = IndexSet(integersIn: nativeRange.location..<NSMaxRange(nativeRange)).subtracting(seen)
+                        for range in fresh.rangeView {
+                            if let previous = runs.last, previous.0.upperBound == range.lowerBound {
+                                runs[runs.count - 1] = (previous.0.lowerBound..<range.upperBound, previous.1.union(glyph.bounds))
+                            } else { runs.append((range, glyph.bounds)) }
+                        }
+                        seen.formUnion(fresh)
+                    }
+                }
+                var previousBounds: CGRect?
+                for (range, runBounds) in runs {
+                    if let part = page.selection(for: NSRange(location: range.lowerBound, length: range.count)) {
+                        selection.add(part)
+                        let raw = part.attributedString ?? NSAttributedString(string: part.string ?? "")
+                        let trimmed = raw.string.trimmingCharacters(in: .newlines)
+                        if !trimmed.isEmpty {
+                            if let previous = text.string.last, !previous.isWhitespace,
+                               let next = trimmed.first, !next.isWhitespace, let previousBounds,
+                               runBounds.minX - previousBounds.maxX > min(runBounds.height, previousBounds.height) * 0.25 {
+                                text.append(NSAttributedString(string: " "))
+                            }
+                            text.append(raw.attributedSubstring(from: (raw.string as NSString).range(of: trimmed)))
+                        }
+                        previousBounds = runBounds
+                    }
+                }
+            }
+            var native = IndexSet()
+            for rangeIndex in 0..<original.numberOfTextRanges(on: page) {
+                let range = original.range(at: rangeIndex, on: page)
+                if range.location != NSNotFound { native.insert(integersIn: range.location..<NSMaxRange(range)) }
+            }
+            for row in geometry.rows {
+                for glyph in row.glyphs {
+                    let indices = glyph.ranges.reduce(into: IndexSet()) { $0.insert(integersIn: $1.location..<NSMaxRange($1)) }
+                    if !native.intersection(indices).isEmpty && wanted.intersection(indices).isEmpty { outside = true }
                 }
             }
         }
-        return Result(selection: selection, text: PDFTextCleanup.normalize(text))
+        let tooTall = original.selectionsByLine().contains { line in
+            line.pages.contains { page in
+                let box = line.bounds(for: page)
+                let candidates = highlights.filter { $0.page === page && $0.rect.intersects(box) }
+                return !candidates.isEmpty && candidates.allSatisfy { box.height > $0.rect.height * 3 }
+            }
+        }
+        guard force || outside || tooTall, selection.string?.isEmpty == false else { return nil }
+        // When the ranges already follow the gesture, only their displayed height is wrong. Keep
+        // the original extraction intact (including punctuation and ligatures) and replace its paint.
+        if !outside, original.string?.isEmpty == false {
+            let originalText = original.attributedString ?? NSAttributedString(string: original.string ?? "")
+            return Result(selection: original, text: PDFTextCleanup.normalize(originalText), highlights: highlights)
+        }
+        return Result(selection: selection, text: PDFTextCleanup.normalize(text), highlights: highlights)
     }
 }
 
-/// Observes normal PDFKit mouse tracking rather than replacing its click, word-selection or link handling.
+/// Ordinary pages keep PDFKit tracking. Complex pages use the same native text ranges, with a
+/// transparent overlay for live glyph highlights, so oversized font metrics cannot select a matrix.
 @MainActor
 final class NativePDFSelectionTracker {
     private weak var pdfView: PDFView?
@@ -127,16 +245,24 @@ final class NativePDFSelectionTracker {
     private var gesture: Gesture?
     private var lastMouseDown: TimeInterval?
     private var monitor: Any?
-    private var observer: NSObjectProtocol?
+    private var observers: [NSObjectProtocol] = []
     private var isRepairing = false
     private var repairedSelection: PDFSelection?
     private var repairedText: NSAttributedString?
     private var nativeText: String?
+    private var directlyTracking = false
+    private lazy var overlay = HighlightView(owner: self)
 
     init(pdfView: PDFView) {
         self.pdfView = pdfView
-        observer = NotificationCenter.default.addObserver(forName: .PDFViewSelectionChanged, object: pdfView, queue: .main) { [weak self] _ in
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(forName: .PDFViewSelectionChanged, object: pdfView, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.selectionChanged() }
+        })
+        for name in [Notification.Name.PDFViewPageChanged, .PDFViewScaleChanged, NSView.boundsDidChangeNotification] {
+            observers.append(center.addObserver(forName: name, object: name == NSView.boundsDidChangeNotification ? nil : pdfView, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.overlay.needsDisplay = true }
+            })
         }
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp]) { [weak self] event in
             MainActor.assumeIsolated { self?.track(event) }
@@ -146,19 +272,59 @@ final class NativePDFSelectionTracker {
 
     deinit {
         if let monitor { NSEvent.removeMonitor(monitor) }
-        if let observer { NotificationCenter.default.removeObserver(observer) }
+        observers.forEach(NotificationCenter.default.removeObserver)
+    }
+
+    func hitTest(_ point: CGPoint, event: NSEvent) -> NSView? {
+        guard let pdfView, event.type == .leftMouseDown,
+              event.modifierFlags.intersection([.option, .control, .command, .shift]).isEmpty,
+              pdfView.document?.allowsCopying == true,
+              let page = pdfView.page(for: point, nearest: false), page.rotation % 360 == 0,
+              !PDFSelectionVisibility.requiresVisualSelection(on: page),
+              NativePDFPageGeometry.geometry(for: page).needsDirectSelection else { return nil }
+        let location = pdfView.convert(point, to: page)
+        if let annotation = page.annotation(at: location), annotation.action != nil || annotation.type == PDFAnnotationSubtype.widget.rawValue { return nil }
+        if overlay.superview == nil {
+            overlay.frame = pdfView.bounds
+            overlay.autoresizingMask = [.width, .height]
+            pdfView.addSubview(overlay, positioned: .above, relativeTo: nil)
+        }
+        return overlay
     }
 
     func begin(_ event: NSEvent) {
         guard lastMouseDown != event.timestamp else { return }
         lastMouseDown = event.timestamp
         gesture = nil
+        directlyTracking = false
+        overlay.highlights = []
         guard event.clickCount == 1, event.modifierFlags.intersection([.shift, .control, .command, .option]).isEmpty,
               let pdfView, let document = pdfView.document else { return }
         let point = pdfView.convert(event.locationInWindow, from: nil)
         guard let page = pdfView.page(for: point, nearest: false), page.rotation % 360 == 0 else { return }
         let location = pdfView.convert(point, to: page)
         gesture = Gesture(document: document, page: page, point: location, endPage: page, endPoint: location)
+    }
+
+    private func startDirect(_ event: NSEvent) {
+        begin(event)
+        guard let pdfView, let document = pdfView.document else { return }
+        let point = pdfView.convert(event.locationInWindow, from: nil)
+        guard let page = pdfView.page(for: point, nearest: false) else { return }
+        let location = pdfView.convert(point, to: page)
+        gesture = Gesture(document: document, page: page, point: location, endPage: page, endPoint: location)
+        directlyTracking = true
+        pdfView.clearSelection()
+        pdfView.window?.makeFirstResponder(overlay)
+        if event.clickCount >= 2, let word = page.selectionForWord(at: location) {
+            let box = word.bounds(for: page)
+            if let result = NativePDFSelection.corrected(word, in: document, from: page,
+                at: CGPoint(x: box.minX, y: location.y), to: page, at: CGPoint(x: box.maxX, y: location.y), force: true) {
+                apply(result)
+            }
+            gesture = nil
+            directlyTracking = false
+        }
     }
 
     private func track(_ event: NSEvent) {
@@ -169,11 +335,13 @@ final class NativePDFSelectionTracker {
             gesture?.endPage = page
             gesture?.endPoint = pdfView.convert(point, to: page)
         }
+        if directlyTracking { repair(force: true, finalize: event.type == .leftMouseUp) }
         if event.type == .leftMouseUp {
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.gesture?.id == current.id else { return }
-                self.repair()
+                if !self.directlyTracking { self.repair() }
                 self.gesture = nil
+                self.directlyTracking = false
             }
         }
     }
@@ -183,18 +351,37 @@ final class NativePDFSelectionTracker {
         if repairedSelection === pdfView.currentSelection, nativeText == pdfView.currentSelection?.string { return }
         repairedText = nil
         repairedSelection = nil
-        repair()
+        overlay.highlights = []
+        // Do not replace the native selection inside PDFKit's mouse tracking loop: it resets its anchor.
     }
 
-    private func repair() {
-        guard !isRepairing, let pdfView, let gesture, let original = pdfView.currentSelection,
-              let result = NativePDFSelection.corrected(original, in: gesture.document, from: gesture.page,
-                  at: gesture.point, to: gesture.endPage, at: gesture.endPoint) else { return }
+    private func repair(force: Bool = false, finalize: Bool = true) {
+        guard !isRepairing, let pdfView, let gesture else { return }
+        let original: PDFSelection
+        if force, gesture.page === gesture.endPage {
+            original = gesture.page.selection(from: gesture.point, to: gesture.endPoint) ?? PDFSelection(document: gesture.document)
+        } else { original = pdfView.currentSelection ?? PDFSelection(document: gesture.document) }
+        guard let result = NativePDFSelection.corrected(original, in: gesture.document, from: gesture.page,
+            at: gesture.point, to: gesture.endPage, at: gesture.endPoint, force: force) else {
+            if force {
+                overlay.highlights = []
+                if finalize { pdfView.clearSelection() }
+            }
+            return
+        }
+        if finalize { apply(result) }
+        else { overlay.highlights = result.highlights }
+    }
+
+    private func apply(_ result: NativePDFSelection.Result) {
+        guard let pdfView else { return }
         isRepairing = true
+        result.selection.color = .clear
         pdfView.setCurrentSelection(result.selection, animate: false)
         repairedSelection = pdfView.currentSelection
         nativeText = pdfView.currentSelection?.string
         repairedText = result.text
+        overlay.highlights = result.highlights
         isRepairing = false
     }
 
@@ -207,5 +394,70 @@ final class NativePDFSelectionTracker {
         pasteboard.clearContents()
         pasteboard.writeObjects([item])
         return true
+    }
+
+    private final class HighlightView: NSView {
+        weak var owner: NativePDFSelectionTracker?
+        private var scrollTimer: Timer?
+        private var scrollEvent: NSEvent?
+        var highlights: [NativePDFSelection.Highlight] = [] { didSet { needsDisplay = true } }
+        init(owner: NativePDFSelectionTracker) {
+            self.owner = owner
+            super.init(frame: .zero)
+            setAccessibilityElement(false)
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        override var acceptsFirstResponder: Bool { true }
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func mouseDown(with event: NSEvent) {
+            stopScrolling()
+            owner?.startDirect(event)
+        }
+        // Local monitoring handles drag/up before these callbacks, and keeps the native responder chain.
+        override func mouseDragged(with event: NSEvent) {
+            scrollEvent = event
+            guard owner?.pdfView?.documentView?.autoscroll(with: event) == true else { stopScrolling(); return }
+            if scrollTimer == nil {
+                let timer = Timer(timeInterval: 0.04, repeats: true) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        guard self.window != nil, let event = self.scrollEvent,
+                              self.owner?.pdfView?.documentView?.autoscroll(with: event) == true else { self.stopScrolling(); return }
+                        self.owner?.track(event)
+                    }
+                }
+                RunLoop.main.add(timer, forMode: .common)
+                scrollTimer = timer
+            }
+        }
+        override func mouseUp(with event: NSEvent) {
+            stopScrolling()
+        }
+        private func stopScrolling() {
+            scrollTimer?.invalidate()
+            scrollTimer = nil
+            scrollEvent = nil
+        }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window == nil { stopScrolling() }
+        }
+        deinit { scrollTimer?.invalidate() }
+        @objc func copy(_ sender: Any?) { owner?.pdfView?.copy(sender) }
+        override func keyDown(with event: NSEvent) {
+            if event.keyCode == 53 { owner?.pdfView?.clearSelection() }
+            else { super.keyDown(with: event) }
+        }
+        override func menu(for event: NSEvent) -> NSMenu? { owner?.pdfView?.menu(for: event) }
+        override func draw(_ dirtyRect: NSRect) {
+            guard let view = owner?.pdfView else { return }
+            NSColor.selectedTextBackgroundColor.withAlphaComponent(0.32).setFill()
+            for highlight in highlights {
+                guard highlight.page.document === view.document else { continue }
+                let shown = convert(view.convert(highlight.rect, from: highlight.page), from: view).intersection(bounds)
+                if !shown.isNull && !shown.isEmpty { NSBezierPath(rect: shown).fill() }
+            }
+        }
     }
 }

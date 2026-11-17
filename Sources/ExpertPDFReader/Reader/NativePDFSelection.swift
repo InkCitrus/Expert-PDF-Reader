@@ -57,7 +57,7 @@ final class NativePDFPageGeometry {
         // Tall delimiters belong to equations, not to the neighboring body-text baseline.
         for glyph in glyphs.sorted(by: { $0.bounds.midY > $1.bounds.midY }) {
             if let row = rows.indices.last(where: {
-                abs(rows[$0].bounds.midY - glyph.bounds.midY) <= typicalHeight * 0.7
+                abs(rows[$0].bounds.midY - glyph.bounds.midY) <= typicalHeight
                     && max(rows[$0].bounds.height, glyph.bounds.height) <= typicalHeight * 3
             }) {
                 rows[row].glyphs.append(glyph)
@@ -85,6 +85,34 @@ final class NativePDFPageGeometry {
             }
             return distance(rows[$0].bounds) < distance(rows[$1].bounds)
         }
+    }
+
+    /// Row labels must come from the mapped native ranges. Selecting the row by its two endpoints
+    /// can jump to another baseline at whitespace and reintroduce unrelated text into accessibility.
+    func text(for row: Row, on page: PDFPage) -> String {
+        var seen = IndexSet(), runs: [(Range<Int>, CGRect)] = []
+        for glyph in row.glyphs {
+            for range in glyph.ranges {
+                let fresh = IndexSet(integersIn: range.location..<NSMaxRange(range)).subtracting(seen)
+                for part in fresh.rangeView {
+                    if let previous = runs.last, previous.0.upperBound == part.lowerBound {
+                        runs[runs.count - 1] = (previous.0.lowerBound..<part.upperBound, previous.1.union(glyph.bounds))
+                    } else { runs.append((part, glyph.bounds)) }
+                }
+                seen.formUnion(fresh)
+            }
+        }
+        var result = "", previous: CGRect?
+        for (range, bounds) in runs {
+            guard let text = page.selection(for: NSRange(location: range.lowerBound, length: range.count))?.string else { continue }
+            let clean = text.trimmingCharacters(in: .newlines)
+            if let previous, let last = result.last, !last.isWhitespace,
+               let first = clean.first, !first.isWhitespace,
+               bounds.minX - previous.maxX > min(bounds.height, previous.height) * 0.25 { result += " " }
+            result += clean
+            previous = bounds
+        }
+        return PDFTextCleanup.normalize(result).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

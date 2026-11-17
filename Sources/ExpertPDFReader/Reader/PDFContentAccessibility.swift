@@ -51,12 +51,7 @@ final class PDFContentAccessibility {
         var blocks: [GeometryElement] = []
         for row in geometry.rows {
             let box = row.bounds
-            let start = CGPoint(x: box.minX - 1, y: box.midY), end = CGPoint(x: box.maxX + 1, y: box.midY)
-            let native = page.selection(from: start, to: end)
-            let text = native.flatMap { original in
-                NativePDFSelection.corrected(original, in: page.document!, from: page, at: start, to: page, at: end, force: true)?.text.string
-            } ?? native?.string ?? ""
-            let clean = PDFTextCleanup.normalize(text).trimmingCharacters(in: .whitespacesAndNewlines)
+            let clean = geometry.text(for: row, on: page)
             guard !clean.isEmpty else { continue }
             let line = GeometryElement(page: page, rect: box, view: view, role: .staticText, label: nil)
             line.setAccessibilityValue(clean)

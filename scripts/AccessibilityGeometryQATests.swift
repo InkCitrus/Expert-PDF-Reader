@@ -44,10 +44,13 @@ import PDFKit
             let elements = allElements(view)
             let lines = elements.filter { $0.accessibilityRole() == .staticText }
             check(!lines.isEmpty && elements.count < 200, "the reader exposes a bounded tree for visible pages")
-            let target = lines.first { ($0.accessibilityValue() as? String)?.contains("entries") == true }
+            let target = lines.first { ($0.accessibilityValue() as? String) == "entries, i.e.," }
             check(target != nil, "the actual page text is discoverable through accessibility")
             if let target {
                 let frame = target.accessibilityFrame()
+                let physical = view.convert(CGRect(x: 86, y: 654, width: 75, height: 15), from: page)
+                let expected = self.window.convertToScreen(view.convert(physical, to: nil))
+                check(frame.intersects(expected), "the text element's frame matches the actual row, not another line with an overlong label")
                 check(!frame.isEmpty && frame.height / view.scaleFactor < 20,
                       "the short text row has glyph-sized bounds rather than the 107-point matrix rectangle")
                 let hit = view.accessibilityHitTest(CGPoint(x: frame.midX, y: frame.midY)) as? NSAccessibilityElement

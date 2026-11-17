@@ -636,6 +636,16 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
 // MARK: - ThemedPDFView (Sharp Retina Viewport Shader Filtering + Arrow Key Navigation)
 
 final class ThemedPDFView: PDFView {
+    private lazy var contentAccessibility = PDFContentAccessibility(pdfView: self)
+
+    override func accessibilityChildren() -> [Any]? {
+        contentAccessibility.children() ?? super.accessibilityChildren()
+    }
+
+    override func accessibilityHitTest(_ point: NSPoint) -> Any? {
+        contentAccessibility.hitTest(point) ?? super.accessibilityHitTest(point)
+    }
+
     lazy var ocrSelectionOverlay = OCRTextSelectionOverlay(pdfView: self)
     private lazy var nativeSelectionTracker = NativePDFSelectionTracker(pdfView: self)
 

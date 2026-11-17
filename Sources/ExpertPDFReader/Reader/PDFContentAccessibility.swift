@@ -103,7 +103,7 @@ final class PDFContentAccessibility {
         }
         override func accessibilityFrame() -> NSRect {
             guard let page, let view, let window = view.window,
-                  page.document === view.document else { return .zero }
+                  page.document === view.document, view.visiblePages.contains(where: { $0 === page }) else { return .zero }
             let frame = view.convert(pageRect, from: page).intersection(view.visibleRect)
             guard !frame.isNull, !frame.isEmpty else { return .zero }
             return window.convertToScreen(view.convert(frame, to: nil))

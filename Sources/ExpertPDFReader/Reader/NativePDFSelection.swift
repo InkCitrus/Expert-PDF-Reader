@@ -110,8 +110,12 @@ enum NativePDFSelection {
         if startIndex > endIndex || (startPage === endPage && start.y < end.y) { swap(&first, &last) }
         let firstGeometry = NativePDFPageGeometry.geometry(for: first.page)
         let lastGeometry = first.page === last.page ? firstGeometry : NativePDFPageGeometry.geometry(for: last.page)
-        guard let firstRow = firstGeometry.nearestRow(to: first.point),
-              let lastRow = lastGeometry.nearestRow(to: last.point) else { return nil }
+        guard var firstRow = firstGeometry.nearestRow(to: first.point),
+              var lastRow = lastGeometry.nearestRow(to: last.point) else { return nil }
+        if first.page === last.page, firstRow > lastRow {
+            swap(&first, &last)
+            swap(&firstRow, &lastRow)
+        }
         let selection = PDFSelection(document: document)
         let text = NSMutableAttributedString(string: "")
         var highlights: [Highlight] = []
@@ -187,6 +191,12 @@ enum NativePDFSelection {
             }
         }
         guard force || outside || tooTall, selection.string?.isEmpty == false else { return nil }
+        // When the ranges already follow the gesture, only their displayed height is wrong. Keep
+        // the original extraction intact (including punctuation and ligatures) and replace its paint.
+        if !outside, original.string?.isEmpty == false {
+            let originalText = original.attributedString ?? NSAttributedString(string: original.string ?? "")
+            return Result(selection: original, text: PDFTextCleanup.normalize(originalText), highlights: highlights)
+        }
         return Result(selection: selection, text: PDFTextCleanup.normalize(text), highlights: highlights)
     }
 }
@@ -319,9 +329,18 @@ final class NativePDFSelectionTracker {
 
     private func repair(force: Bool = false, finalize: Bool = true) {
         guard !isRepairing, let pdfView, let gesture else { return }
-        let original = pdfView.currentSelection ?? PDFSelection(document: gesture.document)
+        let original: PDFSelection
+        if force, gesture.page === gesture.endPage {
+            original = gesture.page.selection(from: gesture.point, to: gesture.endPoint) ?? PDFSelection(document: gesture.document)
+        } else { original = pdfView.currentSelection ?? PDFSelection(document: gesture.document) }
         guard let result = NativePDFSelection.corrected(original, in: gesture.document, from: gesture.page,
-            at: gesture.point, to: gesture.endPage, at: gesture.endPoint, force: force) else { return }
+            at: gesture.point, to: gesture.endPage, at: gesture.endPoint, force: force) else {
+            if force {
+                overlay.highlights = []
+                if finalize { pdfView.clearSelection() }
+            }
+            return
+        }
         if finalize { apply(result) }
         else { overlay.highlights = result.highlights }
     }
@@ -359,6 +378,7 @@ final class NativePDFSelectionTracker {
         }
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
         override var acceptsFirstResponder: Bool { true }
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func mouseDown(with event: NSEvent) { owner?.startDirect(event) }
         // Local monitoring handles drag/up before these callbacks, and keeps the native responder chain.

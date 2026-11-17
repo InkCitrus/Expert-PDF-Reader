@@ -10,7 +10,7 @@ done
 mkdir -p build/ModuleCache
 TEST_SOURCE=scripts/ReaderRegressionTests.swift
 TEST_BINARY=build/ReaderRegressionTests
-if [[ "${1:-}" == "--ui" || "${1:-}" == "--scene" || "${1:-}" == "--clipboard-ui" ]]; then
+if [[ "${1:-}" == "--ui" || "${1:-}" == "--scene" || "${1:-}" == "--clipboard-ui" || "${1:-}" == "--selection-ui" ]]; then
     TEST_SOURCE=scripts/TabDragQATests.swift
     TEST_APP="$PWD/build/Tab Drag QA.app"
     TEST_BINARY="$TEST_APP/Contents/MacOS/TabDragQATests"
@@ -29,8 +29,9 @@ if [[ "${1:-}" == "--ui" || "${1:-}" == "--scene" || "${1:-}" == "--clipboard-ui
         /usr/libexec/PlistBuddy -c 'Set :CFBundleName Window Scene QA' "$TEST_APP/Contents/Info.plist"
         /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName Window Scene QA' "$TEST_APP/Contents/Info.plist"
     fi
-    if [[ "${1:-}" == "--clipboard-ui" ]]; then
+    if [[ "${1:-}" == "--clipboard-ui" || "${1:-}" == "--selection-ui" ]]; then
         TEST_SOURCE=scripts/ClipboardQATests.swift
+        [[ "${1:-}" == "--selection-ui" ]] && TEST_SOURCE=scripts/SelectionGeometryQATests.swift
         /usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier io.github.inkcitrus.expertpdfreader.clipboardqa' "$TEST_APP/Contents/Info.plist"
         /usr/libexec/PlistBuddy -c 'Set :CFBundleName Clipboard QA' "$TEST_APP/Contents/Info.plist"
         /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName Clipboard QA' "$TEST_APP/Contents/Info.plist"
@@ -38,13 +39,13 @@ if [[ "${1:-}" == "--ui" || "${1:-}" == "--scene" || "${1:-}" == "--clipboard-ui
 fi
 swiftc -sdk "$SDK_PATH" -target "$(uname -m)-apple-macos14.0" -module-cache-path build/ModuleCache -parse-as-library \
     "${SOURCES[@]}" "$TEST_SOURCE" -o "$TEST_BINARY"
-if [[ "${1:-}" == "--ui" || "${1:-}" == "--scene" || "${1:-}" == "--clipboard-ui" ]]; then
+if [[ "${1:-}" == "--ui" || "${1:-}" == "--scene" || "${1:-}" == "--clipboard-ui" || "${1:-}" == "--selection-ui" ]]; then
     /usr/bin/codesign --force --sign - "$TEST_APP"
 fi
 # By default input stays inside the QA process; no LaunchServices registration or foreground takeover is needed.
 # An attended TAB_DRAG_QA_FOCUS=exits-top TAB_DRAG_QA_WINDOWSERVER=1 run also tests real mouse delivery.
 "$TEST_BINARY"
-if [[ "${1:-}" != "--ui" && "${1:-}" != "--scene" && "${1:-}" != "--clipboard-ui" ]]; then
+if [[ "${1:-}" != "--ui" && "${1:-}" != "--scene" && "${1:-}" != "--clipboard-ui" && "${1:-}" != "--selection-ui" ]]; then
     swiftc -sdk "$SDK_PATH" -module-cache-path build/ModuleCache -parse-as-library \
         Sources/ExpertPDFReader/Models/ReaderRelease.swift scripts/UpdateCheckTests.swift -o build/UpdateCheckTests
     build/UpdateCheckTests

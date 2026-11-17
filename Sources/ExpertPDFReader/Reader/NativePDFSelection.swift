@@ -370,6 +370,8 @@ final class NativePDFSelectionTracker {
 
     private final class HighlightView: NSView {
         weak var owner: NativePDFSelectionTracker?
+        private var scrollTimer: Timer?
+        private var scrollEvent: NSEvent?
         var highlights: [NativePDFSelection.Highlight] = [] { didSet { needsDisplay = true } }
         init(owner: NativePDFSelectionTracker) {
             self.owner = owner
@@ -380,10 +382,40 @@ final class NativePDFSelectionTracker {
         override var acceptsFirstResponder: Bool { true }
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
-        override func mouseDown(with event: NSEvent) { owner?.startDirect(event) }
+        override func mouseDown(with event: NSEvent) {
+            stopScrolling()
+            owner?.startDirect(event)
+        }
         // Local monitoring handles drag/up before these callbacks, and keeps the native responder chain.
-        override func mouseDragged(with event: NSEvent) {}
-        override func mouseUp(with event: NSEvent) {}
+        override func mouseDragged(with event: NSEvent) {
+            scrollEvent = event
+            guard owner?.pdfView?.documentView?.autoscroll(with: event) == true else { stopScrolling(); return }
+            if scrollTimer == nil {
+                let timer = Timer(timeInterval: 0.04, repeats: true) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        guard self.window != nil, let event = self.scrollEvent,
+                              self.owner?.pdfView?.documentView?.autoscroll(with: event) == true else { self.stopScrolling(); return }
+                        self.owner?.track(event)
+                    }
+                }
+                RunLoop.main.add(timer, forMode: .common)
+                scrollTimer = timer
+            }
+        }
+        override func mouseUp(with event: NSEvent) {
+            stopScrolling()
+        }
+        private func stopScrolling() {
+            scrollTimer?.invalidate()
+            scrollTimer = nil
+            scrollEvent = nil
+        }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window == nil { stopScrolling() }
+        }
+        deinit { scrollTimer?.invalidate() }
         @objc func copy(_ sender: Any?) { owner?.pdfView?.copy(sender) }
         override func keyDown(with event: NSEvent) {
             if event.keyCode == 53 { owner?.pdfView?.clearSelection() }
@@ -394,6 +426,7 @@ final class NativePDFSelectionTracker {
             guard let view = owner?.pdfView else { return }
             NSColor.selectedTextBackgroundColor.withAlphaComponent(0.32).setFill()
             for highlight in highlights {
+                guard highlight.page.document === view.document else { continue }
                 let shown = convert(view.convert(highlight.rect, from: highlight.page), from: view).intersection(bounds)
                 if !shown.isNull && !shown.isEmpty { NSBezierPath(rect: shown).fill() }
             }

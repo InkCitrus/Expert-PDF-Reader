@@ -322,23 +322,22 @@ public enum AppPalette {
         return Color(nsColor: base.blended(withFraction: isDark ? 0.35 : 0, of: .white) ?? base)
     }
 
-    // Window Chrome (tab strip + toolbar). PDF Expert always paints this chrome graphite; here every
-    // token is a light/dark pair so the title bar follows the appearance while keeping PDF Expert's
-    // elevation order: tab strip < toolbar < selected tab.
+    // Window chrome uses neighboring neutral surfaces. The selected tab stays distinct without a
+    // near-black strip above the toolbar or a bright gray block in dark appearance.
     public static func tabStripBackground(_ isDark: Bool) -> Color {
-        Color(hex: isDark ? 0x131314 : 0xE3E3E6)
+        Color(hex: isDark ? 0x242427 : 0xE9E9ED)
     }
 
     public static func tabSelectedBackground(_ isDark: Bool) -> Color {
-        Color(hex: isDark ? 0x48484D : 0xFFFFFF)
+        Color(hex: isDark ? 0x424247 : 0xFAFAFC)
     }
 
     public static func tabHoverBackground(_ isDark: Bool) -> Color {
-        Color(hex: isDark ? 0x232326 : 0xD8D8DC)
+        Color(hex: isDark ? 0x303035 : 0xDFDFE5)
     }
 
     public static func tabSeparator(_ isDark: Bool) -> Color {
-        Color(hex: isDark ? 0x2E2E32 : 0xCBCBD0)
+        Color(hex: isDark ? 0x36363C : 0xD0D0D6)
     }
 
     public static func toolbarBackground(_ isDark: Bool) -> Color {

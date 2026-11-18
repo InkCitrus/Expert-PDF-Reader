@@ -27,7 +27,13 @@ import PDFKit
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
         let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.black]
-        for (text, y): (String, CGFloat) in [("Above context.", 500), ("Selected middle row.", 482), ("Below context.", 464)] {
+        let rows: [(String, CGFloat)] = [
+            ("Above context.", 500),
+            ("Selected middle row.", 482),
+            ("Below context.", 464),
+            ("Separate paragraph.", 417)
+        ]
+        for (text, y) in rows {
             (text as NSString).draw(at: CGPoint(x: 80, y: y), withAttributes: attributes)
         }
         NSGraphicsContext.restoreGraphicsState()
@@ -102,11 +108,20 @@ import PDFKit
                 let upper = proofStart.accessibilityFrame(), lower = proofNext.accessibilityFrame()
                 check(!upper.isEmpty && !lower.isEmpty && !upper.intersects(lower),
                       "adjacent lines have disjoint screenshot frames")
+                let region = proofStart.accessibilityParent() as? NSAccessibilityElement
+                let section = region?.accessibilityParent() as? NSAccessibilityElement
+                check(region?.accessibilityChildren()?.count == 2 &&
+                      (proofNext.accessibilityParent() as AnyObject?) === region,
+                      "the proof lines share one region with no neighboring text")
+                check(region?.accessibilityFrame() == upper.union(lower) &&
+                      section?.accessibilityFrame().contains(upper.union(lower)) == true,
+                      "the paragraph frame is the union of its rows inside the full page")
+                let proofHit = window.accessibilityHitTest(CGPoint(x: upper.midX, y: upper.midY))
+                check((proofHit as AnyObject?) === proofStart,
+                      "a pointer over the proof still hits the line before its paragraph")
             } else {
                 check(false, "adjacent lines are exposed separately")
             }
-            check(elements.filter { $0.accessibilityRole() == .group }.count == 1,
-                  "the page exposes row candidates without a larger paragraph rectangle")
             let nativeLink = elements.first { $0.accessibilityRole() == .link && $0.accessibilityLabel() == "QA page link" }
             check(nativeLink != nil && nativeLink!.accessibilityPerformPress(), "native PDF link actions remain accessible")
             try? await Task.sleep(nanoseconds: 100_000_000)
@@ -123,12 +138,25 @@ import PDFKit
             let ordinaryPage = fixture.page(at: 0)!
             check(!NativePDFPageGeometry.geometry(for: ordinaryPage).needsDirectSelection,
                   "the input fixture exercises ordinary PDFKit tracking rather than the complex-text overlay")
-            let middle = allElements(view).first { ($0.accessibilityValue() as? String) == "Selected middle row." }
+            let fixtureElements = allElements(view)
+            let middle = fixtureElements.first { ($0.accessibilityValue() as? String) == "Selected middle row." }
             if let middle {
                 let box = middle.accessibilityFrame()
                 let hit = NSApp.accessibilityHitTest(CGPoint(x: box.midX, y: box.midY)) as? NSAccessibilityElement
                 check(hit === middle && box.height / view.scaleFactor < 20,
                       "an ordinary page exposes only the pointed-at row through the application query")
+                let group = middle.accessibilityParent() as? NSAccessibilityElement
+                let separate = fixtureElements.first { ($0.accessibilityValue() as? String) == "Separate paragraph." }
+                if let group, let separate {
+                    check(group.accessibilityChildren()?.count == 3 && !separate.accessibilityFrame().isEmpty &&
+                          !group.accessibilityFrame().intersects(separate.accessibilityFrame()),
+                          "a wider gap starts a new paragraph outside the first crop")
+                } else { check(false, "both fixture regions are exposed") }
+                if let group, let first = group.accessibilityChildren()?.first as? NSAccessibilityElement {
+                    let space = CGPoint(x: first.accessibilityFrame().midX, y: (first.accessibilityFrame().minY + box.maxY) / 2)
+                    check((window.accessibilityHitTest(space) as AnyObject?) === group,
+                          "the space between lines hits their paragraph rather than the whole page")
+                }
             } else { check(false, "the ordinary fixture's middle row is exposed") }
             let location = view.convert(view.convert(CGPoint(x: 130, y: 489), from: ordinaryPage), to: view.superview)
             let nativeTarget = view.hitTest(location)

@@ -74,7 +74,6 @@ final class PDFContentAccessibility {
                 element = buildPage(page, geometry: geometry, in: view, index: document.index(for: page))
                 pages.setObject(element, forKey: page)
             }
-            element.setAccessibilityChildren(element.allChildren.filter { !$0.accessibilityFrame().isEmpty })
             result.append(element)
         }
         guard !result.isEmpty else { return nil }
@@ -86,35 +85,53 @@ final class PDFContentAccessibility {
 
     func hitTest(_ point: NSPoint) -> GeometryElement? {
         guard let roots = children() else { return nil }
-        guard let page = roots.lazy.compactMap({ $0 as? GeometryElement })
-            .first(where: { $0.accessibilityFrame().contains(point) }) else { return nil }
-        // Links follow text in the accessibility tree. Prefer the link when its frame overlaps text.
-        return page.allChildren.reversed().first { $0.accessibilityFrame().contains(point) } ?? page
+        return roots.lazy.compactMap { ($0 as? GeometryElement)?.deepestHit(at: point) }.first
     }
 
     private func buildPage(_ page: PDFPage, geometry: NativePDFPageGeometry, in view: PDFView, index: Int) -> GeometryElement {
         let root = GeometryElement(page: page, rect: geometry.cropBox, view: view, role: .group, label: L10n.pageTitle(String(index + 1)))
         root.setAccessibilityParent(view)
-        // Each row is a separate candidate for element-based screenshot tools. Grouping adjacent
-        // lines into a paragraph can offer a rectangle that includes the rows above and below it.
-        var elements: [GeometryElement] = []
+        var paragraphs: [[GeometryElement]] = []
         for row in geometry.rows {
             let clean = geometry.text(for: row, on: page)
             guard !clean.isEmpty else { continue }
             let line = GeometryElement(page: page, rect: row.bounds, view: view, role: .staticText, label: nil)
             line.setAccessibilityValue(clean)
-            line.setAccessibilityParent(root)
-            elements.append(line)
+            if let previous = paragraphs.last?.last, Self.canShareRegion(previous.pageRect, row.bounds) {
+                paragraphs[paragraphs.count - 1].append(line)
+            } else {
+                paragraphs.append([line])
+            }
+        }
+        var elements = paragraphs.map { lines in
+            guard lines.count > 1 else { return lines[0] }
+            let bounds = lines.reduce(CGRect.null) { $0.union($1.pageRect) }
+            let region = GeometryElement(page: page, rect: bounds, view: view, role: .group, label: nil)
+            region.allChildren = lines
+            for line in lines { line.setAccessibilityParent(region) }
+            return region
         }
         for annotation in page.annotations where annotation.action != nil {
             let link = GeometryElement(page: page, rect: annotation.bounds, view: view, role: .link,
                 label: annotation.contents ?? (annotation.action as? PDFActionURL)?.url?.absoluteString)
             link.annotation = annotation
-            link.setAccessibilityParent(root)
             elements.append(link)
         }
         root.allChildren = elements
+        for element in elements { element.setAccessibilityParent(root) }
         return root
+    }
+
+    /// Compare neighboring ink boxes. Leading may be as tall as the visible ink on an ordinary
+    /// line. A shared edge and similar ink heights help distinguish a paragraph from a new block.
+    private static func canShareRegion(_ upper: CGRect, _ lower: CGRect) -> Bool {
+        let lineHeight = min(upper.height, lower.height)
+        let gap = upper.minY - lower.maxY
+        guard lineHeight > 0, max(upper.height, lower.height) <= lineHeight * 1.35,
+              gap >= -lineHeight * 0.2, gap <= lineHeight * 1.15,
+              max(upper.minX, lower.minX) < min(upper.maxX, lower.maxX) else { return false }
+        let edgeDistance = min(abs(upper.minX - lower.minX), abs(upper.maxX - lower.maxX))
+        return edgeDistance <= lineHeight * 0.6
     }
 
     final class GeometryElement: NSAccessibilityElement {
@@ -129,6 +146,20 @@ final class PDFContentAccessibility {
             setAccessibilityRole(role)
             setAccessibilityLabel(label)
             setAccessibilityEnabled(true)
+        }
+        override func accessibilityChildren() -> [Any]? {
+            allChildren.isEmpty ? nil : allChildren.filter { !$0.accessibilityFrame().isEmpty }
+        }
+        func deepestHit(at point: NSPoint) -> GeometryElement? {
+            guard accessibilityFrame().contains(point) else { return nil }
+            // Links come after text in the tree and keep their hit area when they overlap a line.
+            var region: GeometryElement?
+            for child in allChildren.reversed() {
+                guard let hit = child.deepestHit(at: point) else { continue }
+                if hit.allChildren.isEmpty { return hit }
+                if region == nil { region = hit }
+            }
+            return region ?? self
         }
         override func accessibilityFrame() -> NSRect {
             guard let page, let view, let window = view.window,

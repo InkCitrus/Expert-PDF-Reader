@@ -17,6 +17,28 @@ import PDFKit
         }
         return visit(view.accessibilityChildren() ?? [])
     }
+
+    func checkLectureFrame(_ heading: String, expected: CGRect, lines: [NSAccessibilityElement],
+                           view: PDFView, page: PDFPage) {
+        guard let title = lines.first(where: { ($0.accessibilityValue() as? String)?.hasPrefix(heading) == true }),
+              let panel = title.accessibilityParent() as? PDFContentAccessibility.GeometryElement else {
+            check(false, "\(heading) has a separate frame")
+            return
+        }
+        let box = panel.pageRect
+        check(abs(box.minX - expected.minX) < 1 && abs(box.maxX - expected.maxX) < 1 &&
+              abs(box.minY - expected.minY) < 1 && abs(box.maxY - expected.maxY) < 1,
+              "\(heading) exposes the full drawn border and attached title")
+        let body = panel.allChildren
+        check(body.count > 2 && body.contains { ($0.accessibilityValue() as? String)?.contains("det") == true } &&
+              !body.contains { ($0.accessibilityValue() as? String)?.hasPrefix("Proof.") == true },
+              "\(heading) has its formula and excludes the surrounding proof")
+        let margin = CGPoint(x: expected.maxX - expected.width * 0.04, y: expected.minY + 9)
+        let screen = window.convertPoint(toScreen: view.convert(view.convert(margin, from: page), to: nil))
+        check((window.accessibilityHitTest(screen) as AnyObject?) === panel,
+              "\(heading) can be selected by pointing at the blank inside its border")
+    }
+
     func nativeTextFixture() -> PDFDocument {
         let data = NSMutableData()
         var box = CGRect(x: 0, y: 0, width: 600, height: 800)
@@ -81,6 +103,12 @@ import PDFKit
             let elements = allElements(view)
             let lines = elements.filter { $0.accessibilityRole() == .staticText }
             check(!lines.isEmpty && elements.count < 200, "the reader exposes a bounded tree for visible pages")
+            checkLectureFrame("Exercise 3.22", expected: CGRect(x: 70.866, y: 555.012, width: 470.274, height: 151.951),
+                              lines: lines, view: view, page: page)
+            checkLectureFrame("Exercise 3.23", expected: CGRect(x: 70.866, y: 443.694, width: 470.274, height: 104.096),
+                              lines: lines, view: view, page: page)
+            checkLectureFrame("Theorem 3.7", expected: CGRect(x: 59.527, y: 284.965, width: 492.951, height: 129.839),
+                              lines: lines, view: view, page: page)
             let target = lines.first { ($0.accessibilityValue() as? String) == "entries, i.e.," }
             check(target != nil, "the actual page text is discoverable through accessibility")
             if let target {
@@ -136,6 +164,8 @@ import PDFKit
             view.go(to: fixture.page(at: 0)!)
             try? await Task.sleep(nanoseconds: 100_000_000)
             let ordinaryPage = fixture.page(at: 0)!
+            check(PDFFramedRegions.bounds(on: ordinaryPage, geometry: NativePDFPageGeometry.geometry(for: ordinaryPage)).isEmpty,
+                  "an unboxed text page does not acquire any framed screenshot regions")
             check(!NativePDFPageGeometry.geometry(for: ordinaryPage).needsDirectSelection,
                   "the input fixture exercises ordinary PDFKit tracking rather than the complex-text overlay")
             let fixtureElements = allElements(view)

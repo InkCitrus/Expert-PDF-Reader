@@ -91,25 +91,29 @@ final class PDFContentAccessibility {
     private func buildPage(_ page: PDFPage, geometry: NativePDFPageGeometry, in view: PDFView, index: Int) -> GeometryElement {
         let root = GeometryElement(page: page, rect: geometry.cropBox, view: view, role: .group, label: L10n.pageTitle(String(index + 1)))
         root.setAccessibilityParent(view)
-        var paragraphs: [[GeometryElement]] = []
+        let frames = PDFFramedRegions.bounds(on: page, geometry: geometry)
+        var framedLines = frames.map { _ in [GeometryElement]() }
+        var plainLines: [GeometryElement] = []
         for row in geometry.rows {
-            let clean = geometry.text(for: row, on: page)
-            guard !clean.isEmpty else { continue }
-            let line = GeometryElement(page: page, rect: row.bounds, view: view, role: .staticText, label: nil)
-            line.setAccessibilityValue(clean)
-            if let previous = paragraphs.last?.last, Self.canShareRegion(previous.pageRect, row.bounds) {
-                paragraphs[paragraphs.count - 1].append(line)
-            } else {
-                paragraphs.append([line])
+            for (frame, row) in Self.split(row, across: frames) {
+                let clean = geometry.text(for: row, on: page)
+                guard !clean.isEmpty else { continue }
+                let bounds = frame.map { row.bounds.intersection(frames[$0]) } ?? row.bounds
+                let line = GeometryElement(page: page, rect: bounds, view: view, role: .staticText, label: nil)
+                line.setAccessibilityValue(clean)
+                if let frame { framedLines[frame].append(line) }
+                else { plainLines.append(line) }
             }
         }
-        var elements = paragraphs.map { lines in
-            guard lines.count > 1 else { return lines[0] }
-            let bounds = lines.reduce(CGRect.null) { $0.union($1.pageRect) }
-            let region = GeometryElement(page: page, rect: bounds, view: view, role: .group, label: nil)
-            region.allChildren = lines
-            for line in lines { line.setAccessibilityParent(region) }
-            return region
+        var elements = paragraphRegions(for: plainLines, on: page, in: view)
+        for (frame, lines) in zip(frames, framedLines) where !lines.isEmpty {
+            elements.append(region(with: lines, bounds: frame, on: page, in: view))
+        }
+        if !frames.isEmpty {
+            elements.sort {
+                if $0.pageRect.maxY == $1.pageRect.maxY { return $0.pageRect.minX < $1.pageRect.minX }
+                return $0.pageRect.maxY > $1.pageRect.maxY
+            }
         }
         for annotation in page.annotations where annotation.action != nil {
             let link = GeometryElement(page: page, rect: annotation.bounds, view: view, role: .link,
@@ -120,6 +124,51 @@ final class PDFContentAccessibility {
         root.allChildren = elements
         for element in elements { element.setAccessibilityParent(root) }
         return root
+    }
+
+    /// A physical row can straddle a box edge, for example when a title shares a baseline
+    /// with a margin note. Give each region only the ink inside its own border.
+    private static func split(_ row: NativePDFPageGeometry.Row, across frames: [CGRect])
+        -> [(Int?, NativePDFPageGeometry.Row)] {
+        guard !frames.isEmpty else { return [(nil, row)] }
+        var runs: [(frame: Int?, glyphs: [NativePDFPageGeometry.Glyph])] = []
+        for glyph in row.glyphs {
+            let center = CGPoint(x: glyph.bounds.midX, y: glyph.bounds.midY)
+            let frame = frames.firstIndex { $0.contains(center) }
+            if let last = runs.last, last.frame == frame {
+                runs[runs.count - 1].glyphs.append(glyph)
+            } else {
+                runs.append((frame, [glyph]))
+            }
+        }
+        if runs.count == 1, let run = runs.first { return [(run.frame, row)] }
+        return runs.map { frame, glyphs in
+            let bounds = glyphs.reduce(CGRect.null) { $0.union($1.bounds) }
+            return (frame, .init(bounds: bounds, glyphs: glyphs))
+        }
+    }
+
+    private func paragraphRegions(for lines: [GeometryElement], on page: PDFPage, in view: PDFView) -> [GeometryElement] {
+        var paragraphs: [[GeometryElement]] = []
+        for line in lines {
+            if let previous = paragraphs.last?.last, Self.canShareRegion(previous.pageRect, line.pageRect) {
+                paragraphs[paragraphs.count - 1].append(line)
+            } else {
+                paragraphs.append([line])
+            }
+        }
+        return paragraphs.map { lines in
+            guard lines.count > 1 else { return lines[0] }
+            let bounds = lines.reduce(CGRect.null) { $0.union($1.pageRect) }
+            return region(with: lines, bounds: bounds, on: page, in: view)
+        }
+    }
+
+    private func region(with lines: [GeometryElement], bounds: CGRect, on page: PDFPage, in view: PDFView) -> GeometryElement {
+        let group = GeometryElement(page: page, rect: bounds, view: view, role: .group, label: nil)
+        group.allChildren = lines
+        for line in lines { line.setAccessibilityParent(group) }
+        return group
     }
 
     /// Compare neighboring ink boxes. Leading may be as tall as the visible ink on an ordinary

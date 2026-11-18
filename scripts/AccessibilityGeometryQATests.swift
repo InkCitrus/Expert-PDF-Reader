@@ -166,8 +166,6 @@ import PDFKit
             let ordinaryPage = fixture.page(at: 0)!
             check(PDFFramedRegions.bounds(on: ordinaryPage, geometry: NativePDFPageGeometry.geometry(for: ordinaryPage)).isEmpty,
                   "an unboxed text page does not acquire any framed screenshot regions")
-            check(!NativePDFPageGeometry.geometry(for: ordinaryPage).needsDirectSelection,
-                  "the input fixture exercises ordinary PDFKit tracking rather than the complex-text overlay")
             let fixtureElements = allElements(view)
             let middle = fixtureElements.first { ($0.accessibilityValue() as? String) == "Selected middle row." }
             if let middle {

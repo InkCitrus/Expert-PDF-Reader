@@ -322,9 +322,7 @@ public enum AppPalette {
         return Color(nsColor: base.blended(withFraction: isDark ? 0.35 : 0, of: .white) ?? base)
     }
 
-    // Window Chrome (tab strip + toolbar). PDF Expert always paints this chrome graphite; here every
-    // token is a light/dark pair so the title bar follows the appearance while keeping PDF Expert's
-    // elevation order: tab strip < toolbar < selected tab.
+    // Title bar and reader toolbar
     public static func tabStripBackground(_ isDark: Bool) -> Color {
         Color(hex: isDark ? 0x131314 : 0xE3E3E6)
     }
@@ -363,6 +361,25 @@ public enum AppPalette {
 
     public static func chromeHairline(_ isDark: Bool) -> Color {
         Color(hex: isDark ? 0x0E0E10 : 0xD6D6DB)
+    }
+
+    static func sidebarTabsBackground(_ isDark: Bool) -> Color {
+        Color(hex: isDark ? 0x242426 : 0xE9E9EB)
+    }
+
+    static func sidebarTabSelectedBackground(_ isDark: Bool) -> Color {
+        Color(hex: isDark ? 0x414144 : 0xFFFFFF)
+    }
+
+    static func sidebarTabHoverBackground(_ isDark: Bool) -> Color {
+        Color(hex: isDark ? 0x323235 : 0xDEDEE1)
+    }
+
+    static func documentTabHighlight(isSelected: Bool, isSidebar: Bool, isDark: Bool) -> Color {
+        if isSidebar {
+            return isSelected ? sidebarTabSelectedBackground(isDark) : sidebarTabHoverBackground(isDark)
+        }
+        return isSelected ? tabSelectedBackground(isDark) : tabHoverBackground(isDark)
     }
 
     // Reader Panels (left Document Summary / View Settings dock, right Search dock)

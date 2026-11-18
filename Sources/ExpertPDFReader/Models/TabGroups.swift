@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 
 public enum TabGroupColor: String, Codable, CaseIterable {
@@ -32,6 +31,22 @@ public struct ReaderTabGroup: Identifiable, Equatable {
 
     /// Unnamed groups remain identifiable in menus, tooltips and accessibility.
     var displayName: String { name.isEmpty ? color.title : name }
+}
+
+enum TabGroupNameEdit {
+    case rename(UUID)
+    case create(id: UUID, tabID: UUID, color: TabGroupColor)
+
+    var groupID: UUID {
+        switch self {
+        case .rename(let id), .create(let id, _, _): id
+        }
+    }
+
+    var draftGroup: ReaderTabGroup? {
+        guard case .create(let id, let tabID, let color) = self else { return nil }
+        return ReaderTabGroup(id: id, name: "", tabIDs: [tabID], color: color)
+    }
 }
 
 struct SavedTabGroup: Codable {
@@ -107,13 +122,14 @@ extension ReaderWindowSession {
 @MainActor
 extension AppStore {
     @discardableResult
-    func createTabGroup(name: String, containing tabID: UUID, in sessionID: UUID? = nil) -> UUID? {
+    func createTabGroup(name: String, containing tabID: UUID, in sessionID: UUID? = nil,
+                        draft: ReaderTabGroup? = nil) -> UUID? {
         let session = session(withID: sessionID)
         let name = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))
         guard session.tabs.contains(where: { !$0.isHome && $0.id == tabID }) else { return nil }
         moveTab(tabID, intoGroup: nil, in: session.id)
-        let group = ReaderTabGroup(id: UUID(), name: name, tabIDs: [tabID],
-                                   color: .next(excluding: session.tabGroups.map(\.color)))
+        let group = ReaderTabGroup(id: draft?.id ?? UUID(), name: name, tabIDs: [tabID],
+                                   color: draft?.color ?? .next(excluding: session.tabGroups.map(\.color)))
         session.tabGroups.append(group)
         session.normalizeTabGroupOrder()
         return group.id
@@ -164,28 +180,22 @@ extension AppStore {
         for id in ids { closeTab(id: id, in: session.id) }
     }
 
-    func editTabGroup(_ groupID: UUID? = nil, containing tabID: UUID? = nil, in sessionID: UUID? = nil) {
+    func beginCreatingTabGroup(containing tabID: UUID, in sessionID: UUID? = nil) {
         let session = session(withID: sessionID)
-        let group = session.tabGroups.first { $0.id == groupID }
-        let alert = NSAlert()
-        alert.messageText = group == nil ? L10n.tr("新建分组…", "New Group…") : L10n.tr("重命名分组…", "Rename Group…")
-        let field = NSTextField(string: group?.name ?? "")
-        field.placeholderString = L10n.tr("分组名称", "Group Name")
-        field.frame = NSRect(x: 0, y: 0, width: 280, height: 24)
-        alert.accessoryView = field
-        alert.addButton(withTitle: group == nil ? L10n.tr("创建分组", "Create Group") : L10n.tr("保存", "Save"))
-        alert.addButton(withTitle: L10n.tr("取消", "Cancel"))
-        alert.window.initialFirstResponder = field
-        let save: (NSApplication.ModalResponse) -> Void = { [weak self, weak session] response in
-            guard response == .alertFirstButtonReturn, let self, let session else { return }
-            if let group { self.renameTabGroup(group.id, name: field.stringValue, in: session.id) }
-            else if let tabID { self.createTabGroup(name: field.stringValue, containing: tabID, in: session.id) }
-        }
-        if let window = session.nsWindow {
-            guard window.attachedSheet == nil else { return }
-            alert.beginSheetModal(for: window, completionHandler: save)
-        } else {
-            save(alert.runModal())
+        guard session.tabs.contains(where: { !$0.isHome && $0.id == tabID }) else { return }
+        let usedColors = session.tabGroups.filter { $0.tabIDs != [tabID] }.map(\.color)
+        session.tabGroupNameEdit = .create(id: UUID(), tabID: tabID, color: .next(excluding: usedColors))
+    }
+
+    func finishTabGroupNameEdit(_ groupID: UUID, name: String?, in session: ReaderWindowSession) {
+        guard let edit = session.tabGroupNameEdit, edit.groupID == groupID else { return }
+        session.tabGroupNameEdit = nil
+        guard let name else { return }
+        switch edit {
+        case .rename:
+            renameTabGroup(groupID, name: name, in: session.id)
+        case .create(_, let tabID, _):
+            createTabGroup(name: name, containing: tabID, in: session.id, draft: edit.draftGroup)
         }
     }
 }

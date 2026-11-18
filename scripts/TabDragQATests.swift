@@ -59,7 +59,7 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
     }
 
     // Drive the public AppKit tracking callbacks inside this QA app, without moving the user's mouse.
-    func hoverSidebar(_ entered: Bool, in session: ReaderWindowSession) async {
+    func hoverSidebar(_ entered: Bool, in session: ReaderWindowSession, waitForLayout: Bool = true) async {
         guard let view = session.sidebarTabHoverView, let window = view.window else {
             check(false, "the sidebar has a native hover region")
             return
@@ -70,7 +70,7 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
             context: nil, eventNumber: 0, trackingNumber: 0, userData: nil)!
         if entered { view.mouseEntered(with: event) } else { view.mouseExited(with: event) }
-        await settle()
+        if waitForLayout { await settle() }
     }
 
     func checkSidebarExpansionStaysLevel(in session: ReaderWindowSession) async {
@@ -91,22 +91,38 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
             check(false, "the sidebar expansion has a native hover region")
             return
         }
+        hover.updateTrackingAreas()
+        let trackingArea = hover.trackingAreas.first { $0.owner === hover }
+        hover.updateTrackingAreas()
+        check(trackingArea != nil && hover.trackingAreas.contains { $0 === trackingArea },
+              "the sidebar keeps its native hover region when its layout changes")
         let event = NSEvent.enterExitEvent(with: .mouseEntered,
             location: hover.convert(NSPoint(x: hover.bounds.midX, y: hover.bounds.midY), to: nil),
             modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
             windowNumber: window.windowNumber, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil)!
         hover.mouseEntered(with: event)
         var staysLevel = !before.isEmpty
+        var staysAligned = !before.isEmpty
         for _ in 0..<12 {
             try? await Task.sleep(nanoseconds: 35_000_000)
             let current = frames()
             for (id, initial) in before {
                 guard let frame = current[id] else { staysLevel = false; continue }
                 staysLevel = staysLevel && abs(frame.minY - initial.minY) < 1 && abs(frame.maxY - initial.maxY) < 1
+                staysAligned = staysAligned && abs(frame.minX - initial.minX) < 1
             }
         }
         await settle()
         check(staysLevel, "expanding the sidebar keeps group, grouped-tab and ungrouped-tab rows at the same vertical positions throughout the animation")
+        check(staysAligned, "expanding the sidebar keeps the leading edge of each row fixed")
+        let expandedWidth = hover.bounds.width
+        await hoverSidebar(false, in: session, waitForLayout: false)
+        try? await Task.sleep(for: .milliseconds(55))
+        check(expandedWidth > 48 && abs(hover.bounds.width - expandedWidth) < 1,
+              "a brief pointer exit does not narrow the expanded sidebar")
+        await hoverSidebar(true, in: session)
+        check(abs(hover.bounds.width - expandedWidth) < 1,
+              "returning over the sidebar cancels its pending close")
         let exit = NSEvent.enterExitEvent(with: .mouseExited,
             location: hover.convert(NSPoint(x: hover.bounds.maxX + 40, y: hover.bounds.midY), to: nil),
             modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
@@ -188,6 +204,22 @@ final class DragQARunner: NSObject, NSApplicationDelegate {
                     try? bitmap.representation(using: .png, properties: [:])?.write(to: url)
                 }
             }
+            for isSelected in [true, false] {
+                feedback.update(title: "Gamma", isDark: isDark, at: sidebarLocation, target: nil,
+                                tab: store.primarySession.activeDocumentTab, isSidebar: true,
+                                style: .document(isSelected: isSelected))
+                let fill = AppPalette.documentTabHighlight(isSelected: isSelected, isSidebar: true, isDark: isDark)
+                let ink = isSelected ? AppPalette.labelPrimary(isDark) : AppPalette.labelSecondary(isDark)
+                let icon = view.subviews.compactMap { $0 as? NSImageView }.first
+                check(view.layer?.backgroundColor == NSColor(fill).cgColor &&
+                      icon?.contentTintColor == NSColor(ink),
+                      "the sidebar drag preview uses the row's background and document icon color")
+            }
+            feedback.update(title: "Coursework", isDark: isDark, at: sidebarLocation, target: nil,
+                            isSidebar: true, style: .group(.purple))
+            let purple = NSColor(AppPalette.tabGroupFill(.purple, isDark)).cgColor
+            check(view.layer?.sublayers?.contains { !$0.isHidden && $0.backgroundColor == purple } == true,
+                  "a dragged group retains its chosen color")
         }
     }
 

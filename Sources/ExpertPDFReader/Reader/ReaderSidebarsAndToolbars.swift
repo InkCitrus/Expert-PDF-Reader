@@ -19,7 +19,7 @@ public struct ReaderToolbarView: View {
 
     public static let height: CGFloat = 40
 
-    /// Narrower windows shorten search, then collapse menu labels and the zoom stepper.
+    /// Narrower windows shorten search and compress the controls while preserving their actions.
     enum Density: String {
         case regular, compact, minimal
 
@@ -132,8 +132,8 @@ public struct ReaderToolbarView: View {
                 store.toggleBookmark(pageIndex: tab.currentPageIndex, in: tab.documentID)
             }
 
-            searchField
-                .frame(width: density == .regular ? 176 : (density == .compact ? 132 : 90))
+            searchField(showsShortcut: density == .regular)
+                .frame(width: density == .regular ? 176 : (density == .compact ? 132 : 106))
                 .padding(.leading, 6)
         }
         .padding(.horizontal, 8)
@@ -191,6 +191,7 @@ public struct ReaderToolbarView: View {
     private func zoomControls(_ density: Density) -> some View {
         let zoomAnchor = anchors.anchor("zoom", density)
         let roundedPercent = Int((tab.activeZoomScale * 100).rounded())
+        let stepWidth: CGFloat = density == .minimal ? 24 : 30
         return HStack(spacing: 6) {
             Button {
                 presentZoomMenu(below: zoomAnchor)
@@ -218,23 +219,21 @@ public struct ReaderToolbarView: View {
             .help(L10n.tr("缩放比例 (⌘8 适应宽度 · ⌘0 实际大小)", "Zoom Level (⌘8 Fit Width · ⌘0 Actual Size)"))
             .accessibilityLabel(Text("\(L10n.tr("缩放比例", "Zoom Level")) \(roundedPercent)%"))
 
-            if density != .minimal {
-                HStack(spacing: 0) {
-                    ZoomStepButton(icon: "minus", tooltip: L10n.tr("缩小 (⌘-)", "Zoom Out (⌘-)"), isDark: isDark) {
-                        tab.triggerZoom(.zoomOut)
-                    }
-                    Rectangle()
-                        .fill(AppPalette.toolbarIcon(isDark).opacity(0.18))
-                        .frame(width: 1, height: 14)
-                    ZoomStepButton(icon: "plus", tooltip: L10n.tr("放大 (⌘+)", "Zoom In (⌘+)"), isDark: isDark) {
-                        tab.triggerZoom(.zoomIn)
-                    }
+            HStack(spacing: 0) {
+                ZoomStepButton(icon: "minus", tooltip: L10n.tr("缩小 (⌘-)", "Zoom Out (⌘-)"), width: stepWidth, isDark: isDark) {
+                    tab.triggerZoom(.zoomOut)
                 }
-                .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(AppPalette.toolbarControlFill(isDark))
-                )
+                Rectangle()
+                    .fill(AppPalette.toolbarIcon(isDark).opacity(0.18))
+                    .frame(width: 1, height: 14)
+                ZoomStepButton(icon: "plus", tooltip: L10n.tr("放大 (⌘+)", "Zoom In (⌘+)"), width: stepWidth, isDark: isDark) {
+                    tab.triggerZoom(.zoomIn)
+                }
             }
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(AppPalette.toolbarControlFill(isDark))
+            )
         }
     }
 
@@ -262,19 +261,22 @@ public struct ReaderToolbarView: View {
 
     // MARK: Search Field
 
-    private var searchField: some View {
-        HStack(spacing: 5) {
+    private func searchField(showsShortcut: Bool) -> some View {
+        let shortcutLabel = L10n.tr("搜索 (⌘F)", "Search (⌘F)")
+        let searchLabel = L10n.tr("搜索", "Search")
+        return HStack(spacing: 5) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundColor(AppPalette.labelTertiary(isDark))
 
-            TextField(L10n.tr("搜索 (⌘F)", "Search (⌘F)"), text: $tab.searchQuery)
+            TextField(showsShortcut ? shortcutLabel : searchLabel, text: $tab.searchQuery)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12.5))
                 .foregroundColor(AppPalette.labelPrimary(isDark))
                 .focused($isSearchFieldFocused)
                 .onSubmit { submitSearch() }
                 .onExitCommand { endSearch() }
+                .help(shortcutLabel)
 
             if !tab.searchQuery.isEmpty {
                 Button {
@@ -299,7 +301,7 @@ public struct ReaderToolbarView: View {
                 .stroke(accent.opacity(isSearchFieldFocused ? 0.75 : 0), lineWidth: 1.5)
         )
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(Text(L10n.tr("搜索", "Search")))
+        .accessibilityLabel(Text(searchLabel))
         .task(id: tab.searchQuery) {
             // Debounced live search while typing
             let trimmed = tab.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -413,6 +415,7 @@ struct ToolbarIconButton: View {
 struct ZoomStepButton: View {
     let icon: String
     let tooltip: String
+    let width: CGFloat
     let isDark: Bool
     let action: () -> Void
 
@@ -423,7 +426,7 @@ struct ZoomStepButton: View {
             Image(systemName: icon)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(AppPalette.toolbarIcon(isDark))
-                .frame(width: 30, height: 28)
+                .frame(width: width, height: 28)
                 .background(
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
                         .fill(isHovered ? AppPalette.toolbarActive(isDark) : Color.clear)

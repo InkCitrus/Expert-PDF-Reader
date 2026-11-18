@@ -71,6 +71,38 @@ struct ReaderRegressionTests {
                   "reverse dragging selects the same physical row in reading order")
         }
         do {
+            // An outlined box in a transformed coordinate system with ordinary labels and no colored fill.
+            let data = NSMutableData()
+            var media = CGRect(x: 0, y: 0, width: 600, height: 800)
+            let context = CGContext(consumer: CGDataConsumer(data: data)!, mediaBox: &media, nil)!
+            context.beginPDFPage(nil)
+            context.setFillColor(gray: 1, alpha: 1)
+            context.fill(media)
+            context.saveGState()
+            context.translateBy(x: 82, y: 310)
+            context.scaleBy(x: 1.5, y: 1.5)
+            context.setStrokeColor(gray: 0, alpha: 1)
+            context.setLineWidth(2)
+            context.stroke(CGRect(x: 0, y: 0, width: 240, height: 90))
+            context.restoreGState()
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            let text: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.black]
+            ("Outside context." as NSString).draw(at: CGPoint(x: 104, y: 475), withAttributes: text)
+            ("Work shown here." as NSString).draw(at: CGPoint(x: 104, y: 412), withAttributes: text)
+            ("A = B + C" as NSString).draw(at: CGPoint(x: 200, y: 350), withAttributes: text)
+            NSGraphicsContext.restoreGraphicsState()
+            context.endPDFPage()
+            context.closePDF()
+            let document = PDFDocument(data: data as Data)!
+            let page = document.page(at: 0)!
+            let regions = PDFFramedRegions.bounds(on: page, geometry: NativePDFPageGeometry.geometry(for: page))
+            check(regions.count == 1 && regions.first.map {
+                abs($0.minX - 80.5) < 1 && abs($0.minY - 308.5) < 1 &&
+                abs($0.maxX - 443.5) < 1 && abs($0.maxY - 446.5) < 1
+            } == true, "a stroked frame crops to its drawn extent after applying the PDF transform")
+        }
+        do {
             // Two columns: a high left line and a low right line. A drag whose higher point sits in the
             // right column and lower point in the left column resolves the "first" line below the "last"
             // line, which used to invert verticalRange's closed range and trap.

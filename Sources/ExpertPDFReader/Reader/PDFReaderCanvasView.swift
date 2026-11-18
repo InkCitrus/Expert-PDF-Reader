@@ -636,6 +636,18 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
 // MARK: - ThemedPDFView (Sharp Retina Viewport Shader Filtering + Arrow Key Navigation)
 
 final class ThemedPDFView: PDFView {
+    private lazy var contentAccessibility = PDFContentAccessibility(pdfView: self)
+
+    override func accessibilityChildren() -> [Any]? {
+        contentAccessibility.children() ?? super.accessibilityChildren()
+    }
+
+    override func accessibilityHitTest(_ point: NSPoint) -> Any? {
+        preciseAccessibilityHit(at: point) ?? super.accessibilityHitTest(point)
+    }
+
+    func preciseAccessibilityHit(at point: NSPoint) -> Any? { contentAccessibility.hitTest(point) }
+
     lazy var ocrSelectionOverlay = OCRTextSelectionOverlay(pdfView: self)
     private lazy var nativeSelectionTracker = NativePDFSelectionTracker(pdfView: self)
 
@@ -910,6 +922,7 @@ final class ThemedPDFView: PDFView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if let window { PDFContentAccessibility.routeHitTesting(in: window) }
         settleLiveStateIfNeeded()
         applyThemeLayers()
         // A newly shown document (opened, or its tab selected) takes the keyboard so ←/→ turn pages right away;
@@ -1036,7 +1049,6 @@ final class ThemedPDFView: PDFView {
         appliedBackingScale = scale
     }
 
-    // Keep PDFKit's native accessibility tree: it exposes full text, links and tables.
 }
 
 // MARK: - SpreadAlignment (two-page layouts meet at the spine)

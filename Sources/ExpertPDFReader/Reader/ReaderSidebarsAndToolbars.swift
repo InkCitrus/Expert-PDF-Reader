@@ -610,7 +610,9 @@ public struct ReaderLeftSidebarView: View {
                 Text(tab.activeSidebarTab.title)
                     .font(.system(size: 13, weight: .bold))
                     .foregroundColor(AppPalette.labelPrimary(isDark))
+                    .lineLimit(1)
                 Spacer()
+                SidebarPageJumpControl(tab: tab, isDark: isDark)
                 headerAccessory
             }
             .padding(.horizontal, 14)
@@ -656,6 +658,104 @@ public struct ReaderLeftSidebarView: View {
                 store.toggleBookmark(pageIndex: tab.currentPageIndex, in: tab.documentID)
             }
         }
+    }
+}
+
+/// An always-visible page counter using the same corrected book-page mapping as Go to Page.
+/// Parenthesized input, such as `(12)`, remains the explicit escape hatch for PDF position 12.
+struct SidebarPageJumpControl: View {
+    @ObservedObject var tab: DocumentTabState
+    let isDark: Bool
+
+    @State private var input = ""
+    @State private var rejectedInput = false
+    @FocusState private var isFocused: Bool
+
+    private var source: ReaderThumbnailSource { tab.activeThumbnailSource }
+    private var pageCount: Int { source.document.pageCount }
+    private var usesCorrectedNumbers: Bool {
+        !tab.targetsSecondaryPane || source.document === tab.pdfDocument
+    }
+    private var currentPageInput: String {
+        usesCorrectedNumbers ? tab.displayPageNumber(at: source.pageIndex) : "\(source.pageIndex + 1)"
+    }
+    private var displayedRangeEnd: String {
+        guard usesCorrectedNumbers,
+              let last = tab.pageIndicesByLabel.keys.compactMap(Int.init).max() else {
+            return "\(pageCount)"
+        }
+        return "\(last)"
+    }
+
+    var body: some View {
+        HStack(spacing: 3) {
+            TextField(L10n.tr("页码", "Page"), text: $input)
+                .textFieldStyle(.plain)
+                .font(.system(size: 11, weight: .medium))
+                .monospacedDigit()
+                .multilineTextAlignment(.trailing)
+                .focused($isFocused)
+                .frame(width: 34)
+                .padding(.horizontal, 5)
+                .frame(height: 22)
+                .background(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(AppPalette.segmentedTrack(isDark))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .stroke(rejectedInput ? AppPalette.systemRed : AppPalette.panelSeparator(isDark), lineWidth: 1)
+                        )
+                )
+                .onSubmit(commit)
+                .accessibilityLabel(Text(L10n.tr("页码", "Page")))
+
+            Text("/ \(displayedRangeEnd)")
+                .font(.system(size: 10.5))
+                .monospacedDigit()
+                .foregroundColor(AppPalette.labelTertiary(isDark))
+                .lineLimit(1)
+
+            Button(action: commit) {
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundColor(AppPalette.labelSecondary(isDark))
+                    .frame(width: 18, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(L10n.tr("输入书籍页码，或输入 (n) 跳至第 n 页", "Enter Book Page, or (n) for PDF Page n"))
+            .accessibilityLabel(Text(L10n.tr("前往页码", "Go to Page")))
+        }
+        .onAppear(perform: syncToCurrentPage)
+        .onChange(of: source.pageIndex) { _, _ in
+            if !isFocused { syncToCurrentPage() }
+        }
+        .onChange(of: ObjectIdentifier(source.document)) { _, _ in
+            syncToCurrentPage()
+        }
+        .onChange(of: input) { _, _ in
+            rejectedInput = false
+        }
+        .onChange(of: isFocused) { _, focused in
+            if !focused { syncToCurrentPage() }
+        }
+    }
+
+    private func syncToCurrentPage() {
+        input = currentPageInput
+        rejectedInput = false
+    }
+
+    private func commit() {
+        guard let target = tab.pageIndex(forPageInput: input, inSecondaryPane: tab.targetsSecondaryPane) else {
+            rejectedInput = true
+            NSSound.beep()
+            return
+        }
+        input = usesCorrectedNumbers ? tab.displayPageNumber(at: target) : "\(target + 1)"
+        rejectedInput = false
+        tab.navigateToThumbnail(target)
+        isFocused = false
     }
 }
 

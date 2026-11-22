@@ -175,8 +175,8 @@
 "No Matches Found" = "没有匹配结果";
 "Light" = "浅色";
 "浅色外观|||Light" = "浅色外观";
-"浅色时使用纸质替代日间|||Use Sepia Instead of Day in Light Mode" = "浅色时使用纸质替代日间";
-"Use Sepia Instead of Day in Light Mode" = "浅色时使用纸质替代日间";
+"浅色模式改用纸质|||Use Sepia in Light Mode" = "浅色模式改用纸质";
+"Use Sepia in Light Mode" = "浅色模式改用纸质";
 "Dark" = "深色";
 "深色外观|||Dark" = "深色外观";
 "添加书签|||Add Bookmark" = "添加书签";
@@ -199,8 +199,8 @@
 "App Appearance" = "界面外观";
 "界面外观|||Appearance" = "界面外观";
 "Appearance" = "界面外观";
-"界面外观决定标签栏、工具栏与面板的配色；阅读主题通过 GPU 着色器作用于 PDF 页面本身。当阅读主题设为“跟随系统”时，浅色模式默认使用日间主题（或开启上方选项后使用纸质主题），深色模式自动切换为夜间主题。|||App Appearance controls the tab bar, toolbar, and sidebar colors; Reading Theme applies GPU shaders to the PDF page itself. When Reading Theme is set to Follow System, Light mode uses Day (or Sepia when enabled above) and Dark mode automatically switches to Night." = "界面外观决定标签栏、工具栏与面板的配色；阅读主题通过 GPU 着色器作用于 PDF 页面本身。当阅读主题设为“跟随系统”时，浅色模式默认使用日间主题（或开启上方选项后使用纸质主题），深色模式自动切换为夜间主题。";
-"App Appearance controls the tab bar, toolbar, and sidebar colors; Reading Theme applies GPU shaders to the PDF page itself. When Reading Theme is set to Follow System, Light mode uses Day (or Sepia when enabled above) and Dark mode automatically switches to Night." = "界面外观决定标签栏、工具栏与面板的配色；阅读主题通过 GPU 着色器作用于 PDF 页面本身。当阅读主题设为“跟随系统”时，浅色模式默认使用日间主题（或开启上方选项后使用纸质主题），深色模式自动切换为夜间主题。";
+"外观控制窗口配色，主题控制页面配色。|||Appearance styles the window; theme styles PDF pages." = "外观控制窗口配色，主题控制页面配色。";
+"Appearance styles the window; theme styles PDF pages." = "外观控制窗口配色，主题控制页面配色。";
 "禁用分屏视图|||Disable Split View" = "禁用分屏视图";
 "Disable Split View" = "禁用分屏视图";
 "移除书签|||Remove Bookmark" = "移除书签";
@@ -291,8 +291,8 @@
 "Clear Menu" = "清除菜单";
 "立即重新启动|||Restart Now" = "立即重新启动";
 "Restart Now" = "立即重新启动";
-"重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。|||Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。";
-"Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。";
+"重启后生效于菜单栏。|||Restart to update the menu bar." = "重启后生效于菜单栏。";
+"Restart to update the menu bar." = "重启后生效于菜单栏。";
 "恢复标签页|||Restore Tabs" = "恢复标签页";
 "Restore Tabs" = "恢复标签页";
 "启动时恢复上次退出前打开的标签页。|||Reopen the tabs from your previous session when the app starts." = "启动时恢复上次退出前打开的标签页。";

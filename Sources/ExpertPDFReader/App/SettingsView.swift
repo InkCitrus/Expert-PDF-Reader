@@ -31,25 +31,30 @@ struct SettingsView: View {
 
     private var isDark: Bool { colorScheme == .dark }
     private var accent: Color { store.accentColor.color(isDark: isDark) }
+    private var tabSwitchAnimation: Animation {
+        AppAnimation.reduceMotion ? .easeOut(duration: 0.12) : .spring(duration: 0.22, bounce: 0)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             headerBar
             SettingsCardDivider(isDark: isDark)
 
-            Group {
-                switch selectedTab {
-                case .general:
+            // Fixed-height clipped container prevents NSWindow resize bounce when switching tabs.
+            ZStack(alignment: .top) {
+                if selectedTab == .general {
                     generalTab
-                case .appearance:
+                        .transition(AppAnimation.reduceMotion ? .opacity : .opacity.combined(with: .offset(x: -18)))
+                } else {
                     appearanceTab
+                        .transition(AppAnimation.reduceMotion ? .opacity : .opacity.combined(with: .offset(x: 18)))
                 }
             }
+            .frame(width: 520, height: 424, alignment: .top)
+            .clipped()
             .id(store.appLanguage)
         }
         .frame(width: 520)
-        // Sized to its content instead of a tall window with empty space below the controls.
-        .fixedSize(horizontal: false, vertical: true)
         .background(AppPalette.panelBackground(isDark))
         .environment(\.appAccentColor, accent)
         .onAppear { store.refreshDefaultPDFApp() }
@@ -65,7 +70,8 @@ struct SettingsView: View {
                 ForEach(SettingsTab.allCases) { tab in
                     let isSelected = selectedTab == tab
                     Button {
-                        withAnimation(AppAnimation.snappy) {
+                        guard selectedTab != tab else { return }
+                        withAnimation(tabSwitchAnimation) {
                             selectedTab = tab
                         }
                     } label: {
@@ -107,25 +113,15 @@ struct SettingsView: View {
     // MARK: - General
 
     private var generalTab: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 6) {
-                SettingsCard(isDark: isDark) {
-                    defaultAppRow
+        VStack(alignment: .leading, spacing: 12) {
+            SettingsCard(isDark: isDark) {
+                defaultAppRow
+                SettingsCardDivider(isDark: isDark, leadingInset: 50)
+                languageRow
+
+                if store.menuBarNeedsRestartForLanguage {
                     SettingsCardDivider(isDark: isDark, leadingInset: 50)
-                    languageRow
-
-                    if store.menuBarNeedsRestartForLanguage {
-                        SettingsCardDivider(isDark: isDark, leadingInset: 50)
-                        restartNoteRow
-                    }
-                }
-
-                if let note = defaultAppFootnote {
-                    Text(note)
-                        .font(.system(size: 11))
-                        .foregroundColor(AppPalette.labelTertiary(isDark))
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 6)
+                    restartNoteRow
                 }
             }
 
@@ -146,16 +142,35 @@ struct SettingsView: View {
                     accent: accent
                 )
             }
+
+            Spacer(minLength: 12)
+
+            Text(versionCaption)
+                .font(.system(size: 11))
+                .foregroundColor(AppPalette.labelQuaternary(isDark))
+                .frame(maxWidth: .infinity)
         }
-        .padding(20)
+        .padding(.horizontal, 20)
+        .padding(.top, 16)
+        .padding(.bottom, 14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private var defaultAppRow: some View {
         HStack(spacing: 12) {
             SettingsRowIcon(icon: "doc.richtext", isDark: isDark)
-            Text(L10n.tr("默认 PDF 应用", "Default PDF App"))
-                .font(.system(size: 13))
-                .foregroundColor(AppPalette.labelPrimary(isDark))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L10n.tr("默认 PDF 应用", "Default PDF App"))
+                    .font(.system(size: 13))
+                    .foregroundColor(AppPalette.labelPrimary(isDark))
+                if !store.isDefaultPDFApp, let appName = store.defaultPDFAppName {
+                    Text(L10n.defaultPDFAppNote(appName))
+                        .font(.system(size: 11))
+                        .foregroundColor(AppPalette.labelTertiary(isDark))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
             Spacer(minLength: 12)
             if store.isDefaultPDFApp {
                 HStack(spacing: 5) {
@@ -207,41 +222,33 @@ struct SettingsView: View {
     private var restartNoteRow: some View {
         HStack(alignment: .center, spacing: 12) {
             SettingsRowIcon(icon: "arrow.clockwise.circle", isDark: isDark)
-            Text(L10n.tr(
-                "重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。",
-                "Menus provided by macOS (File, Edit, Window…) switch to this language after a restart."
-            ))
-            .font(.system(size: 11.5))
-            .foregroundColor(AppPalette.labelSecondary(isDark))
-            .fixedSize(horizontal: false, vertical: true)
+            Text(L10n.tr("重启后生效于菜单栏。", "Restart to update the menu bar."))
+                .font(.system(size: 12))
+                .foregroundColor(AppPalette.labelSecondary(isDark))
+                .lineLimit(1)
             Spacer(minLength: 8)
             SettingsActionButton(title: L10n.tr("立即重新启动", "Restart Now"), isDark: isDark) {
                 store.relaunchApp()
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 11)
+        .padding(.vertical, 10)
     }
 
-    private var defaultAppFootnote: String? {
-        if store.isDefaultPDFApp {
-            return L10n.tr(
-                "在 Finder 中双击 PDF 文件会用 Expert PDF Reader 打开。",
-                "Double-clicking a PDF in Finder opens it in Expert PDF Reader."
-            )
+    private var versionCaption: String {
+        if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+           !version.isEmpty {
+            return "Expert PDF Reader \(version)"
         }
-        if let appName = store.defaultPDFAppName {
-            return L10n.defaultPDFAppNote(appName)
-        }
-        return nil
+        return "Expert PDF Reader"
     }
 
     // MARK: - Appearance
 
     private var appearanceTab: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
             SettingsCard(isDark: isDark) {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 8) {
                     Text(L10n.tr("界面外观", "App Appearance"))
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(AppPalette.labelPrimary(isDark))
@@ -262,18 +269,20 @@ struct SettingsView: View {
                     }
                     .id("appearance.\(store.appLanguage.rawValue)")
                 }
-                .padding(14)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 11)
 
                 SettingsCardDivider(isDark: isDark)
 
                 AccentColorRow(store: store, isDark: isDark, accent: accent)
                     .id("accent.\(store.appLanguage.rawValue)")
-                    .padding(14)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
             }
 
             VStack(alignment: .leading, spacing: 6) {
                 SettingsCard(isDark: isDark) {
-                    VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 8) {
                         Text(L10n.tr("阅读主题", "Reading Theme"))
                             .font(.system(size: 13, weight: .medium))
                             .foregroundColor(AppPalette.labelPrimary(isDark))
@@ -295,13 +304,14 @@ struct SettingsView: View {
                         }
                         .id("theme.\(store.appLanguage.rawValue)")
                     }
-                    .padding(14)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
 
                     SettingsCardDivider(isDark: isDark, leadingInset: 50)
 
                     SettingsSwitchRow(
                         icon: "scroll",
-                        title: L10n.tr("浅色时使用纸质替代日间", "Use Sepia Instead of Day in Light Mode"),
+                        title: L10n.tr("浅色模式改用纸质", "Use Sepia in Light Mode"),
                         isOn: $store.useSepiaForLightSystemTheme,
                         isDark: isDark,
                         accent: accent,
@@ -310,8 +320,8 @@ struct SettingsView: View {
                 }
 
                 Text(L10n.tr(
-                    "界面外观决定标签栏、工具栏与面板的配色；阅读主题通过 GPU 着色器作用于 PDF 页面本身。“跟随系统”会在浅色模式使用日间（或纸质）主题，深色模式自动切换为夜间主题。",
-                    "App Appearance colors the tab bar, toolbar, and panels; Reading Theme applies GPU shaders to the PDF page itself. Follow System uses Day (or Sepia) in Light mode and switches to Night in Dark mode."
+                    "外观控制窗口配色，主题控制页面配色。",
+                    "Appearance styles the window; theme styles PDF pages."
                 ))
                 .font(.system(size: 11))
                 .foregroundColor(AppPalette.labelTertiary(isDark))
@@ -319,7 +329,9 @@ struct SettingsView: View {
                 .padding(.horizontal, 6)
             }
         }
-        .padding(20)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
 
@@ -426,7 +438,7 @@ private struct SettingsSwitchRow: View {
                 .accessibilityLabel(Text(title))
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 11)
+        .padding(.vertical, 9)
         .opacity(isDisabled ? 0.48 : 1)
         .disabled(isDisabled)
     }
@@ -445,7 +457,7 @@ private struct AppearanceOptionCard: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 7) {
+            VStack(spacing: 5) {
                 ZStack {
                     switch mode {
                     case .light:
@@ -470,7 +482,7 @@ private struct AppearanceOptionCard: View {
                         }
                     }
                 }
-                .frame(height: 54)
+                .frame(height: 46)
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -515,12 +527,12 @@ private struct AppearanceOptionCard: View {
                 Circle().fill(Color(hex: 0x28C840)).frame(width: 4.5, height: 4.5)
                 RoundedRectangle(cornerRadius: 2, style: .continuous)
                     .fill(AppPalette.tabSelectedBackground(darkAppearance))
-                    .frame(width: 24, height: 7)
+                    .frame(width: 24, height: 6.5)
                     .padding(.leading, 4)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 6)
-            .frame(height: 13)
+            .frame(height: 12)
             .background(AppPalette.tabStripBackground(darkAppearance))
 
             Rectangle()
@@ -528,7 +540,7 @@ private struct AppearanceOptionCard: View {
                 .frame(height: 0.5)
 
             HStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 3.5) {
+                VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 2.5) {
                         Circle().fill(accent).frame(width: 3.5, height: 3.5)
                         Capsule().fill(AppPalette.labelSecondary(darkAppearance).opacity(0.65)).frame(width: 14, height: 2.5)
@@ -537,7 +549,7 @@ private struct AppearanceOptionCard: View {
                     Capsule().fill(AppPalette.labelTertiary(darkAppearance).opacity(0.35)).frame(width: 12, height: 2.5)
                     Spacer(minLength: 0)
                 }
-                .padding(.top, 5)
+                .padding(.top, 4.5)
                 .padding(.horizontal, 5)
                 .frame(width: 34)
                 .frame(maxHeight: .infinity)
@@ -551,10 +563,10 @@ private struct AppearanceOptionCard: View {
                     AppPalette.systemBackground(darkAppearance)
                     RoundedRectangle(cornerRadius: 2, style: .continuous)
                         .fill(darkAppearance ? Color(hex: 0x242428) : Color.white)
-                        .frame(width: 46, height: 28)
+                        .frame(width: 46, height: 24)
                         .shadow(color: Color.black.opacity(darkAppearance ? 0.35 : 0.10), radius: 1, x: 0, y: 0.5)
                         .overlay(alignment: .topLeading) {
-                            VStack(alignment: .leading, spacing: 3) {
+                            VStack(alignment: .leading, spacing: 2.5) {
                                 Capsule()
                                     .fill(AppPalette.labelPrimary(darkAppearance).opacity(0.5))
                                     .frame(width: 22, height: 2)
@@ -565,7 +577,7 @@ private struct AppearanceOptionCard: View {
                                     .fill(AppPalette.labelTertiary(darkAppearance).opacity(0.45))
                                     .frame(width: 26, height: 1.5)
                             }
-                            .padding(5)
+                            .padding(4.5)
                         }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -589,7 +601,7 @@ private struct ReadingThemeOptionCard: View {
         let lightPreviewTheme: PDFViewTheme = useSepiaInLight ? .sepia : .day
 
         Button(action: action) {
-            VStack(spacing: 7) {
+            VStack(spacing: 5) {
                 ZStack {
                     if mode == .system {
                         HStack(spacing: 0) {
@@ -597,14 +609,14 @@ private struct ReadingThemeOptionCard: View {
                             PDFViewTheme.night.documentBackgroundColor(isDarkUI: true)
                         }
                         SplitMiniPagePreview(leftTheme: lightPreviewTheme, rightTheme: .night)
-                            .frame(width: 28, height: 36)
+                            .frame(width: 26, height: 34)
                     } else {
                         previewTheme.documentBackgroundColor(isDarkUI: isDark)
                         MiniPagePreview(theme: previewTheme)
-                            .frame(width: 28, height: 36)
+                            .frame(width: 26, height: 34)
                     }
                 }
-                .frame(height: 52)
+                .frame(height: 44)
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -650,7 +662,7 @@ private struct AccentColorRow: View {
     let accent: Color
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 8) {
                 Text(L10n.tr("强调色", "Accent Color"))
                     .font(.system(size: 13, weight: .medium))

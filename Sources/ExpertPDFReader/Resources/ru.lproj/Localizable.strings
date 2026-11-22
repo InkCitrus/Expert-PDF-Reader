@@ -175,8 +175,8 @@
 "No Matches Found" = "Совпадений не найдено";
 "Light" = "Светлая";
 "浅色外观|||Light" = "Светлое оформление";
-"浅色时使用纸质替代日间|||Use Sepia Instead of Day in Light Mode" = "Использовать «Сепия» вместо «День» в светлой теме";
-"Use Sepia Instead of Day in Light Mode" = "Использовать «Сепия» вместо «День» в светлой теме";
+"浅色模式改用纸质|||Use Sepia in Light Mode" = "Использовать сепию в светлом режиме";
+"Use Sepia in Light Mode" = "Использовать сепию в светлом режиме";
 "Dark" = "Темная";
 "深色外观|||Dark" = "Темное оформление";
 "添加书签|||Add Bookmark" = "Добавить закладку";
@@ -199,8 +199,8 @@
 "App Appearance" = "Оформление приложения";
 "界面外观|||Appearance" = "Оформление";
 "Appearance" = "Оформление";
-"界面外观决定标签栏、工具栏与面板的配色；阅读主题通过 GPU 着色器作用于 PDF 页面本身。当阅读主题设为“跟随系统”时，浅色模式默认使用日间主题（或开启上方选项后使用纸质主题），深色模式自动切换为夜间主题。|||App Appearance controls the tab bar, toolbar, and sidebar colors; Reading Theme applies GPU shaders to the PDF page itself. When Reading Theme is set to Follow System, Light mode uses Day (or Sepia when enabled above) and Dark mode automatically switches to Night." = "Оформление определяет цвета панели вкладок, панели инструментов и боковых панелей; тема чтения применяет GPU-шейдеры к самим страницам PDF. В режиме «Как в системе» светлая тема использует «День» (или «Сепия», если включено выше), а темная — «Ночь».";
-"App Appearance controls the tab bar, toolbar, and sidebar colors; Reading Theme applies GPU shaders to the PDF page itself. When Reading Theme is set to Follow System, Light mode uses Day (or Sepia when enabled above) and Dark mode automatically switches to Night." = "Оформление определяет цвета панели вкладок, панели инструментов и боковых панелей; тема чтения применяет GPU-шейдеры к самим страницам PDF. В режиме «Как в системе» светлая тема использует «День» (или «Сепия», если включено выше), а темная — «Ночь».";
+"外观控制窗口配色，主题控制页面配色。|||Appearance styles the window; theme styles PDF pages." = "Оформление меняет окно, тема — страницы PDF.";
+"Appearance styles the window; theme styles PDF pages." = "Оформление меняет окно, тема — страницы PDF.";
 "禁用分屏视图|||Disable Split View" = "Отключить разделенный вид";
 "Disable Split View" = "Отключить разделенный вид";
 "移除书签|||Remove Bookmark" = "Удалить закладку";
@@ -291,8 +291,8 @@
 "Clear Menu" = "Очистить меню";
 "立即重新启动|||Restart Now" = "Перезапустить";
 "Restart Now" = "Перезапустить";
-"重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。|||Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "Меню macOS («Файл», «Правка», «Окно» и т. д.) переключатся на этот язык после перезапуска.";
-"Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "Меню macOS («Файл», «Правка», «Окно» и т. д.) переключатся на этот язык после перезапуска.";
+"重启后生效于菜单栏。|||Restart to update the menu bar." = "Перезапустите, чтобы обновить строку меню.";
+"Restart to update the menu bar." = "Перезапустите, чтобы обновить строку меню.";
 "恢复标签页|||Restore Tabs" = "Восстанавливать вкладки";
 "Restore Tabs" = "Восстанавливать вкладки";
 "启动时恢复上次退出前打开的标签页。|||Reopen the tabs from your previous session when the app starts." = "При запуске приложения открывать вкладки предыдущего сеанса.";

@@ -303,17 +303,32 @@ public struct HomeTabRootView: View {
 // MARK: - PDFFileDrop (shared by the Home tab and the main window)
 
 enum PDFFileDrop {
+    static func resolvedPDFURL(from item: Any?) -> URL? {
+        let rawURL: URL?
+        if let url = item as? URL {
+            rawURL = url
+        } else if let data = item as? Data {
+            rawURL = URL(dataRepresentation: data, relativeTo: nil)
+                ?? String(data: data, encoding: .utf8)
+                    .flatMap { URL(string: $0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        } else if let text = item as? String {
+            rawURL = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines))
+        } else {
+            rawURL = nil
+        }
+        guard let rawURL, rawURL.isFileURL else { return nil }
+        let url = ((rawURL as NSURL).filePathURL ?? rawURL).standardizedFileURL
+        guard url.pathExtension.lowercased() == "pdf" else { return nil }
+        return url
+    }
+
     /// Hands every dropped PDF file to `open` on the main actor; returns whether the drop carried file URLs.
     static func open(_ providers: [NSItemProvider], with open: @escaping @MainActor (URL) -> Void) -> Bool {
         var handled = false
         for provider in providers where provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
             handled = true
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { data, _ in
-                guard let data = data as? Data,
-                      let url = URL(dataRepresentation: data, relativeTo: nil),
-                      url.pathExtension.lowercased() == "pdf" else {
-                    return
-                }
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                guard let url = resolvedPDFURL(from: item) else { return }
                 Task { @MainActor in
                     open(url)
                 }

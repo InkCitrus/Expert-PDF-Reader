@@ -636,6 +636,17 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
 // MARK: - ThemedPDFView (Sharp Retina Viewport Shader Filtering + Arrow Key Navigation)
 
 final class ThemedPDFView: PDFView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        // PDFView registers NSFilenamesPboardType by default, intercepting Finder drops before MainWindowView.onDrop.
+        unregisterDraggedTypes()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        unregisterDraggedTypes()
+    }
+
     private lazy var contentAccessibility = PDFContentAccessibility(pdfView: self)
 
     override func accessibilityChildren() -> [Any]? {
@@ -923,6 +934,7 @@ final class ThemedPDFView: PDFView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        unregisterDraggedTypes()
         if let window { PDFContentAccessibility.routeHitTesting(in: window) }
         settleLiveStateIfNeeded()
         applyThemeLayers()

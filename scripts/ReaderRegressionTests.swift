@@ -930,6 +930,22 @@ struct ReaderRegressionTests {
                 }
             }
         }
+        do {
+            let canvas = ThemedPDFView(frame: CGRect(x: 0, y: 0, width: 200, height: 200))
+            check(canvas.registeredDraggedTypes.isEmpty,
+                  "PDF canvas unregisters default PDFView dragged types so window drops open tabs")
+            check(PDFFileDrop.resolvedPDFURL(from: alpha) == alpha.standardizedFileURL,
+                  "PDF drop accepts direct file URLs")
+            check(PDFFileDrop.resolvedPDFURL(from: (alpha as NSURL).dataRepresentation) == alpha.standardizedFileURL,
+                  "PDF drop accepts URL data representations")
+            if let refData = ((alpha as NSURL).fileReferenceURL() as NSURL?)?.dataRepresentation {
+                check(PDFFileDrop.resolvedPDFURL(from: refData) == alpha.standardizedFileURL,
+                      "PDF drop resolves Finder file-reference URLs")
+            }
+            let nonPDF = root.appendingPathComponent("note.txt")
+            check(PDFFileDrop.resolvedPDFURL(from: nonPDF) == nil,
+                  "PDF drop ignores non-PDF file URLs")
+        }
         if !failures.isEmpty {
             print("\(failures.count) regression checks failed")
             exit(1)

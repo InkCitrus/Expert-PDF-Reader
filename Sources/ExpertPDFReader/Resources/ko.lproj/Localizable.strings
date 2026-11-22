@@ -115,8 +115,8 @@
 "Recently opened PDFs will appear here so you can pick up where you left off." = "최근에 연 PDF가 여기에 표시되어 언제든지 이어서 읽을 수 있습니다.";
 "打开过的文件会自动显示在这里，方便随时继续阅读。|||Opened files will appear here automatically so you can continue reading anytime." = "열었던 파일이 자동으로 여기에 표시되어 언제든지 이어서 읽을 수 있습니다.";
 "Opened files will appear here automatically so you can continue reading anytime." = "열었던 파일이 자동으로 여기에 표시되어 언제든지 이어서 읽을 수 있습니다.";
-"按 ⌘D 或点击右上角的 + 标记当前页|||Press ⌘D or click + in the top right to bookmark this page" = "⌘D를 누르거나 오른쪽 상단의 +를 클릭하여 현재 페이지를 책갈피에 추가하세요";
-"Press ⌘D or click + in the top right to bookmark this page" = "⌘D를 누르거나 오른쪽 상단의 +를 클릭하여 현재 페이지를 책갈피에 추가하세요";
+"按 ⌘D 或点击工具栏中的书签图标标记当前页|||Press ⌘D or click the bookmark button in the toolbar to bookmark this page" = "⌘D를 누르거나 도구 막대의 책갈피 버튼을 클릭하여 현재 페이지를 책갈피에 추가하세요";
+"Press ⌘D or click the bookmark button in the toolbar to bookmark this page" = "⌘D를 누르거나 도구 막대의 책갈피 버튼을 클릭하여 현재 페이지를 책갈피에 추가하세요";
 "搜索|||Search" = "검색";
 "Search" = "검색";
 "搜索结果|||Search Results" = "검색 결과";
@@ -504,3 +504,6 @@
 "Copy Current Page as Image" = "현재 페이지를 이미지로 복사";
 "无法将此页复制为图片。|||This page could not be copied as an image." = "이 페이지를 이미지로 복사할 수 없습니다.";
 "This page could not be copied as an image." = "이 페이지를 이미지로 복사할 수 없습니다.";
+
+"返回之前的页面|||Return to Previous Page" = "이전 페이지로 돌아가기";
+"Return to Previous Page" = "이전 페이지로 돌아가기";

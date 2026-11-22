@@ -33,8 +33,10 @@ public struct ReaderToolbarView: View {
             toolbarContent(.compact)
             toolbarContent(.minimal)
         }
+        .frame(maxWidth: .infinity)
         .frame(height: Self.height)
         .background(AppPalette.toolbarBackground(isDark), ignoresSafeAreaEdges: [])
+        .background(PanelCursorRect())
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(AppPalette.chromeHairline(isDark))
@@ -643,18 +645,8 @@ public struct ReaderLeftSidebarView: View {
                 .font(.system(size: 11))
                 .monospacedDigit()
                 .foregroundColor(AppPalette.labelTertiary(isDark))
-        case .outline:
+        case .outline, .bookmarks:
             EmptyView()
-        case .bookmarks:
-            let isCurrentBookmarked = store.isPageBookmarked(pageIndex: tab.currentPageIndex, in: tab.documentID)
-            PanelHeaderIconButton(
-                icon: "plus",
-                tooltip: L10n.tr("为当前页添加书签 (⌘D)", "Add Bookmark for Current Page (⌘D)"),
-                isDisabled: isCurrentBookmarked,
-                isDark: isDark
-            ) {
-                store.toggleBookmark(pageIndex: tab.currentPageIndex, in: tab.documentID)
-            }
         }
     }
 }
@@ -1179,7 +1171,7 @@ struct PDFBookmarksPanel: View {
             PanelEmptyState(
                 icon: "bookmark",
                 title: L10n.tr("暂无页面书签", "No Page Bookmarks"),
-                subtitle: L10n.tr("按 ⌘D 或点击右上角的 + 标记当前页", "Press ⌘D or click + in the top right to bookmark this page"),
+                subtitle: L10n.tr("按 ⌘D 或点击工具栏中的书签图标标记当前页", "Press ⌘D or click the bookmark button in the toolbar to bookmark this page"),
                 isDark: isDark
             )
         } else {

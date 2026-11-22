@@ -1393,14 +1393,18 @@ struct DocumentTabItemView: View {
                 Button(L10n.tr("新建分组…", "New Group…")) {
                     store.beginCreatingTabGroup(containing: state.id, in: session.id)
                 }
-                if !session.tabGroups.isEmpty {
+                let destinations = session.destinationTabGroups(for: state.id)
+                if !destinations.isEmpty {
                     Divider()
-                    ForEach(session.tabGroups) { group in
+                    ForEach(destinations) { group in
                         Button {
                             store.moveTab(state.id, intoGroup: group.id, in: session.id)
                         } label: {
-                            if group.tabIDs.contains(state.id) { Label(group.displayName, systemImage: "checkmark") }
-                            else { Text(group.displayName) }
+                            Label {
+                                Text(session.tabGroupMenuTitle(group))
+                            } icon: {
+                                Image(nsImage: group.color.menuSwatch(isDark: isDark))
+                            }
                         }
                     }
                 }

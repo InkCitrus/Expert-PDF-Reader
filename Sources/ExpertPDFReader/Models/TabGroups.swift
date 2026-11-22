@@ -63,6 +63,30 @@ extension ReaderWindowSession {
         tabGroups.first { $0.tabIDs.contains(tabID) }
     }
 
+    /// Groups that `tabID` can be moved into (excludes the group it already belongs to).
+    func destinationTabGroups(for tabID: UUID) -> [ReaderTabGroup] {
+        tabGroups.filter { !$0.tabIDs.contains(tabID) }
+    }
+
+    /// Menu title for a group in "Add to Group": uses the group's custom name when set,
+    /// otherwise summarizes its member tab titles in tab-strip order.
+    func tabGroupMenuTitle(_ group: ReaderTabGroup) -> String {
+        if !group.name.isEmpty { return group.name }
+        let titles = tabs.compactMap { tab -> String? in
+            guard case .document(let state) = tab, group.tabIDs.contains(state.id) else { return nil }
+            return state.title
+        }
+        guard !titles.isEmpty else { return group.color.title }
+        func clipped(_ title: String, limit: Int) -> String {
+            title.count > limit ? String(title.prefix(limit)) + "…" : title
+        }
+        if titles.count == 1 {
+            return clipped(titles[0], limit: 32)
+        }
+        let head = titles.prefix(2).map { clipped($0, limit: 18) }.joined(separator: ", ")
+        return titles.count > 2 ? "\(head) (+\(titles.count - 2))" : head
+    }
+
     var selectedTabScrollID: UUID {
         guard let group = tabGroup(containing: selectedTabID), group.isCollapsed else { return selectedTabID }
         return group.id

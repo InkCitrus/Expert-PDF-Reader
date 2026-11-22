@@ -268,6 +268,100 @@ struct ReaderRegressionTests {
                   "combining negation slash is preserved in row text")
         }
         do {
+            @MainActor func buildAccessibilityRoot(for data: Data) -> (window: NSWindow, root: PDFContentAccessibility.GeometryElement?) {
+                let document = PDFDocument(data: data)!
+                let view = ThemedPDFView(frame: CGRect(x: 0, y: 0, width: 620, height: 820))
+                view.document = document
+                view.displayMode = .singlePage
+                view.autoScales = true
+                let window = NSWindow(contentRect: view.frame, styleMask: [.titled], backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false
+                window.contentView = view
+                window.orderBack(nil)
+                view.go(to: document.page(at: 0)!)
+                view.layoutDocumentView()
+                let root = view.accessibilityChildren()?.first(where: { $0 is PDFContentAccessibility.GeometryElement })
+                    as? PDFContentAccessibility.GeometryElement
+                return (window, root)
+            }
+            @MainActor func makePDF(draw: (CGContext) -> Void) -> Data {
+                let data = NSMutableData()
+                var media = CGRect(x: 0, y: 0, width: 612, height: 792)
+                let context = CGContext(consumer: CGDataConsumer(data: data)!, mediaBox: &media, nil)!
+                context.beginPDFPage(nil)
+                context.setFillColor(gray: 1, alpha: 1)
+                context.fill(media)
+                draw(context)
+                context.endPDFPage()
+                context.closePDF()
+                return data as Data
+            }
+
+            // 1. First-line indented 1.5x-spaced paragraphs with a short descenderless ending ("one.")
+            let indentPDF = makePDF { ctx in
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.black]
+                ("First indented opening line across the width." as NSString).draw(at: CGPoint(x: 92, y: 650), withAttributes: attrs)
+                ("Continuation line back at the left margin." as NSString).draw(at: CGPoint(x: 72, y: 630), withAttributes: attrs)
+                ("one." as NSString).draw(at: CGPoint(x: 72, y: 610), withAttributes: attrs)
+                ("Second indented paragraph directly below." as NSString).draw(at: CGPoint(x: 92, y: 590), withAttributes: attrs)
+                ("Second paragraph continuation at margin." as NSString).draw(at: CGPoint(x: 72, y: 570), withAttributes: attrs)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            let (win1, root1) = buildAccessibilityRoot(for: indentPDF)
+            defer { win1.orderOut(nil) }
+            let groups1 = root1?.allChildren.filter { $0.accessibilityRole() == .group } ?? []
+            check(groups1.count == 2 && groups1[0].allChildren.count == 3 && groups1[1].allChildren.count == 2,
+                  "first-line indented 1.5x-spaced paragraphs with a short ending group into distinct paragraph blocks")
+
+            // 2. Two-column staggered layout stays grouped independently per column
+            let twoColPDF = makePDF { ctx in
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.black]
+                ("Left column line one." as NSString).draw(at: CGPoint(x: 50, y: 600), withAttributes: attrs)
+                ("Right column line one." as NSString).draw(at: CGPoint(x: 330, y: 591), withAttributes: attrs)
+                ("Left column line two." as NSString).draw(at: CGPoint(x: 50, y: 582), withAttributes: attrs)
+                ("Right column line two." as NSString).draw(at: CGPoint(x: 330, y: 573), withAttributes: attrs)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            let (win2, root2) = buildAccessibilityRoot(for: twoColPDF)
+            defer { win2.orderOut(nil) }
+            let groups2 = root2?.allChildren.filter { $0.accessibilityRole() == .group } ?? []
+            check(groups2.count == 2 && groups2.allSatisfy { $0.allChildren.count == 2 },
+                  "two-column staggered baselines partition into two separate column paragraphs")
+
+            // 3. Paragraphs inside a framed panel and direct GeometryElement.accessibilityHitTest
+            let framedParaPDF = makePDF { ctx in
+                ctx.setStrokeColor(gray: 0.2, alpha: 1)
+                ctx.setLineWidth(1.5)
+                ctx.stroke(CGRect(x: 70, y: 400, width: 470, height: 210))
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.black]
+                ("Panel Title" as NSString).draw(at: CGPoint(x: 85, y: 585), withAttributes: attrs)
+                ("First body line inside framed panel." as NSString).draw(at: CGPoint(x: 85, y: 550), withAttributes: attrs)
+                ("Second body line inside framed panel." as NSString).draw(at: CGPoint(x: 85, y: 534), withAttributes: attrs)
+                ("Third body line inside framed panel." as NSString).draw(at: CGPoint(x: 85, y: 518), withAttributes: attrs)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            let (win3, root3) = buildAccessibilityRoot(for: framedParaPDF)
+            defer { win3.orderOut(nil) }
+            let panel3 = root3?.allChildren.first { $0.accessibilityRole() == .group }
+            let innerPara = panel3?.allChildren.first { $0.accessibilityRole() == .group && $0.allChildren.count == 3 }
+            check(panel3 != nil && panel3?.allChildren.count == 2 && innerPara != nil,
+                  "framed panel preserves separate heading while grouping body lines into a child paragraph")
+            if let root3, let innerPara, let l1 = innerPara.allChildren.first, let l2 = innerPara.allChildren.dropFirst().first {
+                let f1 = l1.accessibilityFrame(), f2 = l2.accessibilityFrame()
+                let gapPoint = CGPoint(x: f1.midX, y: (f1.minY + f2.maxY) / 2)
+                check((root3.accessibilityHitTest(gapPoint) as AnyObject?) === innerPara,
+                      "direct accessibilityHitTest in a panel paragraph gap hits the inner paragraph rather than the panel or page")
+            } else {
+                check(false, "direct accessibilityHitTest in a panel paragraph gap hits the inner paragraph rather than the panel or page")
+            }
+        }
+        do {
             // Two columns: a high left line and a low right line. A drag whose higher point sits in the
             // right column and lower point in the left column resolves the "first" line below the "last"
             // line, which used to invert verticalRange's closed range and trap.

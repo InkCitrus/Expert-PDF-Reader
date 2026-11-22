@@ -158,7 +158,7 @@ enum PDFFramedRegions {
         for (j, r) in vRules.enumerated() where !usedVerticalIndices.contains(j) {
             rulePrimitives.append((false, j, r))
         }
-        let tableTol = max(4, inkHeight * 0.6)
+        let tableTol = max(1, inkHeight * 0.6)
         var visitedRules = Array(repeating: false, count: rulePrimitives.count)
         var usedHorizontalTableRules = Set<Int>()
         var usedVerticalTableRules = Set<Int>()
@@ -228,7 +228,7 @@ enum PDFFramedRegions {
             freeRules.append(r)
         }
 
-        // Precompute short contiguous text label spans so diagram annotations (e.g. feed/X/Y/Z) attach to their figure
+        // Precompute short contiguous text label spans so diagram annotations attach to their figure
         // without swallowing multi-word captions or column-wide equations.
         let labelSpans: [CGRect] = geometry.rows.flatMap { row -> [CGRect] in
             var spans: [CGRect] = []
@@ -247,7 +247,7 @@ enum PDFFramedRegions {
             return spans.filter { $0.width < max(inkHeight * 12, crop.width * 0.18) && $0.height <= inkHeight * 2.2 }
         }
 
-        let figureTol = max(6, inkHeight * 0.8)
+        let figureTol = max(1, inkHeight * 0.8)
         var visitedShapes = Array(repeating: false, count: candidateShapes.count)
         var visitedFreeRules = Array(repeating: false, count: freeRules.count)
         for seed in candidateShapes.indices where !visitedShapes[seed] {
@@ -275,8 +275,8 @@ enum PDFFramedRegions {
                     }
                 }
             }
-            guard clusterBox.width >= max(inkHeight * 4, 36),
-                  clusterBox.height >= max(inkHeight * 3, 28),
+            guard clusterBox.width >= inkHeight * 4,
+                  clusterBox.height >= inkHeight * 3,
                   !(clusterBox.width > crop.width * 0.9 && clusterBox.height > crop.height * 0.85) else { continue }
             let coveredByTable = tables.contains { table in
                 let inter = table.bounds.intersection(clusterBox)

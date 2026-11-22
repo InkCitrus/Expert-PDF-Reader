@@ -52,6 +52,57 @@ public struct PrintedPageNumbers: Codable, Equatable {
     public func label(at index: Int) -> String? {
         return number(at: index).map(String.init)
     }
+
+    /// True when the detected runs form one coherent book or article numbering sequence rather than
+    /// a compilation of independently numbered works (e.g. stitched papers restarting at 1).
+    public func isConsistentBookSequence(pageCount: Int) -> Bool {
+        guard pageCount > 0, !runs.isEmpty else { return false }
+
+        var coveredPages = 0
+        var seenNumbers = Set<Int>()
+        var previousMaxNumber: Int?
+        var previousLastIndex: Int?
+
+        for run in runs {
+            guard run.firstIndex >= 0, run.lastIndex >= run.firstIndex, run.lastIndex < pageCount else {
+                return false
+            }
+            var runMin: Int?
+            var runMax: Int?
+            for index in run.firstIndex...run.lastIndex {
+                guard let value = number(at: index) else { continue }
+                runMin = runMin.map { min($0, value) } ?? value
+                runMax = runMax.map { max($0, value) } ?? value
+                seenNumbers.insert(value)
+                coveredPages += 1
+            }
+            guard let minNum = runMin, let maxNum = runMax else { return false }
+
+            if let prevMax = previousMaxNumber, let prevIdx = previousLastIndex {
+                // Allow small duplicate-scan overlaps (1-4 pages, e.g. a re-scanned spread),
+                // but reject multi-document restarts where printed numbering drops sharply backward.
+                if minNum <= prevMax - 4 {
+                    return false
+                }
+                // Reject huge discontinuities between stitched works (e.g. page 20 -> 21457),
+                // while allowing ordinary unnumbered plate gaps inside one book.
+                let indexGap = max(1, run.firstIndex - prevIdx)
+                if minNum > prevMax + max(25, indexGap * 2) {
+                    return false
+                }
+            }
+            previousMaxNumber = maxNum
+            previousLastIndex = run.lastIndex
+        }
+
+        // Reject partial coverage where most of the PDF has no consistent numbering.
+        guard coveredPages * 10 >= pageCount * 6 else { return false }
+
+        // Reject compilations whose runs heavily reuse the same printed page numbers.
+        guard seenNumbers.count * 100 >= coveredPages * 85 else { return false }
+
+        return true
+    }
 }
 
 enum PageNumberLabel {
@@ -340,6 +391,7 @@ public enum BookPageScanner {
             oddIndexShift: oddIndexShift,
             replacesPageLabels: false
         )
+        guard model.isConsistentBookSequence(pageCount: pageCount) else { return nil }
         let checked = numbered.filter { model.number(at: $0.index) == $0.number }
         guard checked.count * 10 >= numbered.count * 7 else { return nil }
         let labelsMatch = checked.filter { $0.label == String($0.number!) }.count
@@ -389,7 +441,10 @@ public enum BookPageScanner {
             guard let reading = [mid, mid + 1, mid - 1].lazy
                 .filter({ $0 > low && $0 < high })
                 .compactMap({ reader.read($0) })
-                .first(where: { $0.number != nil }) else { break }
+                .first(where: { $0.number != nil }) else {
+                low = mid
+                continue
+            }
             if offsetOf(reading) == runOffset {
                 high = reading.index
             } else {
@@ -436,7 +491,7 @@ public enum BookPageScanner {
     }
 
     private static let articlePageRange = try! NSRegularExpression(
-        pattern: #"(?<![0-9])([1-9][0-9]{0,3})\s*[-–—]\s*([1-9][0-9]{0,3})(?![0-9])"#)
+        pattern: #"(?<![0-9])([1-9][0-9]{0,4})\s*[-–—]\s*([1-9][0-9]{0,4})(?![0-9])"#)
 
     /// Repair this narrow omission in existing caches without rescanning books or running OCR on launch.
     static func refiningArticleOpening(_ numbers: PrintedPageNumbers, in document: PDFDocument) -> PrintedPageNumbers {
@@ -477,7 +532,10 @@ public enum BookPageScanner {
             guard let reading = [mid, mid - 1, mid + 1].lazy
                 .filter({ $0 > low && $0 < high })
                 .compactMap({ reader.read($0) })
-                .first(where: { $0.number != nil }) else { break }
+                .first(where: { $0.number != nil }) else {
+                high = mid
+                continue
+            }
             if offsetOf(reading) == runOffset {
                 low = reading.index
             } else {
@@ -512,7 +570,7 @@ public enum BookPageScanner {
 
     private static func parseStandalonePageNumber(_ raw: String) -> Int? {
         let cleaned = stripPageDecorations(raw)
-        guard (1...4).contains(cleaned.count), cleaned.allSatisfy(\.isASCII), let n = Int(cleaned), n > 0 else {
+        guard (1...5).contains(cleaned.count), cleaned.allSatisfy(\.isASCII), let n = Int(cleaned), n > 0 else {
             return nil
         }
         return n
@@ -524,7 +582,7 @@ public enum BookPageScanner {
         guard !raw.contains(".."), !raw.contains("…"), !raw.contains(";"), !raw.contains("{"), !raw.contains("}") else {
             return nil
         }
-        for pattern in [#"(?:^|\s)([0-9]{1,4})\s*$"#, #"^\s*([0-9]{1,4})\s+"#] {
+        for pattern in [#"(?:^|\s)([0-9]{1,5})\s*$"#, #"^\s*([0-9]{1,5})\s+"#] {
             guard let match = raw.range(of: pattern, options: .regularExpression) else { continue }
             let part = String(raw[match])
             guard let digits = part.range(of: #"[0-9]+"#, options: .regularExpression),

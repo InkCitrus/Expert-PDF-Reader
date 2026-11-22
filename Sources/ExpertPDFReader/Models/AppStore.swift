@@ -936,7 +936,11 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         }
         if var pageScan = position.bookPageScan, pageScan.version == BookPageScan.currentVersion {
             if let numbers = pageScan.printedNumbers {
-                pageScan.printedNumbers = BookPageScanner.refiningArticleOpening(numbers, in: pdfDocument)
+                if numbers.isConsistentBookSequence(pageCount: pdfDocument.pageCount) {
+                    pageScan.printedNumbers = BookPageScanner.refiningArticleOpening(numbers, in: pdfDocument)
+                } else {
+                    pageScan.printedNumbers = nil
+                }
             }
             self.pageScan = pageScan
         }

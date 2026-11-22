@@ -449,6 +449,51 @@ struct ReaderRegressionTests {
                   "night page indicator pill lifts distinctly above the dark canvas and black paper")
         }
         do {
+            var hoveredStates: [Bool] = []
+            let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 400, height: 300),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            let container = NSView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+            window.contentView = container
+            let hoverView = SidebarTabHoverView(frame: CGRect(x: 0, y: 0, width: 220, height: 300))
+            hoverView.onHover = { hoveredStates.append($0) }
+            container.addSubview(hoverView)
+
+            let inside = NSEvent.enterExitEvent(with: .mouseEntered,
+                location: NSPoint(x: 80, y: 150), modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 0, trackingNumber: 0, userData: nil)!
+            hoverView.mouseEntered(with: inside)
+            check(hoveredStates == [true], "sidebar hover opens when pointer enters")
+
+            hoverView.reconcileHover(at: NSPoint(x: 260, y: 150), immediate: true)
+            check(hoveredStates == [true, false], "reconciling with an outside point collapses sidebar immediately")
+
+            hoverView.mouseEntered(with: inside)
+            hoverView.isMenuTracking = true
+            NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+            check(hoveredStates == [true, false, true],
+                  "context menu tracking prevents premature resign-key collapse")
+
+            hoverView.isMenuTracking = false
+            NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+            check(hoveredStates == [true, false, true, false],
+                  "window resign-key collapses sidebar immediately once menu tracking finishes")
+
+            hoverView.mouseEntered(with: inside)
+            let edgeExit = NSEvent.enterExitEvent(with: .mouseExited,
+                location: NSPoint(x: 220, y: 150), modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 0, trackingNumber: 0, userData: nil)!
+            hoverView.mouseExited(with: edgeExit)
+            try await Task.sleep(for: .milliseconds(160))
+            check(hoveredStates.last == false,
+                  "mouseExited on exact drawer boundary collapses sidebar even without follow-up moves")
+
+            hoverView.removeFromSuperview()
+            window.close()
+        }
+        do {
             let store = freshStore()
             let original = try fixture("ClosedBeforeRename")
             let tab = store.openDocument(at: original, interactive: false)!

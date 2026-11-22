@@ -56,9 +56,12 @@ public struct MainWindowView: View {
         .frame(minWidth: 600, minHeight: 520)
         .onReceive(NotificationCenter.default.publisher(for: NSMenu.didBeginTrackingNotification)) { _ in
             isSidebarMenuTracking = isSidebarHovered
+            session.sidebarTabHoverView?.isMenuTracking = isSidebarMenuTracking
         }
         .onReceive(NotificationCenter.default.publisher(for: NSMenu.didEndTrackingNotification)) { _ in
             isSidebarMenuTracking = false
+            session.sidebarTabHoverView?.isMenuTracking = false
+            session.sidebarTabHoverView?.reconcileHover()
         }
         .onChange(of: store.tabsInSidebar) { _, _ in
             session.tabGroupNameEdit = nil
@@ -218,6 +221,11 @@ public struct MainWindowView: View {
                                     sidebarPopupWidth = Double(bounded)
                                     sidebarPopupResizeWidth = nil
                                     isSidebarResizing = false
+                                    let releasePoint = NSApp.currentEvent?.window === session.nsWindow
+                                        ? NSApp.currentEvent?.locationInWindow : nil
+                                    DispatchQueue.main.async {
+                                        session.sidebarTabHoverView?.reconcileHover(at: releasePoint, edgeTolerance: gripWidth)
+                                    }
                                 } else {
                                     isSidebarResizing = true
                                     sidebarPopupResizeWidth = bounded
@@ -231,10 +239,16 @@ public struct MainWindowView: View {
                     .background(SidebarTabHoverArea(session: session) { isSidebarHovered = $0 })
                 }
                 .animation(AppAnimation.sidebarReveal, value: isCollapsed)
+                .onChange(of: session.editingTabGroupID) { _, newValue in
+                    if newValue == nil {
+                        session.sidebarTabHoverView?.reconcileHover()
+                    }
+                }
                 .onDisappear {
                     isSidebarHovered = false
                     isSidebarDragging = false
                     isSidebarMenuTracking = false
+                    session.sidebarTabHoverView?.isMenuTracking = false
                     sidebarPopupResizeWidth = nil
                     isSidebarResizing = false
                 }
@@ -686,6 +700,12 @@ struct TabBarView: View {
                            if let location, session.containsTabStrip(location.screenPoint) {
                                session.moveTabGroup(group.id, before: session.groupInsertionTarget(at: location.screenPoint))
                            }
+                           if isSidebar {
+                               let dropPoint = location.flatMap { loc in session.nsWindow?.convertPoint(fromScreen: loc.screenPoint) }
+                               DispatchQueue.main.async {
+                                   session.sidebarTabHoverView?.reconcileHover(at: dropPoint)
+                               }
+                           }
                        })
             .opacity(draggingGroupID == group.id ? 0.35 : 1)
     }
@@ -941,6 +961,14 @@ struct TabBarView: View {
                                     style: .document(isSelected: session.selectedTabID == state.id))
             },
             onDragEnded: { location in
+                let dropPoint = location.flatMap { loc in session.nsWindow?.convertPoint(fromScreen: loc.screenPoint) }
+                defer {
+                    if isSidebar {
+                        DispatchQueue.main.async {
+                            session.sidebarTabHoverView?.reconcileHover(at: dropPoint)
+                        }
+                    }
+                }
                 let target = location.flatMap { store.tabDropTarget(at: $0.screenPoint) }
                 let placement: TabDropPlacement?
                 if case .tabStrip(let targetSession) = target, let location {

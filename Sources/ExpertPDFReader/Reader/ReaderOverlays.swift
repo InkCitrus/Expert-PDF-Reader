@@ -394,11 +394,13 @@ struct PageIndicatorOverlay: View {
                             .font(.system(size: 12))
                         TextField(goToPagePlaceholder, text: $goToPageInput)
                             .textFieldStyle(.roundedBorder)
+                            .tint(accent)
                             .frame(width: 84)
                             .accessibilityLabel(Text(L10n.tr("页码", "Page")))
                             .onSubmit(commitGoToPage)
                         Button(L10n.tr("前往", "Go"), action: commitGoToPage)
                             .keyboardShortcut(.defaultAction)
+                            .tint(accent)
                             .controlSize(.small)
                     }
                     if usesBookNumbers && !tab.pageIndicesByLabel.isEmpty {
@@ -408,7 +410,6 @@ struct PageIndicatorOverlay: View {
                     }
                 }
                 .padding(12)
-                .tint(accent)
             }
             .padding(16)
         }

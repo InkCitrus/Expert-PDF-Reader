@@ -366,18 +366,20 @@ struct ToolbarIconButton: View {
             HStack(spacing: 5) {
                 Image(systemName: icon)
                     .font(.system(size: 14.5, weight: .regular))
+                    .foregroundColor(iconForegroundColor)
                 if let title {
                     Text(title)
                         .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(labelForegroundColor)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
                 }
                 if showsMenuIndicator {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(labelForegroundColor)
                 }
             }
-                .foregroundColor(foregroundColor)
                 .padding(.horizontal, fillsRow ? 14 : (title == nil ? 0 : 8))
                 .frame(width: title == nil ? iconWidth + (showsMenuIndicator ? 6 : 0) : nil, height: fillsRow ? 40 : 28)
                 .frame(maxWidth: fillsRow ? .infinity : nil, alignment: .leading)
@@ -397,7 +399,7 @@ struct ToolbarIconButton: View {
         .onHover { isHovered = $0 }
     }
 
-    private var foregroundColor: Color {
+    private var iconForegroundColor: Color {
         if isDisabled {
             return AppPalette.labelQuaternary(isDark)
         }
@@ -407,11 +409,12 @@ struct ToolbarIconButton: View {
         return AppPalette.toolbarIcon(isDark)
     }
 
+    private var labelForegroundColor: Color {
+        isDisabled ? AppPalette.labelQuaternary(isDark) : AppPalette.toolbarIcon(isDark)
+    }
+
     private var backgroundColor: Color {
         if isActive {
-            if let tint = activeTint {
-                return tint.opacity(isDark ? 0.22 : 0.14)
-            }
             return AppPalette.toolbarActive(isDark)
         }
         if isHovered && !isDisabled {

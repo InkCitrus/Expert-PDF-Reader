@@ -78,7 +78,7 @@ public struct MainWindowView: View {
             WindowChromeConfigurator(
                 windowTitle: store.windowTitle(for: session),
                 representedURL: store.windowRepresentedURL(for: session),
-                tabBar: AnyView(titlebarContent.environment(\.appAccentColor, accent).tint(accent)),
+                tabBar: AnyView(titlebarContent.environment(\.appAccentColor, accent)),
                 tabBarBackground: NSColor(AppPalette.tabStripBackground(isDark)),
                 onWindowAttached: { window in
                     session.nsWindow = window
@@ -91,7 +91,6 @@ public struct MainWindowView: View {
             .allowsHitTesting(false)
         )
         .environment(\.appAccentColor, accent)
-        .tint(accent)
     }
 
     private var titlebarContent: some View {
@@ -1173,10 +1172,7 @@ struct DocumentTabItemView: View {
     }
 
     private var highlight: Color {
-        if isSidebar && isUngroupedSelected {
-            return accent.opacity(isDark ? 0.22 : 0.14)
-        }
-        return AppPalette.documentTabHighlight(isSelected: isSelected, isSidebar: isSidebar, isDark: isDark)
+        AppPalette.documentTabHighlight(isSelected: isSelected, isSidebar: isSidebar, isDark: isDark)
     }
 
     var body: some View {
@@ -1353,11 +1349,8 @@ struct DocumentTabItemView: View {
 
     @ViewBuilder
     private var activeOrdinaryTabPill: some View {
-        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
-        let pill = shape
+        let pill = RoundedRectangle(cornerRadius: 6, style: .continuous)
             .fill(AppPalette.tabSelectedBackground(isDark))
-            .overlay(shape.fill(accent.opacity(isDark ? 0.13 : 0.07)))
-            .overlay(shape.strokeBorder(accent.opacity(isDark ? 0.50 : 0.38), lineWidth: 1))
             .shadow(color: Color.black.opacity(isDark ? 0.28 : 0.08), radius: 1.5, x: 0, y: 0.5)
             .padding(.horizontal, 4)
             .padding(.vertical, 6)

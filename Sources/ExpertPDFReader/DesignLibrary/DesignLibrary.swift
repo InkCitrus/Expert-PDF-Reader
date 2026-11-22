@@ -504,6 +504,11 @@ public enum AppAnimation {
         reduceMotion ? .easeOut(duration: 0.14) : .spring(response: 0.26, dampingFraction: 0.86)
     }
 
+    /// Horizontal tab strip & tab group collapse/expand without spring overshoot.
+    public static var tabGroup: Animation {
+        reduceMotion ? .easeOut(duration: 0.12) : .spring(duration: 0.24, bounce: 0)
+    }
+
     /// Left/right docks, Page Overview grid, Split View & Home page transitions
     public static var panel: Animation {
         reduceMotion ? .easeInOut(duration: 0.15) : .spring(response: 0.28, dampingFraction: 0.88)

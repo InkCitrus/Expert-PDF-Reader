@@ -82,7 +82,7 @@ struct TabGroupHeader: View {
                         .transition(.opacity)
                 }
             }
-            .animation(AppAnimation.snappy, value: group.isCollapsed)
+            .animation(AppAnimation.tabGroup, value: group.isCollapsed)
         }
     }
 
@@ -123,7 +123,9 @@ struct TabGroupHeader: View {
     }
 
     private func toggleGroup() {
-        withAnimation(AppAnimation.sidebarReveal) { session.toggleTabGroup(group.id) }
+        withAnimation(isSidebar ? AppAnimation.sidebarReveal : AppAnimation.tabGroup) {
+            session.toggleTabGroup(group.id)
+        }
     }
 
     private func finishEditing(_ name: String?) {

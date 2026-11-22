@@ -789,8 +789,11 @@ struct TabBarView: View {
             let tabWidth = min(Self.maximumTabWidth, max(Self.minimumTabWidth, fitWidth))
             let stripWidth = headersWidth + CGFloat(visibleCount) * (tabWidth + 1)
 
+            let hideLeading = hidesLeadingSeparator(in: entries)
             HStack(spacing: 0) {
                 tabSeparator
+                    .opacity(hideLeading ? 0 : 1)
+                    .animation(AppAnimation.micro, value: hideLeading)
 
                 if session.editingTabGroupID != nil || fitWidth < Self.minimumTabWidth || headersWidth > available {
                     scrollingTabs(.horizontal) {
@@ -855,13 +858,17 @@ struct TabBarView: View {
     }
 
     private func documentTabsRow(_ documentTabs: [DocumentTabState], tabWidth: CGFloat, available: CGFloat) -> some View {
-        HStack(spacing: 0) {
-            ForEach(entries) { entry in
+        let entries = self.entries
+        return HStack(spacing: 0) {
+            ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
                 switch entry {
                 case .document(let state):
+                    let hideTrailing = hidesTrailingSeparator(at: index, in: entries)
                     HStack(spacing: 0) {
                         tabItem(state, count: documentTabs.count).frame(width: tabWidth)
-                        tabSeparator.opacity(session.selectedTabID == state.id ? 0 : 1)
+                        tabSeparator
+                            .opacity(hideTrailing ? 0 : 1)
+                            .animation(AppAnimation.micro, value: hideTrailing)
                     }
                     .overlay(alignment: .bottom) {
                         if let color = session.displayedTabGroup(containing: state.id)?.color {
@@ -949,10 +956,28 @@ struct TabBarView: View {
         )
     }
 
+    private func isTabHighlighted(_ id: UUID) -> Bool {
+        session.selectedTabID == id || hoveredTabID == id
+    }
+
+    private func hidesLeadingSeparator(in entries: [Entry]) -> Bool {
+        if case .document(let first) = entries.first, isTabHighlighted(first.id) { return true }
+        return entries.isEmpty && isOpenFileHovered
+    }
+
+    private func hidesTrailingSeparator(at index: Int, in entries: [Entry]) -> Bool {
+        if case .document(let current) = entries[index], isTabHighlighted(current.id) { return true }
+        if index + 1 < entries.count {
+            if case .document(let next) = entries[index + 1], isTabHighlighted(next.id) { return true }
+            return false
+        }
+        return isOpenFileHovered
+    }
+
     private var tabSeparator: some View {
-        Rectangle()
+        Capsule()
             .fill(AppPalette.tabSeparator(isDark))
-            .frame(width: 1)
+            .frame(width: 1, height: 16)
     }
 
     private var openFileTitle: String { L10n.tr("打开文件…", "Open File…") }
@@ -978,8 +1003,10 @@ struct TabBarView: View {
                     SidebarTabBackground(color: isOpenFileHovered ? AppPalette.sidebarTabHoverBackground(isDark) : .clear,
                                          width: sidebarRowWidth, cornerRadius: 6)
                 } else {
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
                         .fill(isOpenFileHovered ? AppPalette.tabHoverBackground(isDark) : .clear)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 6)
                 }
             }
             .contentShape(Rectangle())
@@ -1193,7 +1220,7 @@ struct DocumentTabItemView: View {
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
                         .fill(highlight)
                         .padding(.horizontal, 4)
-                        .padding(.vertical, 3)
+                        .padding(.vertical, 6)
                 }
             }
         }

@@ -41,6 +41,8 @@ struct SettingsView: View {
                 }
 
                 Toggle(L10n.tr("启动时恢复标签页", "Restore Tabs on Launch"), isOn: $store.restoreTabsOnLaunch)
+
+                Toggle(L10n.tr("始终显示页码浮窗", "Always Show Page Counter"), isOn: $store.alwaysShowPageIndicator)
             } header: {
                 Text(L10n.tr("通用", "General"))
             } footer: {

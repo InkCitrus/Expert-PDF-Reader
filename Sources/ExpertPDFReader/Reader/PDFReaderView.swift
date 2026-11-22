@@ -155,8 +155,7 @@ public struct PDFReaderView: View {
             }
         )
         .overlay(alignment: .bottomTrailing) {
-            PageIndicatorOverlay(tab: tab)
-                .padding(16)
+            PageIndicatorOverlay(store: store, tab: tab)
         }
         .overlay { paneFocusIndicator(isSecondary: false) }
         .onChange(of: tab.currentPageIndex) { _, newPage in
@@ -225,8 +224,7 @@ public struct PDFReaderView: View {
                 )
                 .id(ObjectIdentifier(secDoc))
                 .overlay(alignment: .bottomTrailing) {
-                    PageIndicatorOverlay(tab: tab, isSecondaryPane: true)
-                        .padding(16)
+                    PageIndicatorOverlay(store: store, tab: tab, isSecondaryPane: true)
                 }
             } else {
                 HomeTabRootView(store: store, isStandaloneSplitPane: true) { chosenURL in

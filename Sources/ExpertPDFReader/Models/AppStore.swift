@@ -1612,6 +1612,10 @@ public final class AppStore: ObservableObject {
         didSet { UserDefaults.standard.set(restoreTabsOnLaunch, forKey: Keys.restoreTabsOnLaunch) }
     }
 
+    @Published public var alwaysShowPageIndicator: Bool {
+        didSet { UserDefaults.standard.set(alwaysShowPageIndicator, forKey: Keys.alwaysShowPageIndicator) }
+    }
+
     /// Resolves the concrete GPU `PDFViewTheme` (`day`, `sepia`, or `night`) for the given UI appearance.
     public func resolvedPDFTheme(isDark: Bool) -> PDFViewTheme {
         readingThemeMode.resolvedTheme(isDark: isDark, useSepiaInLight: useSepiaForLightSystemTheme)
@@ -1868,6 +1872,7 @@ public final class AppStore: ObservableObject {
         static let favorites = "expertPDFReader.Favorites"
         static let bookmarks = "expertPDFReader.Bookmarks"
         static let restoreTabsOnLaunch = "expertPDFReader.restoreTabsOnLaunch"
+        static let alwaysShowPageIndicator = "expertPDFReader.alwaysShowPageIndicator"
         static let readingPositions = "expertPDFReader.ReadingPositions"
         static let fileBookmarks = "expertPDFReader.FileBookmarks"
         static let openTabs = "expertPDFReader.OpenTabs"
@@ -1909,6 +1914,7 @@ public final class AppStore: ObservableObject {
 
         self.useSepiaForLightSystemTheme = defaults.bool(forKey: "expertPDFReader.useSepiaForLightSystemTheme")
         self.restoreTabsOnLaunch = defaults.object(forKey: Keys.restoreTabsOnLaunch) as? Bool ?? true
+        self.alwaysShowPageIndicator = defaults.bool(forKey: Keys.alwaysShowPageIndicator)
 
         let savedAppRaw = defaults.string(forKey: "expertPDFReader.appearanceMode")
             ?? AppAppearanceMode.system.rawValue

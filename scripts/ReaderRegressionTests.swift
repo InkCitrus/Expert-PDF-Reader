@@ -434,6 +434,22 @@ struct ReaderRegressionTests {
         }
         do {
             let store = freshStore()
+            check(!store.alwaysShowPageIndicator, "floating page counter defaults to auto-hide")
+            store.alwaysShowPageIndicator = true
+            check(AppStore().alwaysShowPageIndicator, "pinning the floating page counter persists across launches")
+            store.alwaysShowPageIndicator = false
+            check(!AppStore().alwaysShowPageIndicator, "unpinning the floating page counter persists across launches")
+
+            let pill = NSColor(AppPalette.pageIndicatorBackground(pdfTheme: .night, isDarkUI: true, isHovered: false))
+                .usingColorSpace(.sRGB)!
+            let nightCanvas = PDFViewTheme.night.documentBackgroundNSColor(isDarkUI: true).usingColorSpace(.sRGB)!
+            check(pill.redComponent > nightCanvas.redComponent + 0.05
+                  && pill.greenComponent > nightCanvas.greenComponent + 0.05
+                  && pill.blueComponent > nightCanvas.blueComponent + 0.05,
+                  "night page indicator pill lifts distinctly above the dark canvas and black paper")
+        }
+        do {
+            let store = freshStore()
             let original = try fixture("ClosedBeforeRename")
             let tab = store.openDocument(at: original, interactive: false)!
             store.setFavorite(id: tab.documentID, isFavorite: true)

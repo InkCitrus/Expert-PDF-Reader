@@ -461,6 +461,26 @@ public enum AppPalette {
     public static func keycapShadow(_ isDark: Bool) -> Color {
         Color.black.opacity(isDark ? 0.35 : 0.08)
     }
+
+    /// Floating bottom-right page counter pill: stays legible over both bright Day/Sepia paper
+    /// and pure-black Night pages or dark canvas margins.
+    public static func pageIndicatorBackground(pdfTheme: PDFViewTheme, isDarkUI: Bool, isHovered: Bool) -> Color {
+        if pdfTheme == .night || isDarkUI {
+            return Color(hex: 0x3A3C42, alpha: isHovered ? 0.96 : 0.90)
+        }
+        return Color(hex: 0x1E1F22, alpha: isHovered ? 0.88 : 0.80)
+    }
+
+    public static func pageIndicatorBorder(pdfTheme: PDFViewTheme, isDarkUI: Bool, isHovered: Bool) -> Color {
+        if pdfTheme == .night || isDarkUI {
+            return Color.white.opacity(isHovered ? 0.30 : 0.20)
+        }
+        return Color.white.opacity(isHovered ? 0.20 : 0.12)
+    }
+
+    public static func pageIndicatorForeground(pdfTheme: PDFViewTheme, isDarkUI: Bool) -> Color {
+        (pdfTheme == .night || isDarkUI) ? Color(hex: 0xF5F5F7) : .white
+    }
 }
 
 /// Shared motion presets tuned for native macOS responsiveness; falls back to subtle fades when Reduce Motion is on.

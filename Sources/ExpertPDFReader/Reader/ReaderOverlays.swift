@@ -223,89 +223,192 @@ struct SearchResultRow: View {
 
 // MARK: - PageIndicatorOverlay (bottom-right page counter)
 
-/// Dark page counter PDF Expert shows over the canvas ("55 / 56 of 135"); it fades out a moment after
-/// the page changes, reappears on hover and opens Go to Page when clicked.
+/// Non-blocking tracking area in the bottom-right canvas corner so hovering reveals the faded page counter
+/// without intercepting clicks, drags, or text selection on the PDF underneath.
+private struct PageIndicatorRevealArea: NSViewRepresentable {
+    let onHover: (Bool) -> Void
+
+    func makeNSView(context: Context) -> PageIndicatorRevealView { PageIndicatorRevealView() }
+    func updateNSView(_ view: PageIndicatorRevealView, context: Context) {
+        view.onHover = onHover
+    }
+}
+
+private final class PageIndicatorRevealView: NSView {
+    var onHover: ((Bool) -> Void)?
+    // Omit .enabledDuringMouseDrag so dragging a text selection across the corner never pops the pill up.
+    private lazy var hoverArea = NSTrackingArea(
+        rect: .zero,
+        options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow, .inVisibleRect],
+        owner: self,
+        userInfo: nil
+    )
+    private var pendingExit: Task<Void, Never>?
+    private var isHovered = false
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func isAccessibilityElement() -> Bool { false }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        let area = hoverArea
+        if !trackingAreas.contains(where: { $0 === area }) { addTrackingArea(area) }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            pendingExit?.cancel()
+            pendingExit = nil
+            if isHovered {
+                isHovered = false
+                onHover?(false)
+            }
+        }
+    }
+
+    override func mouseEntered(with event: NSEvent) { updateHover(for: event) }
+    override func mouseMoved(with event: NSEvent) { updateHover(for: event) }
+    override func mouseExited(with event: NSEvent) { updateHover(for: event) }
+
+    private func updateHover(for event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if bounds.intersection(visibleRect).contains(point) {
+            pendingExit?.cancel()
+            pendingExit = nil
+            if !isHovered {
+                isHovered = true
+                onHover?(true)
+            }
+        } else if isHovered && pendingExit == nil {
+            pendingExit = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(150))
+                guard !Task.isCancelled, let self else { return }
+                pendingExit = nil
+                isHovered = false
+                onHover?(false)
+            }
+        }
+    }
+}
+
+/// Page counter shown over the bottom-right canvas ("55 / 56 of 135"); it fades out after
+/// page changes unless pinned, reappears when hovering the corner, and opens Go to Page when clicked.
 struct PageIndicatorOverlay: View {
+    @ObservedObject var store: AppStore
     @ObservedObject var tab: DocumentTabState
     var isSecondaryPane = false
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var isVisible = true
     @State private var isHovered = false
+    @State private var isInRevealZone = false
     @State private var showGoToPage = false
     @State private var goToPageInput = ""
     @State private var hideTask: Task<Void, Never>?
 
     var body: some View {
-        let shown = tab.splitMode != .disabled || isVisible || isHovered || showGoToPage
-        Button {
-            presentGoToPage()
-        } label: {
-            VStack(spacing: 1) {
-                Text(primaryLine)
-                    .font(.system(size: 13, weight: .semibold))
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
-                if let secondaryLine {
-                    Text(secondaryLine)
-                        .font(.system(size: 10.5))
+        let isDark = colorScheme == .dark
+        let pdfTheme = store.resolvedPDFTheme(isDark: isDark)
+        let shown = store.alwaysShowPageIndicator || tab.splitMode != .disabled || isVisible || isHovered || isInRevealZone || showGoToPage
+
+        ZStack(alignment: .bottomTrailing) {
+            PageIndicatorRevealArea { isInRevealZone = $0 }
+                .frame(width: 148, height: 76)
+
+            Button {
+                presentGoToPage()
+            } label: {
+                VStack(spacing: 1) {
+                    Text(primaryLine)
+                        .font(.system(size: 13, weight: .semibold))
                         .monospacedDigit()
                         .contentTransition(.numericText())
-                        .opacity(0.75)
+                    if let secondaryLine {
+                        Text(secondaryLine)
+                            .font(.system(size: 10.5))
+                            .monospacedDigit()
+                            .contentTransition(.numericText())
+                            .opacity(0.78)
+                    }
+                }
+                .animation(AppAnimation.micro, value: primaryLine)
+                .foregroundColor(AppPalette.pageIndicatorForeground(pdfTheme: pdfTheme, isDarkUI: isDark))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .frame(minWidth: 64)
+                .background(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(AppPalette.pageIndicatorBackground(pdfTheme: pdfTheme, isDarkUI: isDark, isHovered: isHovered))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                .strokeBorder(AppPalette.pageIndicatorBorder(pdfTheme: pdfTheme, isDarkUI: isDark, isHovered: isHovered), lineWidth: 1)
+                        )
+                        .shadow(color: Color.black.opacity(pdfTheme == .night || isDark ? 0.45 : 0.18), radius: 6, x: 0, y: 2)
+                )
+                .animation(AppAnimation.micro, value: pdfTheme)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(L10n.tr("前往页码… (⌥⌘G)", "Go to Page… (⌥⌘G)"))
+            .accessibilityLabel(Text("\(L10n.tr("页码", "Page")) \(primaryLine)"))
+            .opacity(shown ? 1 : 0)
+            .allowsHitTesting(shown)
+            .accessibilityHidden(!shown)
+            .scaleEffect(shown ? 1.0 : 0.96)
+            .offset(y: shown ? 0 : 4)
+            .animation(AppAnimation.snappy, value: shown)
+            .animation(AppAnimation.micro, value: isHovered)
+            .onHover { isHovered = $0 }
+            .contextMenu {
+                Button {
+                    store.alwaysShowPageIndicator.toggle()
+                } label: {
+                    if store.alwaysShowPageIndicator {
+                        Label(L10n.tr("始终显示页码浮窗", "Always Show Page Counter"), systemImage: "checkmark")
+                    } else {
+                        Text(L10n.tr("始终显示页码浮窗", "Always Show Page Counter"))
+                    }
                 }
             }
-            .animation(AppAnimation.micro, value: primaryLine)
-            .foregroundColor(.white)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .frame(minWidth: 64)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.black.opacity(isHovered ? 0.86 : 0.78))
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(L10n.tr("前往页码… (⌥⌘G)", "Go to Page… (⌥⌘G)"))
-        .accessibilityLabel(Text("\(L10n.tr("页码", "Page")) \(primaryLine)"))
-        .opacity(shown ? 1 : 0)
-        .allowsHitTesting(shown)
-        .accessibilityHidden(!shown)
-        .scaleEffect(shown ? 1.0 : 0.96)
-        .offset(y: shown ? 0 : 4)
-        .animation(AppAnimation.snappy, value: shown)
-        .animation(AppAnimation.micro, value: isHovered)
-        .onHover { isHovered = $0 }
-        .onAppear(perform: flash)
-        .onChange(of: pageIndex) { _, _ in
-            flash()
-        }
-        .onChange(of: tab.goToPageRequestToken) { _, _ in
-            if tab.targetsSecondaryPane == isSecondaryPane { presentGoToPage() }
-        }
-        .onChange(of: showGoToPage) { _, isShown in
-            if !isShown {
+            .onAppear(perform: flash)
+            .onChange(of: pageIndex) { _, _ in
                 flash()
             }
-        }
-        .onDisappear {
-            hideTask?.cancel()
-        }
-        .popover(isPresented: $showGoToPage, arrowEdge: .top) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Text(L10n.tr("前往页码", "Go to Page"))
-                        .font(.system(size: 12))
-                    TextField(goToPagePlaceholder, text: $goToPageInput)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 84)
-                        .accessibilityLabel(Text(L10n.tr("页码", "Page")))
-                        .onSubmit(commitGoToPage)
-                    Button(L10n.tr("前往", "Go"), action: commitGoToPage)
-                        .keyboardShortcut(.defaultAction)
-                        .controlSize(.small)
+            .onChange(of: tab.goToPageRequestToken) { _, _ in
+                if tab.targetsSecondaryPane == isSecondaryPane { presentGoToPage() }
+            }
+            .onChange(of: showGoToPage) { _, isShown in
+                if !isShown {
+                    flash()
                 }
             }
-            .padding(12)
+            .onDisappear {
+                hideTask?.cancel()
+            }
+            .popover(isPresented: $showGoToPage, arrowEdge: .top) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Text(L10n.tr("前往页码", "Go to Page"))
+                            .font(.system(size: 12))
+                        TextField(goToPagePlaceholder, text: $goToPageInput)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 84)
+                            .accessibilityLabel(Text(L10n.tr("页码", "Page")))
+                            .onSubmit(commitGoToPage)
+                        Button(L10n.tr("前往", "Go"), action: commitGoToPage)
+                            .keyboardShortcut(.defaultAction)
+                            .controlSize(.small)
+                    }
+                    if usesBookNumbers && !tab.pageIndicesByLabel.isEmpty {
+                        Text(L10n.tr("输入书籍页码，或输入 (n) 跳至第 n 页", "Enter Book Page, or (n) for PDF Page n"))
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(12)
+            }
+            .padding(16)
         }
     }
 

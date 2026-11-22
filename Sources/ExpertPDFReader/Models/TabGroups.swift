@@ -77,13 +77,14 @@ extension ReaderWindowSession {
             return state.title
         }
         guard !titles.isEmpty else { return group.color.title }
-        func clipped(_ title: String, limit: Int) -> String {
-            title.count > limit ? String(title.prefix(limit)) + "…" : title
+        func quoted(_ title: String, limit: Int) -> String {
+            let clipped = title.count > limit ? String(title.prefix(limit)) + "…" : title
+            return "“\(clipped)”"
         }
         if titles.count == 1 {
-            return clipped(titles[0], limit: 32)
+            return quoted(titles[0], limit: 32)
         }
-        let head = titles.prefix(2).map { clipped($0, limit: 18) }.joined(separator: ", ")
+        let head = titles.prefix(2).map { quoted($0, limit: 18) }.joined(separator: ", ")
         return titles.count > 2 ? "\(head) (+\(titles.count - 2))" : head
     }
 

@@ -243,8 +243,8 @@ struct ReaderRegressionTests {
             let unnamed = store.createTabGroup(name: "  \n", containing: a.id)!
             check(session.tabGroups.first?.name == "" && session.tabGroups.first?.tabIDs == [a.id],
                   "blank group names create a color-only group with its document intact")
-            check(session.tabGroupMenuTitle(session.tabGroups[0]) == a.title,
-                  "unnamed single-tab group menu title shows its tab name")
+            check(session.tabGroupMenuTitle(session.tabGroups[0]) == "“\(a.title)”",
+                  "unnamed single-tab group menu title shows its quoted tab name")
             check(session.destinationTabGroups(for: a.id).isEmpty,
                   "Add to Group excludes the tab's current group when no other group exists")
             check(session.destinationTabGroups(for: b.id).map(\.id) == [unnamed],
@@ -296,11 +296,11 @@ struct ReaderRegressionTests {
             store.renameTabGroup(second, name: " \n ")
             if let unnamedSecond = session.tabGroups.first(where: { $0.id == second }) {
                 let expectedUnnamedTitle = session.tabs.compactMap {
-                    if case .document(let t) = $0, unnamedSecond.tabIDs.contains(t.id) { return t.title }
+                    if case .document(let t) = $0, unnamedSecond.tabIDs.contains(t.id) { return "“\(t.title)”" }
                     return nil
                 }.joined(separator: ", ")
                 check(session.tabGroupMenuTitle(unnamedSecond) == expectedUnnamedTitle,
-                      "unnamed multi-tab group menu title lists its member tab names in order")
+                      "unnamed multi-tab group menu title lists its quoted member tab names in order")
             }
             if let namedGroup = session.tabGroups.first(where: { $0.id == groupID }) {
                 check(session.tabGroupMenuTitle(namedGroup) == "Lectures",
@@ -311,11 +311,11 @@ struct ReaderRegressionTests {
             store.moveTab(a.id, intoGroup: second)
             if let threeTabUnnamed = session.tabGroups.first(where: { $0.id == second }) {
                 let firstTwo = session.tabs.compactMap {
-                    if case .document(let t) = $0, threeTabUnnamed.tabIDs.contains(t.id) { return t.title }
+                    if case .document(let t) = $0, threeTabUnnamed.tabIDs.contains(t.id) { return "“\(t.title)”" }
                     return nil
                 }.prefix(2).joined(separator: ", ")
                 check(session.tabGroupMenuTitle(threeTabUnnamed) == "\(firstTwo) (+1)",
-                      "unnamed group menu title summarizes more than two member tabs")
+                      "unnamed group menu title summarizes more than two quoted member tabs")
             }
             store.createTabGroup(name: "Lectures", containing: a.id,
                                  draft: ReaderTabGroup(id: groupID, name: "Lectures", tabIDs: [a.id], color: colors[groupID]!))

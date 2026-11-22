@@ -1402,14 +1402,27 @@ public final class ReaderWindowSession: ObservableObject, Identifiable {
     public let id: UUID
     public let isPrimary: Bool
     @Published public var tabs: [AppTab] {
-        didSet { pruneTabGroups(); onTabsChanged?() }
+        didSet {
+            if case .create(_, let tabID, _) = tabGroupNameEdit, !tabs.contains(where: { $0.id == tabID }) {
+                tabGroupNameEdit = nil
+            }
+            pruneTabGroups()
+            onTabsChanged?()
+        }
     }
     @Published public var selectedTabID: UUID {
         didSet { revealSelectedTabGroup(); onTabsChanged?() }
     }
     @Published public var tabGroups: [ReaderTabGroup] = [] {
-        didSet { onTabsChanged?() }
+        didSet {
+            if case .rename(let id) = tabGroupNameEdit, !tabGroups.contains(where: { $0.id == id }) {
+                tabGroupNameEdit = nil
+            }
+            onTabsChanged?()
+        }
     }
+    @Published var tabGroupNameEdit: TabGroupNameEdit?
+    var editingTabGroupID: UUID? { tabGroupNameEdit?.groupID }
     var onTabsChanged: (() -> Void)?
     weak var tabStripView: NSView?
     let tabViews = ReaderTabViewRegistry()

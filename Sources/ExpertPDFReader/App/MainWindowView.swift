@@ -17,7 +17,6 @@ public struct MainWindowView: View {
     @State private var isSidebarDragging = false
     @State private var isSidebarResizing = false
     @State private var isSidebarMenuTracking = false
-    @State private var sidebarExpandedContent = false
     @State private var isDropTargeted = false
     private var isDark: Bool { colorScheme == .dark }
 
@@ -60,6 +59,9 @@ public struct MainWindowView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSMenu.didEndTrackingNotification)) { _ in
             isSidebarMenuTracking = false
+        }
+        .onChange(of: store.tabsInSidebar) { _, _ in
+            session.tabGroupNameEdit = nil
         }
         .toolbar {
             // Keep the compact native toolbar alive: SwiftUI removes an empty one and shrinks tabs to 32pt.
@@ -130,7 +132,7 @@ public struct MainWindowView: View {
 
     private func windowContent(windowWidth: CGFloat) -> some View {
         let showsNavigation = store.isLeftPanelVisible(in: session)
-        let railWidth: CGFloat = store.tabsInSidebar ? 48 : 0
+        let railWidth = store.tabsInSidebar ? SidebarTabMetrics.railWidth : 0
         let defaultWidth = session.activeDocumentTab == nil
             ? HomeTabRootView.sidebarWidth : ReaderLeftSidebarView.width
         let preferredWidth = sidebarWidth.map { CGFloat($0) } ?? defaultWidth
@@ -142,6 +144,7 @@ public struct MainWindowView: View {
         }
         let width = boundedWidth(sidebarResizeWidth ?? preferredWidth)
         let isCollapsed = !isSidebarHovered && !isSidebarDragging && !isSidebarMenuTracking && !isSidebarResizing
+            && session.editingTabGroupID == nil
         let defaultPopupWidth = min(520, max(360, windowWidth * 0.45))
         let popupMin: CGFloat = 280
         // Even a minimum-size window must fit the default popup, or the list opens narrower than intended
@@ -149,7 +152,7 @@ public struct MainWindowView: View {
         func boundedPopup(_ w: CGFloat) -> CGFloat { min(max(w, popupMin), popupMax) }
         let storedPopupWidth = sidebarPopupWidth.map { CGFloat($0) } ?? defaultPopupWidth
         let popupWidth = boundedPopup(sidebarPopupResizeWidth ?? storedPopupWidth)
-        let expandedLayout = !isCollapsed || sidebarExpandedContent
+        let visibleTabsWidth = isCollapsed ? railWidth : popupWidth
 
         return HStack(spacing: 0) {
             if store.tabsInSidebar { Color.clear.frame(width: railWidth) }
@@ -193,9 +196,14 @@ public struct MainWindowView: View {
         }
         .overlay(alignment: .topLeading) {
             if store.tabsInSidebar {
-                sidebarTabsColumn(width: expandedLayout ? popupWidth : railWidth, isCollapsed: !expandedLayout)
-                    .transaction { $0.animation = nil }
-                    .frame(width: isCollapsed ? railWidth : popupWidth, alignment: .leading)
+                SidebarReveal(width: visibleTabsWidth) { drawerWidth in
+                    // The clip and the row highlights use the same animated width. Titles keep
+                    // their full layout until the edge reaches the rail.
+                    let expandedLayout = !isCollapsed || drawerWidth > railWidth + 0.5
+                    let reveal = min(1, max(0, (drawerWidth - railWidth) / (popupWidth - railWidth)))
+                    sidebarTabsColumn(width: expandedLayout ? popupWidth : railWidth,
+                                      visibleWidth: drawerWidth, isCollapsed: !expandedLayout)
+                    .frame(width: drawerWidth, alignment: .leading)
                     .background(PanelCursorRect(priority: 2))
                     .clipped()
                     .contentShape(Rectangle())
@@ -203,7 +211,7 @@ public struct MainWindowView: View {
                         AppPalette.panelHairline(isDark).frame(width: 1).allowsHitTesting(false)
                     }
                     .overlay(alignment: .trailing) {
-                        if expandedLayout {
+                        if !isCollapsed {
                             ReaderResizeHandle(axis: .horizontal, length: popupWidth, priority: 3) { newWidth, ended in
                                 let bounded = boundedPopup(newWidth)
                                 if ended {
@@ -217,25 +225,19 @@ public struct MainWindowView: View {
                             }
                             .frame(width: gripWidth)
                             .padding(.bottom, TabBarView.sidebarFooterHeight)
-                            .opacity(isCollapsed ? 0 : 1)
-                            .allowsHitTesting(!isCollapsed)
                         }
                     }
-                    .shadow(color: .black.opacity(isCollapsed ? 0 : (isDark ? 0.28 : 0.12)), radius: 10, x: 4, y: 0)
+                    .shadow(color: .black.opacity(reveal * (isDark ? 0.28 : 0.12)), radius: 10, x: 4, y: 0)
                     .background(SidebarTabHoverArea(session: session) { isSidebarHovered = $0 })
-                    .animation(AppAnimation.sidebarReveal, value: isCollapsed)
-                    .task(id: isCollapsed) {
-                        if !isCollapsed { sidebarExpandedContent = true; return }
-                        do {
-                            try await Task.sleep(nanoseconds: UInt64(AppAnimation.sidebarRevealDuration * 1_000_000_000))
-                        } catch { return }
-                        sidebarExpandedContent = false
-                    }
-                    .onDisappear {
-                        sidebarExpandedContent = false
-                        sidebarPopupResizeWidth = nil
-                        isSidebarResizing = false
-                    }
+                }
+                .animation(AppAnimation.sidebarReveal, value: isCollapsed)
+                .onDisappear {
+                    isSidebarHovered = false
+                    isSidebarDragging = false
+                    isSidebarMenuTracking = false
+                    sidebarPopupResizeWidth = nil
+                    isSidebarResizing = false
+                }
             }
         }
     }
@@ -255,13 +257,27 @@ public struct MainWindowView: View {
         .background(PanelCursorRect())
     }
 
-    private func sidebarTabsColumn(width: CGFloat, isCollapsed: Bool) -> some View {
+    private func sidebarTabsColumn(width: CGFloat, visibleWidth: CGFloat, isCollapsed: Bool) -> some View {
         TabBarView(store: store, session: session, isDark: isDark, isSidebar: true,
-                   isCollapsed: isCollapsed, onDragActivityChanged: { isSidebarDragging = $0 })
+                   isCollapsed: isCollapsed, sidebarRowWidth: SidebarTabMetrics.rowWidth(in: visibleWidth),
+                   onDragActivityChanged: { isSidebarDragging = $0 })
         .frame(width: width, alignment: .leading)
-        .background(AppPalette.panelBackground(isDark), ignoresSafeAreaEdges: [])
     }
 
+}
+
+private struct SidebarReveal<Content: View>: View, Animatable {
+    var width: CGFloat
+    @ViewBuilder let content: (CGFloat) -> Content
+
+    var animatableData: CGFloat {
+        get { width }
+        set { width = newValue }
+    }
+
+    var body: some View {
+        content(width).transaction { $0.animation = nil }
+    }
 }
 
 /// Window-level cursor arbitration. PDFKit sets its own cursor (pointingHand over image-only pages, iBeam
@@ -520,12 +536,37 @@ struct ReaderResizeHandle: NSViewRepresentable {
 
 // MARK: - Tab Bar
 
+enum SidebarTabMetrics {
+    static let railWidth: CGFloat = 48
+    static let listInset: CGFloat = 6
+    static let leadingInset: CGFloat = 8
+    static let trailingInset: CGFloat = 2
+    static let iconSlotWidth = rowWidth(in: railWidth)
+
+    static func rowWidth(in panelWidth: CGFloat) -> CGFloat {
+        max(0, panelWidth - 2 * listInset - leadingInset - trailingInset)
+    }
+}
+
+struct SidebarTabBackground: View {
+    let color: Color
+    let width: CGFloat
+    let cornerRadius: CGFloat
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(color)
+            .frame(width: width)
+    }
+}
+
 struct TabBarView: View {
     @ObservedObject var store: AppStore
     @ObservedObject var session: ReaderWindowSession
     let isDark: Bool
     var isSidebar = false
     var isCollapsed = false
+    var sidebarRowWidth: CGFloat?
     var onDragActivityChanged: ((Bool) -> Void)?
 
     @State private var hoveredTabID: UUID?
@@ -542,6 +583,7 @@ struct TabBarView: View {
     private static let shortcutsHelpButtonWidth: CGFloat = 34
     private static let minimumTabWidth: CGFloat = 168
     private static let maximumTabWidth: CGFloat = 340
+    private static let maximumGroupWidth: CGFloat = 180
     private static let sidebarRowHeight: CGFloat = 44
     /// The Open File row plus its bottom inset; the popup resize boundary stays above it so the row keeps its clicks
     static let sidebarFooterHeight: CGFloat = sidebarRowHeight + 6
@@ -558,7 +600,7 @@ struct TabBarView: View {
             else { topTabs }
         }
         .background(TabStripAnchor(session: session, axis: isSidebar ? .vertical : .horizontal))
-        .background(isSidebar ? AppPalette.panelBackground(isDark) : AppPalette.tabStripBackground(isDark),
+        .background(isSidebar ? AppPalette.sidebarTabsBackground(isDark) : AppPalette.tabStripBackground(isDark),
                     ignoresSafeAreaEdges: [])
         .animation(AppAnimation.tab, value: session.tabDragPreview?.placement)
         .accessibilityElement(children: .contain)
@@ -615,20 +657,23 @@ struct TabBarView: View {
         return result
     }
 
-    private func groupWidth(_ group: ReaderTabGroup) -> CGFloat {
+    private func groupWidth(_ group: ReaderTabGroup, available: CGFloat) -> CGFloat {
+        if session.editingTabGroupID == group.id { return min(Self.maximumGroupWidth, available) }
         if group.name.isEmpty { return 32 }
-        let label = group.name as NSString
-        return min(180, max(52, ceil(label.size(withAttributes: [.font: NSFont.systemFont(ofSize: 11, weight: .semibold)]).width) + 24))
+        let font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        let labelWidth = (group.name as NSString).size(withAttributes: [.font: font]).width
+        return min(Self.maximumGroupWidth, max(52, ceil(labelWidth) + 24))
     }
 
     private func groupHeader(_ group: ReaderTabGroup) -> some View {
         TabGroupHeader(store: store, session: session, group: group,
                        isSidebar: isSidebar, isCompact: isCollapsed, isDark: isDark,
+                       sidebarRowWidth: sidebarRowWidth,
                        onDragChanged: { location in
                            if draggingGroupID == nil { onDragActivityChanged?(true) }
                            draggingGroupID = group.id
-                           dragFeedback.update(title: group.displayName, isDark: isDark,
-                                               at: location, target: nil)
+                           dragFeedback.update(title: group.name, isDark: isDark, at: location, target: nil,
+                                               isSidebar: isSidebar, style: .group(group.color))
                            if session.containsTabStrip(location.screenPoint) {
                                session.showGroupInsertion(at: location.screenPoint)
                            } else { session.clearTabInsertion() }
@@ -663,7 +708,7 @@ struct TabBarView: View {
                         }
                     }
                 }
-                .padding(.leading, 6)
+                .padding(.leading, SidebarTabMetrics.leadingInset - SidebarTabMetrics.trailingInset)
                 .background(alignment: .leading) {
                     if !group.isCollapsed && !group.tabIDs.isEmpty {
                         Capsule().fill(AppPalette.tabOutline(group.color, isDark))
@@ -672,7 +717,7 @@ struct TabBarView: View {
                             .allowsHitTesting(false)
                     }
                 }
-                .padding(2)
+                .padding(SidebarTabMetrics.trailingInset)
             }
             if showsUngroupedSection {
                 VStack(spacing: 2) {
@@ -680,12 +725,12 @@ struct TabBarView: View {
                         tabItem(state, count: documentTabs.count).frame(height: Self.sidebarRowHeight).id(state.id)
                     }
                 }
-                .padding(.leading, isCollapsed ? 8 : 0)
-                .padding(.trailing, isCollapsed ? 2 : 0)
+                .padding(.leading, SidebarTabMetrics.leadingInset)
+                .padding(.trailing, SidebarTabMetrics.trailingInset)
                 .frame(maxWidth: .infinity)
             }
         }
-        .padding(.horizontal, 6)
+        .padding(.horizontal, SidebarTabMetrics.listInset)
         .padding(.top, 6)
         .padding(.bottom, 2)
         .animation(AppAnimation.tab, value: session.tabDragPreview?.placement)
@@ -708,10 +753,10 @@ struct TabBarView: View {
                 scrollingTabs(.vertical) { sidebarList }
                 .frame(height: listHeight)
                 openFileButton
-                    .padding(.leading, isCollapsed ? 8 : 0)
-                    .padding(.trailing, isCollapsed ? 2 : 0)
+                    .padding(.leading, SidebarTabMetrics.leadingInset)
+                    .padding(.trailing, SidebarTabMetrics.trailingInset)
                     .frame(height: Self.sidebarRowHeight)
-                    .padding(.horizontal, 6)
+                    .padding(.horizontal, SidebarTabMetrics.listInset)
                     .padding(.bottom, 6)
                 Spacer(minLength: 0)
             }
@@ -723,10 +768,6 @@ struct TabBarView: View {
             let documentTabs = self.documentTabs
             let entries = self.entries
             let visibleCount = entries.filter { if case .document = $0 { return true }; return false }.count
-            let headersWidth = entries.reduce(CGFloat.zero) { width, entry in
-                if case .group(let group) = entry { return width + groupWidth(group) }
-                return width
-            }
             let showsAllTabsMenu = documentTabs.count >= 2
             let openWidth = min(156, ceil((openFileTitle as NSString).size(
                 withAttributes: [.font: NSFont.systemFont(ofSize: 12, weight: .medium)]
@@ -738,21 +779,26 @@ struct TabBarView: View {
                 0,
                 proxy.size.width - trailingControlsWidth - Self.reservedTrailingWidth - 1
             )
+            let headersWidth = entries.reduce(CGFloat.zero) { width, entry in
+                if case .group(let group) = entry { return width + groupWidth(group, available: available) }
+                return width
+            }
             let fitWidth = visibleCount == 0
                 ? Self.maximumTabWidth
                 : ((available - headersWidth - CGFloat(visibleCount)) / CGFloat(visibleCount)).rounded(.down)
             let tabWidth = min(Self.maximumTabWidth, max(Self.minimumTabWidth, fitWidth))
+            let stripWidth = headersWidth + CGFloat(visibleCount) * (tabWidth + 1)
 
             HStack(spacing: 0) {
                 tabSeparator
 
-                if fitWidth < Self.minimumTabWidth || headersWidth > available {
+                if session.editingTabGroupID != nil || fitWidth < Self.minimumTabWidth || headersWidth > available {
                     scrollingTabs(.horizontal) {
-                        documentTabsRow(documentTabs, tabWidth: tabWidth)
+                        documentTabsRow(documentTabs, tabWidth: tabWidth, available: available)
                     }
-                    .frame(width: available)
+                    .frame(width: min(available, stripWidth))
                 } else {
-                    documentTabsRow(documentTabs, tabWidth: tabWidth)
+                    documentTabsRow(documentTabs, tabWidth: tabWidth, available: available)
                         .animation(AppAnimation.tab, value: documentTabs.count)
                 }
 
@@ -780,30 +826,35 @@ struct TabBarView: View {
                 ScrollView(axis, showsIndicators: axis == .vertical, content: content)
                     .onAppear {
                         DispatchQueue.main.async {
-                            scrollProxy.scrollTo(session.selectedTabScrollID, anchor: anchor)
+                            scrollProxy.scrollTo(session.editingTabGroupID ?? session.selectedTabScrollID, anchor: anchor)
                         }
                     }
+                    .onChange(of: session.editingTabGroupID) { _, id in
+                        guard let id else { return }
+                        DispatchQueue.main.async { scrollProxy.scrollTo(id, anchor: anchor) }
+                    }
                     .onChange(of: session.selectedTabScrollID) { _, newID in
+                        guard session.editingTabGroupID == nil else { return }
                         withAnimation(AppAnimation.tab) {
                             scrollProxy.scrollTo(newID, anchor: anchor)
                         }
                     }
                     .onChange(of: axis == .vertical ? geometry.size.height : geometry.size.width) { _, _ in
                         DispatchQueue.main.async {
-                            scrollProxy.scrollTo(session.selectedTabScrollID, anchor: anchor)
+                            scrollProxy.scrollTo(session.editingTabGroupID ?? session.selectedTabScrollID, anchor: anchor)
                         }
                     }
                     .onChange(of: entries.map(\.id)) { _, _ in
                         guard draggingTabID == nil, session.tabDragPreview == nil else { return }
                         DispatchQueue.main.async {
-                            scrollProxy.scrollTo(session.selectedTabScrollID, anchor: anchor)
+                            scrollProxy.scrollTo(session.editingTabGroupID ?? session.selectedTabScrollID, anchor: anchor)
                         }
                     }
             }
         }
     }
 
-    private func documentTabsRow(_ documentTabs: [DocumentTabState], tabWidth: CGFloat) -> some View {
+    private func documentTabsRow(_ documentTabs: [DocumentTabState], tabWidth: CGFloat, available: CGFloat) -> some View {
         HStack(spacing: 0) {
             ForEach(entries) { entry in
                 switch entry {
@@ -814,7 +865,7 @@ struct TabBarView: View {
                     }
                     .overlay(alignment: .bottom) {
                         if let color = session.displayedTabGroup(containing: state.id)?.color {
-                            if session.selectedTabID == state.id && session.tabDragPreview == nil {
+                            if session.selectedTabID == state.id && session.tabDragPreview?.tab.id != state.id {
                                 TabContour()
                                     .stroke(AppPalette.tabOutline(color, isDark),
                                             style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
@@ -827,7 +878,7 @@ struct TabBarView: View {
                     .id(state.id)
                     .transition(.opacity)
                 case .group(let group):
-                    groupHeader(group).frame(width: groupWidth(group)).id(group.id)
+                    groupHeader(group).frame(width: groupWidth(group, available: available)).id(group.id)
                 }
             }
         }
@@ -841,13 +892,14 @@ struct TabBarView: View {
             state: state,
             disambiguatedFolder: store.disambiguatedFolder(for: state),
             documentTabCount: count,
-            isSelected: session.selectedTabID == state.id && (session.tabDragPreview == nil || session.tabDragPreview?.tab.id == state.id),
+            isSelected: session.selectedTabID == state.id,
             isHovered: hoveredTabID == state.id,
             isDragging: draggingTabID == state.id || session.tabDragPreview?.tab.id == state.id
                 || session.tabGroup(containing: state.id)?.id == draggingGroupID && draggingGroupID != nil,
             isDark: isDark,
             isSidebar: isSidebar,
             isCollapsed: isCollapsed,
+            sidebarRowWidth: sidebarRowWidth,
             onHoverChanged: { hovering in
                 hoveredTabID = hovering ? state.id : (hoveredTabID == state.id ? nil : hoveredTabID)
             },
@@ -856,7 +908,8 @@ struct TabBarView: View {
                 draggingTabID = state.id
                 let target = store.tabDropTarget(at: location.screenPoint)
                 dragFeedback.update(title: state.title, isDark: isDark, at: location,
-                                    target: target, tab: state, isSidebar: isSidebar)
+                                    target: target, tab: state, isSidebar: isSidebar,
+                                    style: .document(isSelected: session.selectedTabID == state.id))
             },
             onDragEnded: { location in
                 let target = location.flatMap { store.tabDropTarget(at: $0.screenPoint) }
@@ -910,16 +963,25 @@ struct TabBarView: View {
             store.openFilePicker(in: session.id)
         } label: {
             HStack(spacing: 5) {
-                Image(systemName: "plus").font(.system(size: isSidebar ? 17 : 14))
+                Image(systemName: "plus")
+                    .font(.system(size: isSidebar ? 17 : 14))
+                    .frame(width: isSidebar ? SidebarTabMetrics.iconSlotWidth : nil)
                 if !isCollapsed { Text(openFileTitle).font(.system(size: 12)) }
             }
             .foregroundStyle(AppPalette.labelSecondary(isDark))
             .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
-            .padding(.leading, isCollapsed ? 0 : 12)
+            .padding(.leading, isSidebar ? 0 : 12)
             .padding(.trailing, isCollapsed ? 0 : 8)
             .frame(maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: 6)
-                .fill(isOpenFileHovered ? AppPalette.tabHoverBackground(isDark) : Color.clear))
+            .background(alignment: .leading) {
+                if let sidebarRowWidth {
+                    SidebarTabBackground(color: isOpenFileHovered ? AppPalette.sidebarTabHoverBackground(isDark) : .clear,
+                                         width: sidebarRowWidth, cornerRadius: 6)
+                } else {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(isOpenFileHovered ? AppPalette.tabHoverBackground(isDark) : .clear)
+                }
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1038,36 +1100,39 @@ struct DocumentTabItemView: View {
     let isDark: Bool
     let isSidebar: Bool
     var isCollapsed = false
+    var sidebarRowWidth: CGFloat?
     let onHoverChanged: (Bool) -> Void
     let onDragChanged: (TabDragLocation) -> Void
     let onDragEnded: (TabDragLocation?) -> Void
 
     @State private var isCloseHovered = false
-    @Environment(\.appAccentColor) private var accent
-
     private var showsCloseButton: Bool {
         !isCollapsed && (isSelected || isHovered)
     }
 
+    private var labelColor: Color {
+        isSelected ? AppPalette.labelPrimary(isDark) : AppPalette.labelSecondary(isDark)
+    }
+
+    private var highlight: Color {
+        AppPalette.documentTabHighlight(isSelected: isSelected, isSidebar: isSidebar, isDark: isDark)
+    }
+
     var body: some View {
         HStack(spacing: 5) {
-            if isCollapsed {
+            if isSidebar {
+                // This slot stays in the same place when the row reveals its title.
                 Image(systemName: "doc.text")
                     .font(.system(size: 17))
-                    .foregroundStyle(isSelected ? accent : AppPalette.labelSecondary(isDark))
-                    .frame(maxWidth: .infinity)
+                    .foregroundStyle(labelColor)
+                    .frame(width: SidebarTabMetrics.iconSlotWidth)
                     .accessibilityHidden(true)
-            } else {
-                if isSidebar {
-                    Image(systemName: "doc.text")
-                        .font(.system(size: 17))
-                        .foregroundStyle(isSelected ? accent : AppPalette.labelSecondary(isDark))
-                        .accessibilityHidden(true)
-                }
+            }
+            if !isCollapsed {
                 HStack(spacing: 5) {
                     Text(state.title)
                         .font(.system(size: 12, weight: isSelected ? .medium : .regular))
-                        .foregroundColor(isSelected ? AppPalette.labelPrimary(isDark) : AppPalette.labelSecondary(isDark))
+                        .foregroundColor(labelColor)
                         .lineLimit(isSidebar ? 2 : 1)
                         .truncationMode(.middle)
 
@@ -1090,7 +1155,7 @@ struct DocumentTabItemView: View {
                 .accessibilityHidden(true)
             }
 
-            if showsCloseButton || (isSidebar && !isCollapsed) {
+            if !isCollapsed {
                 Button {
                     store.closeTab(id: state.id, in: session.id)
                 } label: {
@@ -1114,30 +1179,22 @@ struct DocumentTabItemView: View {
                 .transition(.opacity)
             }
         }
-        .padding(.leading, isCollapsed ? 0 : (isSidebar ? (session.displayedTabGroup(containing: state.id) != nil ? 2 : 10) : 12))
-        .padding(.trailing, isCollapsed ? 0 : ((isSidebar || showsCloseButton) ? 8 : 12))
+        .padding(.leading, isSidebar ? 0 : 12)
+        .padding(.trailing, isCollapsed ? 0 : 8)
         .frame(maxHeight: .infinity)
-        .background {
-            if isSidebar {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(isSelected ? AppPalette.tabSelectedBackground(isDark)
-                        : (isHovered ? AppPalette.tabHoverBackground(isDark) : Color.clear))
+        .background(alignment: .leading) {
+            if let sidebarRowWidth {
+                SidebarTabBackground(color: isSelected || isHovered ? highlight : .clear,
+                                     width: sidebarRowWidth, cornerRadius: 8)
             } else if isSelected || isHovered {
                 if session.displayedTabGroup(containing: state.id) != nil {
-                    TabContour().fill(isSelected ? AppPalette.tabSelectedBackground(isDark)
-                                      : AppPalette.tabHoverBackground(isDark))
+                    TabContour().fill(highlight)
                 } else {
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(isSelected ? AppPalette.tabSelectedBackground(isDark)
-                              : AppPalette.tabHoverBackground(isDark))
+                        .fill(highlight)
                         .padding(.horizontal, 4)
                         .padding(.vertical, 3)
                 }
-            }
-        }
-        .background {
-            if isSidebar && session.displayedTabGroup(containing: state.id) != nil {
-                accent.opacity(isDark ? 0.06 : 0.04)
             }
         }
         .opacity(isDragging ? (session.tabDragPreview?.tab.id == state.id ? 0 : 0.3) : 1)
@@ -1159,7 +1216,7 @@ struct DocumentTabItemView: View {
         .contextMenu {
             Menu(L10n.tr("添加到分组", "Add to Group")) {
                 Button(L10n.tr("新建分组…", "New Group…")) {
-                    store.editTabGroup(containing: state.id, in: session.id)
+                    store.beginCreatingTabGroup(containing: state.id, in: session.id)
                 }
                 if !session.tabGroups.isEmpty {
                     Divider()

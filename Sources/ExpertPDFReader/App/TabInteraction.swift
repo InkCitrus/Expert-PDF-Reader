@@ -239,8 +239,14 @@ private final class TabStripAnchorView: NSView {
 
 extension ReaderWindowSession {
     var displayedTabGroups: [ReaderTabGroup] {
-        guard let preview = tabDragPreview else { return tabGroups }
-        return tabGroups.map { group in
+        var groups = tabGroups
+        if let draft = tabGroupNameEdit?.draftGroup {
+            for index in groups.indices { groups[index].tabIDs.subtract(draft.tabIDs) }
+            groups.removeAll { $0.tabIDs.isEmpty }
+            groups.append(draft)
+        }
+        guard let preview = tabDragPreview else { return groups }
+        return groups.map { group in
             var group = group
             group.tabIDs.remove(preview.tab.id)
             if group.id == preview.placement.groupID {
@@ -256,11 +262,14 @@ extension ReaderWindowSession {
             if case .document(let state) = tab { return state }
             return nil
         }
-        guard let preview = tabDragPreview else { return documents }
-        documents.removeAll { $0.id == preview.tab.id }
-        let index = preview.placement.beforeTabID.flatMap { id in documents.firstIndex { $0.id == id } }
-            ?? documents.count
-        documents.insert(preview.tab, at: index)
+        if let preview = tabDragPreview {
+            documents.removeAll { $0.id == preview.tab.id }
+            let index = preview.placement.beforeTabID.flatMap { id in documents.firstIndex { $0.id == id } }
+                ?? documents.count
+            documents.insert(preview.tab, at: index)
+        } else if tabGroupNameEdit?.draftGroup == nil {
+            return documents
+        }
         let groups = displayedTabGroups
         let groupedIDs = Set(groups.flatMap(\.tabIDs))
         return groups.flatMap { group in documents.filter { group.tabIDs.contains($0.id) } }
@@ -380,15 +389,21 @@ extension ReaderWindowSession {
 /// Lightweight drag image and live placement preview, including when crossing window boundaries.
 /// The panel ignores events and never becomes key, so the native mouse sequence stays with its source.
 @MainActor final class TabDragFeedback {
+    enum Style {
+        case document(isSelected: Bool)
+        case group(TabGroupColor)
+    }
+
     private var panel: NSPanel?
     private var label: NSTextField?
     private var documentIcon: NSImageView?
     private var closeIcon: NSImageView?
+    private var groupPill: CALayer?
     private weak var markedSession: ReaderWindowSession?
     private weak var markedComparison: ComparisonDropView?
 
     func update(title: String, isDark: Bool, at location: TabDragLocation, target: ReaderTabDropTarget?,
-                tab: DocumentTabState? = nil, isSidebar: Bool = false) {
+                tab: DocumentTabState? = nil, isSidebar: Bool = false, style: Style = .document(isSelected: true)) {
         if panel == nil {
             let panel = NSPanel(contentRect: location.previewFrame,
                                 styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -403,11 +418,13 @@ extension ReaderWindowSession {
             view.layer?.cornerRadius = 8
             view.layer?.masksToBounds = true
             view.layer?.borderWidth = 0.5
+            let groupPill = CALayer()
+            view.layer?.insertSublayer(groupPill, at: 0)
+            self.groupPill = groupPill
             let label = NSTextField(labelWithString: title)
             label.frame = NSRect(x: 12, y: (location.tabSize.height - 18) * 0.5,
                                  width: location.tabSize.width - 24, height: 18)
             label.autoresizingMask = [.width, .minYMargin, .maxYMargin]
-            label.font = .systemFont(ofSize: 12, weight: .medium)
             label.lineBreakMode = .byTruncatingMiddle
             view.addSubview(label)
             let documentIcon = NSImageView()
@@ -426,11 +443,27 @@ extension ReaderWindowSession {
         }
         // A detached panel does not inherit the source window's appearance. Use the same explicit
         // palette as its tab strip instead of resolving a dynamic NSColor into a light CGColor.
+        let ink: Color
+        let fill: Color
+        let font: NSFont
+        let groupRadius: CGFloat?
+        switch style {
+        case .document(let isSelected):
+            ink = isSelected ? AppPalette.labelPrimary(isDark) : AppPalette.labelSecondary(isDark)
+            fill = AppPalette.documentTabHighlight(isSelected: isSelected, isSidebar: isSidebar, isDark: isDark)
+            font = .systemFont(ofSize: 12, weight: isSelected ? .medium : .regular)
+            groupRadius = nil
+        case .group(let color):
+            ink = AppPalette.tabGroupLabel(color)
+            fill = AppPalette.tabGroupFill(color, isDark)
+            font = .systemFont(ofSize: isSidebar ? 12 : 11, weight: .semibold)
+            groupRadius = isSidebar ? 7 : 5
+        }
         panel?.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
-        panel?.contentView?.layer?.backgroundColor = NSColor(AppPalette.tabSelectedBackground(isDark)).cgColor
+        panel?.contentView?.layer?.backgroundColor = groupRadius == nil ? NSColor(fill).cgColor : NSColor.clear.cgColor
         panel?.contentView?.layer?.borderColor = NSColor(AppPalette.tabSeparator(isDark)).cgColor
-        label?.textColor = NSColor(AppPalette.labelPrimary(isDark))
-        label?.stringValue = title
+        label?.textColor = NSColor(ink)
+        label?.font = font
         let session: ReaderWindowSession?
         let comparison: ComparisonDropView?
         switch target {
@@ -464,24 +497,33 @@ extension ReaderWindowSession {
             else { frame.origin.y = rowFrame.minY }
         }
         panel?.hasShadow = !slidesInStrip
-        panel?.contentView?.layer?.borderWidth = slidesInStrip ? 0 : 0.5
-        panel?.contentView?.layer?.cornerRadius = 6
+        panel?.contentView?.layer?.borderWidth = slidesInStrip || groupRadius != nil ? 0 : 0.5
+        panel?.contentView?.layer?.cornerRadius = isSidebar ? 8 : 6
         panel?.setFrame(frame, display: true)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        groupPill?.isHidden = groupRadius == nil
+        if let groupRadius, let bounds = panel?.contentView?.bounds {
+            let height: CGFloat = isSidebar ? 28 : 20
+            groupPill?.frame = bounds.insetBy(dx: isSidebar ? 0 : 4, dy: max(0, (bounds.height - height) / 2))
+            groupPill?.cornerRadius = groupRadius
+            groupPill?.backgroundColor = NSColor(fill).cgColor
+        }
+        CATransaction.commit()
         let hasDocumentIcon = tab != nil && isSidebar
         let isCompact = isSidebar && frame.width < 80
-        let grouped = tab.flatMap { session?.displayedTabGroup(containing: $0.id) } != nil
-        let iconLeading: CGFloat = grouped ? 2 : 10
-        let leading: CGFloat = hasDocumentIcon ? iconLeading + 22 : 12
+        let leading: CGFloat = hasDocumentIcon ? SidebarTabMetrics.iconSlotWidth + 3 : (groupRadius == nil ? 12 : 6)
         let trailing: CGFloat = tab != nil ? 30 : 12
+        let wraps = isSidebar && groupRadius == nil
         let labelWidth = max(0, frame.width - leading - trailing)
         func textHeight(_ text: String) -> CGFloat {
             // Reserve the text field cell's horizontal insets before measuring wrapped text.
             ceil((text as NSString).boundingRect(with: NSSize(width: max(1, labelWidth - 8), height: .greatestFiniteMagnitude),
                 options: [.usesLineFragmentOrigin, .usesFontLeading],
-                attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .medium)]).height)
+                attributes: [.font: font]).height)
         }
         var displayedTitle = title
-        if isSidebar && !isCompact && textHeight(title) > 32 {
+        if wraps && !isCompact && textHeight(title) > 32 {
             // AppKit clips wrapped labels at two lines. Fit a middle ellipsis explicitly so the
             // distinguishing filename ending remains visible while the original row is moving.
             let characters = Array(title)
@@ -497,14 +539,14 @@ extension ReaderWindowSession {
             displayedTitle = shortened(lower)
         }
         label?.stringValue = displayedTitle
-        let labelHeight: CGFloat = isSidebar ? max(18, min(32, textHeight(displayedTitle))) : 18
+        let labelHeight: CGFloat = wraps ? max(18, min(32, textHeight(displayedTitle))) : 18
         label?.frame = NSRect(x: leading, y: (frame.height - labelHeight) / 2, width: labelWidth, height: labelHeight)
         label?.isHidden = isCompact
-        label?.maximumNumberOfLines = isSidebar ? 2 : 1
-        (label?.cell as? NSTextFieldCell)?.wraps = isSidebar
+        label?.maximumNumberOfLines = wraps ? 2 : 1
+        (label?.cell as? NSTextFieldCell)?.wraps = wraps
         documentIcon?.isHidden = !hasDocumentIcon
-        documentIcon?.contentTintColor = NSColor(AppPalette.accentBlue)
-        documentIcon?.frame = NSRect(x: isCompact ? (frame.width - 17) / 2 : iconLeading,
+        documentIcon?.contentTintColor = NSColor(ink)
+        documentIcon?.frame = NSRect(x: ((isCompact ? frame.width : SidebarTabMetrics.iconSlotWidth) - 17) / 2,
                                     y: (frame.height - 22) / 2, width: 17, height: 22)
         closeIcon?.isHidden = tab == nil || isCompact
         closeIcon?.contentTintColor = NSColor(AppPalette.labelSecondary(isDark))

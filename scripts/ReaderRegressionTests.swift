@@ -129,6 +129,145 @@ struct ReaderRegressionTests {
             } == true, "a stroked frame crops to its drawn extent after applying the PDF transform")
         }
         do {
+            // Paired vertical sidebars enclosing solution rows form a single panel region.
+            let data = NSMutableData()
+            var media = CGRect(x: 0, y: 0, width: 612, height: 792)
+            let context = CGContext(consumer: CGDataConsumer(data: data)!, mediaBox: &media, nil)!
+            context.beginPDFPage(nil)
+            context.setFillColor(gray: 1, alpha: 1)
+            context.fill(media)
+            context.setStrokeColor(red: 0, green: 0, blue: 0.6, alpha: 1)
+            context.setLineWidth(2.8)
+            context.move(to: CGPoint(x: 72, y: 180)); context.addLine(to: CGPoint(x: 72, y: 380)); context.strokePath()
+            context.move(to: CGPoint(x: 540, y: 180)); context.addLine(to: CGPoint(x: 540, y: 380)); context.strokePath()
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.black]
+            ("Outside header line." as NSString).draw(at: CGPoint(x: 85, y: 420), withAttributes: attrs)
+            ("Solution: First solution step." as NSString).draw(at: CGPoint(x: 90, y: 350), withAttributes: attrs)
+            ("Second solution step." as NSString).draw(at: CGPoint(x: 90, y: 325), withAttributes: attrs)
+            ("Final answer." as NSString).draw(at: CGPoint(x: 90, y: 300), withAttributes: attrs)
+            NSGraphicsContext.restoreGraphicsState()
+            context.endPDFPage()
+            context.closePDF()
+            let document = PDFDocument(data: data as Data)!
+            let page = document.page(at: 0)!
+            let regions = PDFFramedRegions.regions(on: page, geometry: NativePDFPageGeometry.geometry(for: page))
+            check(regions.count == 1 && regions[0].kind == .panel
+                  && abs(regions[0].bounds.minX - 70.6) < 1 && abs(regions[0].bounds.maxX - 541.4) < 1
+                  && abs(regions[0].bounds.minY - 178.6) < 2 && abs(regions[0].bounds.maxY - 381.4) < 2,
+                  "paired vertical sidebars enclose solution content as one framed panel")
+        }
+        do {
+            // Outer framed box containing a vector diagram with short labels and a ruled 2x2 table.
+            let data = NSMutableData()
+            var media = CGRect(x: 0, y: 0, width: 612, height: 792)
+            let context = CGContext(consumer: CGDataConsumer(data: data)!, mediaBox: &media, nil)!
+            context.beginPDFPage(nil)
+            context.setFillColor(gray: 1, alpha: 1)
+            context.fill(media)
+            context.setStrokeColor(gray: 0.2, alpha: 1)
+            context.setLineWidth(1.5)
+            context.stroke(CGRect(x: 70, y: 300, width: 470, height: 340))
+            // Blue diagram block with feed arrow + diagonal arrowheads
+            context.setFillColor(red: 0, green: 0, blue: 1, alpha: 1)
+            context.setStrokeColor(gray: 0, alpha: 1)
+            context.setLineWidth(0.6)
+            context.addRect(CGRect(x: 280, y: 500, width: 32, height: 60))
+            context.drawPath(using: .fillStroke)
+            context.move(to: CGPoint(x: 245, y: 530)); context.addLine(to: CGPoint(x: 279, y: 530)); context.strokePath()
+            context.move(to: CGPoint(x: 275, y: 533)); context.addLine(to: CGPoint(x: 279, y: 530)); context.addLine(to: CGPoint(x: 275, y: 527)); context.strokePath()
+            context.move(to: CGPoint(x: 312, y: 530)); context.addLine(to: CGPoint(x: 346, y: 530)); context.strokePath()
+            context.move(to: CGPoint(x: 342, y: 533)); context.addLine(to: CGPoint(x: 346, y: 530)); context.addLine(to: CGPoint(x: 342, y: 527)); context.strokePath()
+            // Ruled 2x2 table
+            for y in [340.0, 360.0, 380.0] {
+                context.move(to: CGPoint(x: 220, y: y)); context.addLine(to: CGPoint(x: 380, y: y)); context.strokePath()
+            }
+            for x in [220.0, 300.0, 380.0] {
+                context.move(to: CGPoint(x: x, y: 340)); context.addLine(to: CGPoint(x: x, y: 380)); context.strokePath()
+            }
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.black]
+            ("Exercise Heading inside outer box." as NSString).draw(at: CGPoint(x: 85, y: 605), withAttributes: attrs)
+            ("feed" as NSString).draw(at: CGPoint(x: 215, y: 525), withAttributes: attrs)
+            ("out" as NSString).draw(at: CGPoint(x: 350, y: 525), withAttributes: attrs)
+            ("Col A" as NSString).draw(at: CGPoint(x: 235, y: 365), withAttributes: attrs)
+            ("Col B" as NSString).draw(at: CGPoint(x: 315, y: 365), withAttributes: attrs)
+            ("12" as NSString).draw(at: CGPoint(x: 245, y: 345), withAttributes: attrs)
+            ("34" as NSString).draw(at: CGPoint(x: 325, y: 345), withAttributes: attrs)
+            ("Concluding sentence inside outer box." as NSString).draw(at: CGPoint(x: 85, y: 312), withAttributes: attrs)
+            NSGraphicsContext.restoreGraphicsState()
+            context.endPDFPage()
+            context.closePDF()
+            let document = PDFDocument(data: data as Data)!
+            let page = document.page(at: 0)!
+            let regions = PDFFramedRegions.regions(on: page, geometry: NativePDFPageGeometry.geometry(for: page))
+            let figure = regions.first(where: { $0.kind == .figure })
+            let table = regions.first(where: { $0.kind == .table })
+            let panel = regions.first(where: { $0.kind == .panel })
+            check(panel != nil && figure != nil && table != nil,
+                  "nested figure and ruled table remain distinct inside an enclosing framed panel")
+            if let figure {
+                check(figure.bounds.minX <= 220 && figure.bounds.maxX >= 360,
+                      "vector figure region absorbs short adjacent diagram labels")
+            }
+        }
+        do {
+            // An open L-shaped orthogonal border around prose lines must not become a figure or panel.
+            let data = NSMutableData()
+            var media = CGRect(x: 0, y: 0, width: 612, height: 792)
+            let context = CGContext(consumer: CGDataConsumer(data: data)!, mediaBox: &media, nil)!
+            context.beginPDFPage(nil)
+            context.setFillColor(gray: 1, alpha: 1)
+            context.fill(media)
+            context.setStrokeColor(gray: 0.2, alpha: 1)
+            context.setLineWidth(1)
+            context.move(to: CGPoint(x: 150, y: 500))
+            context.addLine(to: CGPoint(x: 540, y: 500))
+            context.addLine(to: CGPoint(x: 540, y: 420))
+            context.strokePath()
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.black]
+            ("First prose sentence spanning across the page width cleanly." as NSString).draw(at: CGPoint(x: 80, y: 480), withAttributes: attrs)
+            ("Second prose sentence spanning across the page width cleanly." as NSString).draw(at: CGPoint(x: 80, y: 460), withAttributes: attrs)
+            NSGraphicsContext.restoreGraphicsState()
+            context.endPDFPage()
+            context.closePDF()
+            let document = PDFDocument(data: data as Data)!
+            let page = document.page(at: 0)!
+            let regions = PDFFramedRegions.regions(on: page, geometry: NativePDFPageGeometry.geometry(for: page))
+            check(regions.isEmpty, "open L-shaped rule borders do not produce false figure or table regions")
+        }
+        do {
+            // Combining negation slash stays attached and tall isolated math delimiters stay out of body rows.
+            let data = NSMutableData()
+            var media = CGRect(x: 0, y: 0, width: 612, height: 792)
+            let context = CGContext(consumer: CGDataConsumer(data: data)!, mediaBox: &media, nil)!
+            context.beginPDFPage(nil)
+            context.setFillColor(gray: 1, alpha: 1)
+            context.fill(media)
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            ("If det(A) =\u{0338} 0 then solve." as NSString).draw(
+                at: CGPoint(x: 90, y: 500),
+                withAttributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.black])
+            ("(" as NSString).draw(
+                at: CGPoint(x: 320, y: 488),
+                withAttributes: [.font: NSFont.systemFont(ofSize: 48), .foregroundColor: NSColor.black])
+            NSGraphicsContext.restoreGraphicsState()
+            context.endPDFPage()
+            context.closePDF()
+            let document = PDFDocument(data: data as Data)!
+            let page = document.page(at: 0)!
+            let geometry = NativePDFPageGeometry.geometry(for: page)
+            check(!geometry.excludedIndices.isEmpty && geometry.needsDirectSelection,
+                  "tall isolated math delimiters are excluded from body rows and trigger direct selection")
+            check(geometry.rows.contains { geometry.text(for: $0, on: page).contains("=\u{0338}") || geometry.text(for: $0, on: page).contains("\u{0338}=") || geometry.text(for: $0, on: page).contains("≠") },
+                  "combining negation slash is preserved in row text")
+        }
+        do {
             // Two columns: a high left line and a low right line. A drag whose higher point sits in the
             // right column and lower point in the left column resolves the "first" line below the "last"
             // line, which used to invert verticalRange's closed range and trap.

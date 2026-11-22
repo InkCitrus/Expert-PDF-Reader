@@ -91,25 +91,54 @@ final class PDFContentAccessibility {
     private func buildPage(_ page: PDFPage, geometry: NativePDFPageGeometry, in view: PDFView, index: Int) -> GeometryElement {
         let root = GeometryElement(page: page, rect: geometry.cropBox, view: view, role: .group, label: L10n.pageTitle(String(index + 1)))
         root.setAccessibilityParent(view)
-        let frames = PDFFramedRegions.bounds(on: page, geometry: geometry)
-        var framedLines = frames.map { _ in [GeometryElement]() }
+        let regions = PDFFramedRegions.regions(on: page, geometry: geometry)
+        func area(_ rect: CGRect) -> CGFloat { max(0, rect.width) * max(0, rect.height) }
+        let parents: [Int?] = regions.indices.map { i in
+            let inner = regions[i].bounds
+            return regions.indices.filter { j in
+                j != i && regions[j].kind != .figure && area(regions[j].bounds) > area(inner)
+                    && regions[j].bounds.insetBy(dx: -1, dy: -1).contains(inner)
+            }.min { area(regions[$0].bounds) < area(regions[$1].bounds) }
+        }
+        var regionLines = regions.map { _ in [GeometryElement]() }
+        var figureLabels = regions.map { _ in [String]() }
         var plainLines: [GeometryElement] = []
         for row in geometry.rows {
-            for (frame, row) in Self.split(row, across: frames) {
+            for (frame, row) in Self.split(row, across: regions) {
                 let clean = geometry.text(for: row, on: page)
                 guard !clean.isEmpty else { continue }
-                let bounds = frame.map { row.bounds.intersection(frames[$0]) } ?? row.bounds
+                if let frame, regions[frame].kind == .figure {
+                    figureLabels[frame].append(clean)
+                    continue
+                }
+                let bounds = frame.map { row.bounds.intersection(regions[$0].bounds) } ?? row.bounds
                 let line = GeometryElement(page: page, rect: bounds, view: view, role: .staticText, label: nil)
                 line.setAccessibilityValue(clean)
-                if let frame { framedLines[frame].append(line) }
+                if let frame { regionLines[frame].append(line) }
                 else { plainLines.append(line) }
             }
         }
-        var elements = paragraphRegions(for: plainLines, on: page, in: view)
-        for (frame, lines) in zip(frames, framedLines) where !lines.isEmpty {
-            elements.append(region(with: lines, bounds: frame, on: page, in: view))
+        var childRegions = regions.map { _ in [GeometryElement]() }
+        var topRegions: [GeometryElement] = []
+        for i in regions.indices.sorted(by: { area(regions[$0].bounds) < area(regions[$1].bounds) }) {
+            let item = regions[i]
+            let built: GeometryElement?
+            if item.kind == .figure {
+                let label = figureLabels[i].isEmpty ? nil : figureLabels[i].joined(separator: " ")
+                built = GeometryElement(page: page, rect: item.bounds, view: view, role: .image, label: label)
+            } else {
+                let children = (regionLines[i] + childRegions[i]).sorted {
+                    if $0.pageRect.maxY == $1.pageRect.maxY { return $0.pageRect.minX < $1.pageRect.minX }
+                    return $0.pageRect.maxY > $1.pageRect.maxY
+                }
+                built = children.isEmpty ? nil : region(with: children, bounds: item.bounds, on: page, in: view)
+            }
+            guard let built else { continue }
+            if let parent = parents[i] { childRegions[parent].append(built) }
+            else { topRegions.append(built) }
         }
-        if !frames.isEmpty {
+        var elements = paragraphRegions(for: plainLines, on: page, in: view) + topRegions
+        if !regions.isEmpty {
             elements.sort {
                 if $0.pageRect.maxY == $1.pageRect.maxY { return $0.pageRect.minX < $1.pageRect.minX }
                 return $0.pageRect.maxY > $1.pageRect.maxY
@@ -127,14 +156,17 @@ final class PDFContentAccessibility {
     }
 
     /// A physical row can straddle a box edge, for example when a title shares a baseline
-    /// with a margin note. Give each region only the ink inside its own border.
-    private static func split(_ row: NativePDFPageGeometry.Row, across frames: [CGRect])
+    /// with a margin note or sits inside a nested sub-region. Assign each glyph to its smallest enclosing region.
+    private static func split(_ row: NativePDFPageGeometry.Row, across regions: [PDFFramedRegions.Region])
         -> [(Int?, NativePDFPageGeometry.Row)] {
-        guard !frames.isEmpty else { return [(nil, row)] }
+        guard !regions.isEmpty else { return [(nil, row)] }
+        func area(_ rect: CGRect) -> CGFloat { max(0, rect.width) * max(0, rect.height) }
         var runs: [(frame: Int?, glyphs: [NativePDFPageGeometry.Glyph])] = []
         for glyph in row.glyphs {
             let center = CGPoint(x: glyph.bounds.midX, y: glyph.bounds.midY)
-            let frame = frames.firstIndex { $0.contains(center) }
+            let frame = regions.indices
+                .filter { regions[$0].bounds.contains(center) }
+                .min { area(regions[$0].bounds) < area(regions[$1].bounds) }
             if let last = runs.last, last.frame == frame {
                 runs[runs.count - 1].glyphs.append(glyph)
             } else {

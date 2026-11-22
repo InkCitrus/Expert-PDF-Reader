@@ -4,15 +4,21 @@ import SwiftUI
 /// `Settings` scene (⌘,), also reachable from the Home sidebar's 设置 / Settings row via `SettingsLink`.
 struct SettingsView: View {
     @ObservedObject var store: AppStore
+    @Environment(\.colorScheme) private var colorScheme
+    private var isDark: Bool { colorScheme == .dark }
+    private var accent: Color { store.accentColor.color(isDark: isDark) }
 
     var body: some View {
         Form {
             Section {
                 LabeledContent(L10n.tr("默认 PDF 应用", "Default PDF App")) {
                     if store.isDefaultPDFApp {
-                        Label("Expert PDF Reader", systemImage: "checkmark.circle.fill")
-                            .labelStyle(.titleAndIcon)
-                            .foregroundStyle(.secondary)
+                        HStack(spacing: 5) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(accent)
+                            Text("Expert PDF Reader")
+                                .foregroundStyle(.secondary)
+                        }
                     } else {
                         Button(L10n.tr("设为默认", "Make Default")) {
                             store.makeDefaultPDFApp()
@@ -93,6 +99,8 @@ struct SettingsView: View {
         .scrollDisabled(true)
         .fixedSize(horizontal: false, vertical: true)
         .frame(width: 480)
+        .tint(accent)
+        .environment(\.appAccentColor, accent)
         .onAppear { store.refreshDefaultPDFApp() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             store.refreshDefaultPDFApp()
@@ -134,17 +142,19 @@ private struct AccentSwatchButton: View {
     let isSelected: Bool
     let action: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var isHovered = false
 
     var body: some View {
+        let swatchColor = preset.color(isDark: colorScheme == .dark)
         Button(action: action) {
             ZStack {
                 Circle()
-                    .strokeBorder(preset.color, lineWidth: 1.5)
+                    .strokeBorder(swatchColor, lineWidth: 1.5)
                     .frame(width: 28, height: 28)
                     .opacity(isSelected ? 1 : 0)
                 Circle()
-                    .fill(preset.color)
+                    .fill(swatchColor)
                     .frame(width: 18, height: 18)
                 if isSelected {
                     Image(systemName: "checkmark")

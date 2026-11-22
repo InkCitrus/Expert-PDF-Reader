@@ -518,6 +518,24 @@ struct ReaderRegressionTests {
                   "moved and renamed file reopens at the same page and zoom")
         }
         do {
+            func luminance(_ color: NSColor) -> CGFloat {
+                let srgb = color.usingColorSpace(.sRGB)!
+                return 0.2126 * srgb.redComponent + 0.7152 * srgb.greenComponent + 0.0722 * srgb.blueComponent
+            }
+            for preset in [AppAccentColor.green, .teal, .red, .purple, .graphite] {
+                check(luminance(preset.nsColor(isDark: true)) > luminance(preset.nsColor(isDark: false)),
+                      "dark accent preset \(preset.rawValue) brightens for dark chrome contrast")
+            }
+            for preset in AppAccentColor.allCases {
+                let nightColor = preset.pdfSelectionNSColor(for: .night).usingColorSpace(.sRGB)!
+                check(nightColor.alphaComponent >= 0.99
+                      && nightColor.redComponent >= 0.55
+                      && nightColor.greenComponent >= 0.55
+                      && nightColor.blueComponent >= 0.55,
+                      "night selection color for \(preset.rawValue) stays pastel before inversion")
+            }
+        }
+        do {
             let store = freshStore()
             let original = try fixture("Deleted")
             let tab = store.openDocument(at: original, interactive: false)!

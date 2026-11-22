@@ -300,6 +300,7 @@ struct PageIndicatorOverlay: View {
     var isSecondaryPane = false
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appAccentColor) private var accent
     @State private var isVisible = true
     @State private var isHovered = false
     @State private var isInRevealZone = false
@@ -407,6 +408,7 @@ struct PageIndicatorOverlay: View {
                     }
                 }
                 .padding(12)
+                .tint(accent)
             }
             .padding(16)
         }

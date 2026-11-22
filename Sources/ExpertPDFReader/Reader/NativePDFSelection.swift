@@ -258,15 +258,18 @@ final class NativePDFSelectionTracker {
         else { overlay.highlights = result.highlights }
     }
 
+    var isRepairingOrCustomHighlight: Bool { isRepairing || !overlay.highlights.isEmpty }
+    func repaintHighlights() { overlay.needsDisplay = true }
+
     private func apply(_ result: NativePDFSelection.Result) {
         guard let pdfView else { return }
         isRepairing = true
         result.selection.color = .clear
+        overlay.highlights = result.highlights
         pdfView.setCurrentSelection(result.selection, animate: false)
         repairedSelection = pdfView.currentSelection
         nativeText = pdfView.currentSelection?.string
         repairedText = result.text
-        overlay.highlights = result.highlights
         isRepairing = false
     }
 
@@ -337,7 +340,9 @@ final class NativePDFSelectionTracker {
         override func menu(for event: NSEvent) -> NSMenu? { owner?.pdfView?.menu(for: event) }
         override func draw(_ dirtyRect: NSRect) {
             guard let view = owner?.pdfView else { return }
-            NSColor.selectedTextBackgroundColor.withAlphaComponent(0.32).setFill()
+            let isDark = (view as? ThemedPDFView)?.currentTheme == .night
+                || effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            AppPalette.accent.selectionNSColor(isDark: isDark).setFill()
             for highlight in highlights {
                 guard highlight.page.document === view.document else { continue }
                 let shown = convert(view.convert(highlight.rect, from: highlight.page), from: view).intersection(bounds)

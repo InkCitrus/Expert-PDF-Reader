@@ -220,6 +220,41 @@ public enum AppAccentColor: String, CaseIterable, Identifiable, Codable {
         case .graphite: return Color(hex: 0x646970)
         }
     }
+
+    public func color(isDark: Bool) -> Color {
+        guard isDark else { return color }
+        switch self {
+        case .blue:     return Color(hex: 0x4D94FF)
+        case .purple:   return Color(hex: 0xB462F5)
+        case .pink:     return Color(hex: 0xF2578D)
+        case .red:      return Color(hex: 0xFF4557)
+        case .orange:   return Color(hex: 0xFF9B3D)
+        case .yellow:   return Color(hex: 0xF5BD2E)
+        case .green:    return Color(hex: 0x34C759)
+        case .teal:     return Color(hex: 0x2BB8C2)
+        case .graphite: return Color(hex: 0x989DA6)
+        }
+    }
+
+    public func nsColor(isDark: Bool) -> NSColor {
+        NSColor(color(isDark: isDark))
+    }
+
+    public func selectionNSColor(isDark: Bool) -> NSColor {
+        nsColor(isDark: isDark).withAlphaComponent(isDark ? 0.34 : 0.26)
+    }
+
+    /// Selection fill passed to `PDFSelection.color`. In Night mode the `CIColorMatrix` filter inverts
+    /// light colors blended onto white paper into dark tinted bands behind `#BFBFBF` text.
+    public func pdfSelectionNSColor(for theme: PDFViewTheme) -> NSColor {
+        let base = NSColor(color).usingColorSpace(.sRGB) ?? NSColor(color)
+        guard theme == .night else { return base.withAlphaComponent(0.28) }
+        let strength: CGFloat = 0.45
+        let r = 1 - strength * (1 - base.redComponent)
+        let g = 1 - strength * (1 - base.greenComponent)
+        let b = 1 - strength * (1 - base.blueComponent)
+        return NSColor(srgbRed: r, green: g, blue: b, alpha: 1.0)
+    }
 }
 
 /// The accent color flows through the SwiftUI environment so leaf views that don't observe the store
@@ -298,6 +333,7 @@ public enum AppPalette {
 
     // Primary action accent (prominent buttons, links, selection rings); follows the user's accent choice
     public static var accentBlue: Color { accent.color }
+    public static func accentColor(_ isDark: Bool) -> Color { accent.color(isDark: isDark) }
 
     public static func tabGroupFill(_ color: TabGroupColor, _ isDark: Bool) -> Color {
         switch color {

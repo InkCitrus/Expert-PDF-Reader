@@ -19,6 +19,7 @@ public struct MainWindowView: View {
     @State private var isSidebarMenuTracking = false
     @State private var isDropTargeted = false
     private var isDark: Bool { colorScheme == .dark }
+    private var accent: Color { store.accentColor.color(isDark: isDark) }
 
     public static let tabStripHeight: CGFloat = 40
 
@@ -77,7 +78,7 @@ public struct MainWindowView: View {
             WindowChromeConfigurator(
                 windowTitle: store.windowTitle(for: session),
                 representedURL: store.windowRepresentedURL(for: session),
-                tabBar: AnyView(titlebarContent.environment(\.appAccentColor, store.accentColor.color)),
+                tabBar: AnyView(titlebarContent.environment(\.appAccentColor, accent).tint(accent)),
                 tabBarBackground: NSColor(AppPalette.tabStripBackground(isDark)),
                 onWindowAttached: { window in
                     session.nsWindow = window
@@ -89,7 +90,8 @@ public struct MainWindowView: View {
             .frame(width: 0, height: 0)
             .allowsHitTesting(false)
         )
-        .environment(\.appAccentColor, store.accentColor.color)
+        .environment(\.appAccentColor, accent)
+        .tint(accent)
     }
 
     private var titlebarContent: some View {
@@ -101,11 +103,11 @@ public struct MainWindowView: View {
         return HStack(spacing: 0) {
             HStack(spacing: 4) {
                 ToolbarIconButton(icon: "sidebar.left", tooltip: "\(sidebarTitle) (⌘B)",
-                                  isActive: sidebarVisible, isDark: isDark) {
+                                  isActive: sidebarVisible, activeTint: accent, isDark: isDark) {
                     store.toggleLeftPanel(in: session)
                 }
                 ToolbarIconButton(icon: "house.fill", tooltip: homeTitle,
-                                  isActive: session.activeDocumentTab == nil, isDark: isDark, action: goHome)
+                                  isActive: session.activeDocumentTab == nil, activeTint: accent, isDark: isDark, action: goHome)
                     .overlay { WindowDragArea(onClick: goHome) }
             }
             .frame(width: controlsWidth)
@@ -1156,9 +1158,14 @@ struct DocumentTabItemView: View {
     let onDragChanged: (TabDragLocation) -> Void
     let onDragEnded: (TabDragLocation?) -> Void
 
+    @Environment(\.appAccentColor) private var accent
     @State private var isCloseHovered = false
     private var showsCloseButton: Bool {
         !isCollapsed && (isSelected || isHovered)
+    }
+
+    private var isUngroupedSelected: Bool {
+        isSelected && session.displayedTabGroup(containing: state.id) == nil
     }
 
     private var labelColor: Color {
@@ -1166,7 +1173,10 @@ struct DocumentTabItemView: View {
     }
 
     private var highlight: Color {
-        AppPalette.documentTabHighlight(isSelected: isSelected, isSidebar: isSidebar, isDark: isDark)
+        if isSidebar && isUngroupedSelected {
+            return accent.opacity(isDark ? 0.22 : 0.14)
+        }
+        return AppPalette.documentTabHighlight(isSelected: isSelected, isSidebar: isSidebar, isDark: isDark)
     }
 
     var body: some View {
@@ -1175,7 +1185,7 @@ struct DocumentTabItemView: View {
                 // This slot stays in the same place when the row reveals its title.
                 Image(systemName: "doc.text")
                     .font(.system(size: 17))
-                    .foregroundStyle(labelColor)
+                    .foregroundStyle(isUngroupedSelected ? accent : labelColor)
                     .frame(width: SidebarTabMetrics.iconSlotWidth)
                     .accessibilityHidden(true)
             }
@@ -1343,8 +1353,11 @@ struct DocumentTabItemView: View {
 
     @ViewBuilder
     private var activeOrdinaryTabPill: some View {
-        let pill = RoundedRectangle(cornerRadius: 6, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+        let pill = shape
             .fill(AppPalette.tabSelectedBackground(isDark))
+            .overlay(shape.fill(accent.opacity(isDark ? 0.13 : 0.07)))
+            .overlay(shape.strokeBorder(accent.opacity(isDark ? 0.50 : 0.38), lineWidth: 1))
             .shadow(color: Color.black.opacity(isDark ? 0.28 : 0.08), radius: 1.5, x: 0, y: 0.5)
             .padding(.horizontal, 4)
             .padding(.vertical, 6)

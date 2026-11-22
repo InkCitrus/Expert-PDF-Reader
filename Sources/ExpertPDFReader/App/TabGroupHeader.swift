@@ -12,6 +12,8 @@ struct TabGroupHeader: View {
     let onDragChanged: (TabDragLocation) -> Void
     let onDragEnded: (TabDragLocation?) -> Void
 
+    @State private var isHovered = false
+
     private var isEditing: Bool { session.editingTabGroupID == group.id && !isCompact }
     private var height: CGFloat { isSidebar ? 28 : 20 }
     private var groupColor: Color { AppPalette.tabGroupFill(group.color, isDark) }
@@ -52,8 +54,10 @@ struct TabGroupHeader: View {
                             if isSidebar { Spacer(minLength: 2) }
                         }
                         if isSidebar {
-                            Image(systemName: group.isCollapsed ? "chevron.down" : "chevron.up")
+                            Image(systemName: "chevron.down")
                                 .font(.system(size: 10, weight: .semibold))
+                                .rotationEffect(.degrees(group.isCollapsed ? -90 : 0))
+                                .animation(AppAnimation.snappy, value: group.isCollapsed)
                         }
                     }
                     .foregroundStyle(labelColor)
@@ -68,19 +72,30 @@ struct TabGroupHeader: View {
         }
         .padding(.horizontal, isSidebar ? 0 : 4)
         .frame(maxHeight: .infinity)
+        .onHover { isHovered = $0 }
         .overlay(alignment: .bottom) {
-            if !isSidebar && !group.isCollapsed {
-                AppPalette.tabOutline(group.color, isDark).frame(height: 2).allowsHitTesting(false)
+            ZStack(alignment: .bottom) {
+                if !isSidebar && !group.isCollapsed {
+                    AppPalette.tabOutline(group.color, isDark)
+                        .frame(height: 2)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
             }
+            .animation(AppAnimation.snappy, value: group.isCollapsed)
         }
     }
 
     @ViewBuilder private var groupFill: some View {
-        if let sidebarRowWidth {
-            SidebarTabBackground(color: groupColor, width: sidebarRowWidth, cornerRadius: 7)
-        } else {
-            RoundedRectangle(cornerRadius: 5).fill(groupColor)
+        Group {
+            if let sidebarRowWidth {
+                SidebarTabBackground(color: groupColor, width: sidebarRowWidth, cornerRadius: 7)
+            } else {
+                RoundedRectangle(cornerRadius: 5).fill(groupColor)
+            }
         }
+        .brightness(isHovered && !isEditing ? (isDark ? 0.07 : -0.04) : 0)
+        .animation(AppAnimation.micro, value: isHovered)
     }
 
     @ViewBuilder private var groupMenu: some View {

@@ -578,6 +578,7 @@ struct TabBarView: View {
     @State private var draggingTabID: UUID?
     @State private var draggingGroupID: UUID?
     @State private var dragFeedback = TabDragFeedback()
+    @Namespace private var tabSelectionNamespace
 
     private static let allTabsButtonWidth: CGFloat = 30
     private static let shortcutsHelpButtonWidth: CGFloat = 34
@@ -789,8 +790,11 @@ struct TabBarView: View {
             let tabWidth = min(Self.maximumTabWidth, max(Self.minimumTabWidth, fitWidth))
             let stripWidth = headersWidth + CGFloat(visibleCount) * (tabWidth + 1)
 
+            let hideLeading = hidesLeadingSeparator(in: entries)
             HStack(spacing: 0) {
                 tabSeparator
+                    .opacity(hideLeading ? 0 : 1)
+                    .animation(AppAnimation.micro, value: hideLeading)
 
                 if session.editingTabGroupID != nil || fitWidth < Self.minimumTabWidth || headersWidth > available {
                     scrollingTabs(.horizontal) {
@@ -855,34 +859,57 @@ struct TabBarView: View {
     }
 
     private func documentTabsRow(_ documentTabs: [DocumentTabState], tabWidth: CGFloat, available: CGFloat) -> some View {
-        HStack(spacing: 0) {
-            ForEach(entries) { entry in
+        let entries = self.entries
+        return HStack(spacing: 0) {
+            ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
                 switch entry {
                 case .document(let state):
+                    let hideTrailing = hidesTrailingSeparator(at: index, in: entries)
                     HStack(spacing: 0) {
                         tabItem(state, count: documentTabs.count).frame(width: tabWidth)
-                        tabSeparator.opacity(session.selectedTabID == state.id ? 0 : 1)
+                        tabSeparator
+                            .opacity(hideTrailing ? 0 : 1)
+                            .animation(AppAnimation.micro, value: hideTrailing)
                     }
                     .overlay(alignment: .bottom) {
-                        if let color = session.displayedTabGroup(containing: state.id)?.color {
-                            if session.selectedTabID == state.id && session.tabDragPreview?.tab.id != state.id {
-                                TabContour()
-                                    .stroke(AppPalette.tabOutline(color, isDark),
-                                            style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                                    .allowsHitTesting(false)
-                            } else {
-                                AppPalette.tabOutline(color, isDark).frame(height: 2).allowsHitTesting(false)
+                        ZStack(alignment: .bottom) {
+                            if let color = session.displayedTabGroup(containing: state.id)?.color {
+                                if session.selectedTabID == state.id && session.tabDragPreview?.tab.id != state.id {
+                                    TabContour()
+                                        .stroke(AppPalette.tabOutline(color, isDark),
+                                                style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                                        .allowsHitTesting(false)
+                                        .transition(.opacity)
+                                } else {
+                                    AppPalette.tabOutline(color, isDark)
+                                        .frame(height: 2)
+                                        .allowsHitTesting(false)
+                                        .transition(.opacity)
+                                }
                             }
                         }
+                        .animation(AppAnimation.snappy, value: session.selectedTabID == state.id)
                     }
                     .id(state.id)
-                    .transition(.opacity)
+                    .transition(AppAnimation.reduceMotion
+                        ? .opacity
+                        : .asymmetric(
+                            insertion: .opacity.combined(with: .scale(scale: 0.94, anchor: .leading)),
+                            removal: .opacity.combined(with: .scale(scale: 0.94, anchor: .center))
+                        ))
                 case .group(let group):
-                    groupHeader(group).frame(width: groupWidth(group, available: available)).id(group.id)
+                    groupHeader(group)
+                        .frame(width: groupWidth(group, available: available))
+                        .id(group.id)
+                        .transition(AppAnimation.reduceMotion
+                            ? .opacity
+                            : .opacity.combined(with: .scale(scale: 0.94, anchor: .leading)))
                 }
             }
         }
         .animation(AppAnimation.tab, value: entries.map(\.id))
+        .animation(draggingTabID == nil && session.tabDragPreview == nil ? AppAnimation.snappy : nil,
+                   value: session.selectedTabID)
     }
 
     private func tabItem(_ state: DocumentTabState, count: Int) -> some View {
@@ -900,6 +927,8 @@ struct TabBarView: View {
             isSidebar: isSidebar,
             isCollapsed: isCollapsed,
             sidebarRowWidth: sidebarRowWidth,
+            selectionNamespace: (!isSidebar && draggingTabID == nil && session.tabDragPreview == nil && !AppAnimation.reduceMotion)
+                ? tabSelectionNamespace : nil,
             onHoverChanged: { hovering in
                 hoveredTabID = hovering ? state.id : (hoveredTabID == state.id ? nil : hoveredTabID)
             },
@@ -949,10 +978,28 @@ struct TabBarView: View {
         )
     }
 
+    private func isTabHighlighted(_ id: UUID) -> Bool {
+        session.selectedTabID == id || hoveredTabID == id
+    }
+
+    private func hidesLeadingSeparator(in entries: [Entry]) -> Bool {
+        if case .document(let first) = entries.first, isTabHighlighted(first.id) { return true }
+        return entries.isEmpty && isOpenFileHovered
+    }
+
+    private func hidesTrailingSeparator(at index: Int, in entries: [Entry]) -> Bool {
+        if case .document(let current) = entries[index], isTabHighlighted(current.id) { return true }
+        if index + 1 < entries.count {
+            if case .document(let next) = entries[index + 1], isTabHighlighted(next.id) { return true }
+            return false
+        }
+        return isOpenFileHovered
+    }
+
     private var tabSeparator: some View {
-        Rectangle()
+        Capsule()
             .fill(AppPalette.tabSeparator(isDark))
-            .frame(width: 1)
+            .frame(width: 1, height: 16)
     }
 
     private var openFileTitle: String { L10n.tr("打开文件…", "Open File…") }
@@ -978,11 +1025,14 @@ struct TabBarView: View {
                     SidebarTabBackground(color: isOpenFileHovered ? AppPalette.sidebarTabHoverBackground(isDark) : .clear,
                                          width: sidebarRowWidth, cornerRadius: 6)
                 } else {
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
                         .fill(isOpenFileHovered ? AppPalette.tabHoverBackground(isDark) : .clear)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 6)
                 }
             }
             .contentShape(Rectangle())
+            .animation(AppAnimation.micro, value: isOpenFileHovered)
         }
         .buttonStyle(.plain)
         .help(L10n.tr("打开 PDF 文档 (⌘O)", "Open PDF Document (⌘O)"))
@@ -1101,6 +1151,7 @@ struct DocumentTabItemView: View {
     let isSidebar: Bool
     var isCollapsed = false
     var sidebarRowWidth: CGFloat?
+    var selectionNamespace: Namespace.ID? = nil
     let onHoverChanged: (Bool) -> Void
     let onDragChanged: (TabDragLocation) -> Void
     let onDragEnded: (TabDragLocation?) -> Void
@@ -1153,6 +1204,7 @@ struct DocumentTabItemView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityHidden(true)
+                .animation(AppAnimation.micro, value: isSelected)
             }
 
             if !isCollapsed {
@@ -1168,14 +1220,17 @@ struct DocumentTabItemView: View {
                                 .fill(isCloseHovered ? AppPalette.toolbarHover(isDark) : Color.clear)
                         )
                         .contentShape(Rectangle())
+                        .animation(AppAnimation.micro, value: isCloseHovered)
                 }
                 .buttonStyle(.plain)
                 .help(L10n.tr("关闭标签 (⌘W · ⇧⌘T 恢复)", "Close Tab (⌘W · ⇧⌘T to Reopen)"))
                 .accessibilityLabel(Text("\(L10n.tr("关闭标签", "Close Tab")) \(state.title)"))
+                .scaleEffect(showsCloseButton ? 1.0 : 0.85)
                 .opacity(showsCloseButton ? 1 : 0)
                 .allowsHitTesting(showsCloseButton)
                 .accessibilityHidden(!showsCloseButton)
                 .onHover { isCloseHovered = $0 }
+                .animation(AppAnimation.micro, value: showsCloseButton)
                 .transition(.opacity)
             }
         }
@@ -1186,18 +1241,28 @@ struct DocumentTabItemView: View {
             if let sidebarRowWidth {
                 SidebarTabBackground(color: isSelected || isHovered ? highlight : .clear,
                                      width: sidebarRowWidth, cornerRadius: 8)
-            } else if isSelected || isHovered {
-                if session.displayedTabGroup(containing: state.id) != nil {
-                    TabContour().fill(highlight)
-                } else {
+                    .animation(AppAnimation.micro, value: isSelected)
+                    .animation(AppAnimation.micro, value: isHovered)
+            } else if session.displayedTabGroup(containing: state.id) != nil {
+                TabContour()
+                    .fill(isSelected || isHovered ? highlight : Color.clear)
+                    .animation(AppAnimation.micro, value: isHovered)
+                    .animation(AppAnimation.snappy, value: isSelected)
+            } else {
+                ZStack {
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(highlight)
+                        .fill(isHovered && !isSelected ? AppPalette.tabHoverBackground(isDark) : Color.clear)
                         .padding(.horizontal, 4)
-                        .padding(.vertical, 3)
+                        .padding(.vertical, 6)
+                        .animation(AppAnimation.micro, value: isHovered)
+                    if isSelected {
+                        activeOrdinaryTabPill
+                    }
                 }
             }
         }
         .opacity(isDragging ? (session.tabDragPreview?.tab.id == state.id ? 0 : 0.3) : 1)
+        .animation(AppAnimation.micro, value: isDragging)
         .overlay {
             TabInteractionArea(session: session, tabID: state.id, toolTip: state.documentID.url.path,
                                excludedTrailingWidth: showsCloseButton ? 30 : 0, isSidebar: isSidebar,
@@ -1273,6 +1338,20 @@ struct DocumentTabItemView: View {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(state.documentID.url.path, forType: .string)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var activeOrdinaryTabPill: some View {
+        let pill = RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .fill(AppPalette.tabSelectedBackground(isDark))
+            .shadow(color: Color.black.opacity(isDark ? 0.28 : 0.08), radius: 1.5, x: 0, y: 0.5)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 6)
+        if let selectionNamespace {
+            pill.matchedGeometryEffect(id: "activeTopTab", in: selectionNamespace)
+        } else {
+            pill
         }
     }
 

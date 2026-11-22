@@ -806,6 +806,84 @@ struct ReaderRegressionTests {
                   "ordinary book front matter and numbering caches remain unchanged")
         }
         do {
+            func drawPDF(_ name: String, pages: Int, drawPage: (Int, CGContext) -> Void) -> PDFDocument {
+                let url = root.appendingPathComponent("\(name).pdf")
+                var box = CGRect(x: 0, y: 0, width: 600, height: 800)
+                let context = CGContext(url as CFURL, mediaBox: &box, nil)!
+                let bodyAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12)]
+                for i in 0..<pages {
+                    context.beginPDFPage(nil)
+                    NSGraphicsContext.saveGraphicsState()
+                    NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+                    ("Sample content on PDF page \(i + 1) with enough body text." as NSString)
+                        .draw(at: CGPoint(x: 72, y: 500), withAttributes: bodyAttrs)
+                    drawPage(i, context)
+                    NSGraphicsContext.restoreGraphicsState()
+                    context.endPDFPage()
+                }
+                context.closePDF()
+                return PDFDocument(url: url)!
+            }
+
+            let compilation = drawPDF("MultiPaperCompilation", pages: 60) { i, _ in
+                let footer = "\((i % 20) + 1)"
+                (footer as NSString).draw(at: CGPoint(x: 295, y: 25), withAttributes: [.font: NSFont.systemFont(ofSize: 11)])
+            }
+            check(BookPageScanner.scan(compilation).printedNumbers == nil,
+                  "multi-paper compilations that restart page 1 fall back to physical PDF numbering")
+
+            let sparse = drawPDF("LowCoverageCompilation", pages: 50) { i, _ in
+                if (18..<32).contains(i) {
+                    ("\(i - 17)" as NSString).draw(at: CGPoint(x: 295, y: 25), withAttributes: [.font: NSFont.systemFont(ofSize: 11)])
+                }
+            }
+            check(BookPageScanner.scan(sparse).printedNumbers == nil,
+                  "compilations with low printed-page coverage fall back to physical PDF numbering")
+
+            let overlapBook = drawPDF("DuplicateSpreadBook", pages: 40) { i, _ in
+                let num = i < 20 ? (i + 1) : (i - 1)
+                ("\(num)" as NSString).draw(at: CGPoint(x: 295, y: 25), withAttributes: [.font: NSFont.systemFont(ofSize: 11)])
+            }
+            let overlapNumbers = BookPageScanner.scan(overlapBook).printedNumbers
+            check(overlapNumbers?.replacesPageLabels == true
+                  && overlapNumbers?.number(at: 0) == 1 && overlapNumbers?.number(at: 19) == 20
+                  && overlapNumbers?.number(at: 20) == 19 && overlapNumbers?.number(at: 39) == 38,
+                  "books with a small duplicate-scanned spread overlap still resolve printed numbering")
+
+            let proceedings = drawPDF("FiveDigitProceedings", pages: 24) { i, _ in
+                if i == 0 {
+                    ("Proceedings pages 21457–21480" as NSString)
+                        .draw(at: CGPoint(x: 72, y: 740), withAttributes: [.font: NSFont.systemFont(ofSize: 10)])
+                } else {
+                    ("\(21457 + i)" as NSString)
+                        .draw(at: CGPoint(x: 295, y: 25), withAttributes: [.font: NSFont.systemFont(ofSize: 11)])
+                }
+            }
+            let proceedingsNumbers = BookPageScanner.scan(proceedings).printedNumbers
+            check(proceedingsNumbers?.number(at: 0) == 21457 && proceedingsNumbers?.number(at: 23) == 21480,
+                  "five-digit proceedings page numbers and opening range headers are recognized")
+
+            let longBackMatter = drawPDF("LongBackMatter", pages: 44) { i, _ in
+                if i < 30 {
+                    ("\(i + 1)" as NSString).draw(at: CGPoint(x: 295, y: 25), withAttributes: [.font: NSFont.systemFont(ofSize: 11)])
+                }
+            }
+            let backNumbers = BookPageScanner.scan(longBackMatter).printedNumbers
+            check(backNumbers?.number(at: 0) == 1 && backNumbers?.number(at: 29) == 30 && backNumbers?.number(at: 30) == nil,
+                  "finding the end of printed numbering skips over unnumbered midpoints in back matter")
+
+            let tab = DocumentTabState(url: compilation.documentURL!, pdfDocument: compilation)
+            var stale = tab.readingPosition
+            stale.bookPageScan = BookPageScan(printedNumbers: PrintedPageNumbers(
+                runs: [.init(firstIndex: 0, lastIndex: 19, offset: 1), .init(firstIndex: 20, lastIndex: 39, offset: -19)],
+                oddIndexShift: 0,
+                replacesPageLabels: true
+            ))
+            tab.restore(stale)
+            check(tab.pageScan?.printedNumbers == nil && tab.displayPageNumber(at: 20) == "21",
+                  "restoring a stale multi-paper cached scan drops inconsistent printed numbering")
+        }
+        do {
             check(PageNumberLabel.canonical("1,210") == "1210" && PageNumberLabel.canonical("1.210") == "1210"
                   && PageNumberLabel.canonical("1\u{202F}210") == "1210" && PageNumberLabel.canonical("A-1,210") == "A-1,210",
                   "localized numeric PDF labels do not create duplicate book page indicators")

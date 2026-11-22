@@ -664,6 +664,7 @@ final class ThemedPDFView: PDFView {
         }
         if eventType == .leftMouseDown, bounds.contains(location), let event = NSApp.currentEvent {
             nativeSelectionTracker.begin(event)
+            if let target = nativeSelectionTracker.hitTest(location, event: event) { return target }
         }
         if ocrSelectionOverlay.superview != nil,
            let target = ocrSelectionOverlay.hitTest(location) { return target }

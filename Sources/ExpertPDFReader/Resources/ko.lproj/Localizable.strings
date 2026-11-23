@@ -555,3 +555,8 @@
 
 "返回之前的页面|||Return to Previous Page" = "이전 페이지로 돌아가기";
 "Return to Previous Page" = "이전 페이지로 돌아가기";
+
+"在侧边栏显示标签页|||Show Tabs in Sidebar" = "사이드바에 탭 표시";
+"Show Tabs in Sidebar" = "사이드바에 탭 표시";
+"在顶部显示标签栏|||Show Tabs in Titlebar" = "상단에 탭 막대 표시";
+"Show Tabs in Titlebar" = "상단에 탭 막대 표시";

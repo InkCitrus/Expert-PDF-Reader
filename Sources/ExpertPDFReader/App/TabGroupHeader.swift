@@ -15,9 +15,11 @@ struct TabGroupHeader: View {
     @State private var isHovered = false
 
     private var isEditing: Bool { session.editingTabGroupID == group.id && !isCompact }
-    private var height: CGFloat { isSidebar ? 28 : 20 }
-    private var groupColor: Color { AppPalette.tabGroupFill(group.color, isDark) }
-    private var labelColor: Color { AppPalette.tabGroupLabel(group.color) }
+    private var height: CGFloat { isSidebar ? 30 : 24 }
+    private var dotColor: Color { AppPalette.tabGroupFill(group.color, isDark) }
+    private var softFill: Color { AppPalette.tabGroupSoftFill(group.color, isDark) }
+    private var softBorder: Color { AppPalette.tabGroupSoftBorder(group.color, isDark) }
+    private var softInk: Color { AppPalette.tabGroupSoftInk(group.color, isDark) }
 
     var body: some View {
         if isEditing {
@@ -39,33 +41,20 @@ struct TabGroupHeader: View {
     private var header: some View {
         Group {
             if isEditing {
-                TabGroupNameEditor(name: group.name, ink: labelColor, fill: groupColor,
-                                   fontSize: isSidebar ? 12 : 11, onFinish: finishEditing)
+                TabGroupNameEditor(name: group.name, ink: softInk, fill: dotColor,
+                                   fontSize: isSidebar ? 12 : 11.5, onFinish: finishEditing)
                     .frame(height: height - 4)
-                    .padding(.horizontal, 6)
+                    .padding(.horizontal, 8)
                     .frame(height: height)
                     .background(alignment: .leading) { groupFill }
             } else {
                 Button(action: toggleGroup) {
-                    HStack(spacing: 6) {
-                        if !isCompact {
-                            Text(group.name).font(.system(size: isSidebar ? 12 : 11, weight: .semibold))
-                                .lineLimit(1).truncationMode(.middle)
-                            if isSidebar { Spacer(minLength: 2) }
-                        }
-                        if isSidebar {
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 10, weight: .semibold))
-                                .rotationEffect(.degrees(group.isCollapsed ? -90 : 0))
-                                .animation(AppAnimation.snappy, value: group.isCollapsed)
-                        }
-                    }
-                    .foregroundStyle(labelColor)
-                    .padding(.horizontal, isCompact ? 0 : 8)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: height)
-                    .background(alignment: .leading) { groupFill }
-                    .contentShape(Rectangle())
+                    headerLabel
+                        .padding(.horizontal, isCompact ? 0 : (isSidebar || !group.name.isEmpty ? 8 : 5))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: height)
+                        .background(alignment: .leading) { groupFill }
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
@@ -86,15 +75,93 @@ struct TabGroupHeader: View {
         }
     }
 
+    @ViewBuilder private var headerLabel: some View {
+        if isSidebar && isCompact {
+            HStack(spacing: 2) {
+                if group.isCollapsed {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8, weight: .bold))
+                    Text("\(group.tabIDs.count)")
+                        .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                } else {
+                    Circle()
+                        .fill(dotColor)
+                        .frame(width: 6, height: 6)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8.5, weight: .bold))
+                }
+            }
+            .foregroundStyle(softInk)
+        } else if isSidebar {
+            HStack(spacing: 7) {
+                Circle()
+                    .fill(dotColor)
+                    .frame(width: 8, height: 8)
+                if !group.name.isEmpty {
+                    Text(group.name)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(softInk)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: 4)
+                Text("\(group.tabIDs.count)")
+                    .font(.system(size: 10.5, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(softInk)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1.5)
+                    .background(Capsule().fill(AppPalette.tabCountBadgeFill(group.color, isDark)))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundStyle(softInk.opacity(0.85))
+                    .rotationEffect(.degrees(group.isCollapsed ? -90 : 0))
+                    .animation(AppAnimation.snappy, value: group.isCollapsed)
+            }
+        } else {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(dotColor)
+                    .frame(width: 7, height: 7)
+                if !group.name.isEmpty {
+                    Text(group.name)
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(softInk)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                if group.isCollapsed && !group.tabIDs.isEmpty {
+                    Text("\(group.tabIDs.count)")
+                        .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(softInk.opacity(0.9))
+                        .padding(.horizontal, 4.5)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(AppPalette.tabCountBadgeFill(group.color, isDark)))
+                }
+            }
+        }
+    }
+
     @ViewBuilder private var groupFill: some View {
         Group {
             if let sidebarRowWidth {
-                SidebarTabBackground(color: groupColor, width: sidebarRowWidth, cornerRadius: 7)
+                SidebarTabBackground(
+                    color: softFill,
+                    width: sidebarRowWidth,
+                    cornerRadius: 8,
+                    borderColor: softBorder,
+                    borderWidth: 0.75,
+                    verticalInset: 0
+                )
             } else {
-                RoundedRectangle(cornerRadius: 5).fill(groupColor)
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(softFill)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .strokeBorder(softBorder, lineWidth: 0.75)
+                    }
             }
         }
-        .brightness(isHovered && !isEditing ? (isDark ? 0.07 : -0.04) : 0)
+        .brightness(isHovered && !isEditing ? (isDark ? 0.08 : -0.03) : 0)
         .animation(AppAnimation.micro, value: isHovered)
     }
 
@@ -166,8 +233,7 @@ private struct TabGroupNameEditor: NSViewRepresentable {
 
     func updateNSView(_ field: NameField, context: Context) {
         field.textColor = NSColor(ink)
-        let base = NSColor(fill)
-        field.selectionFill = base.blended(withFraction: 0.2, of: .black) ?? base
+        field.selectionFill = NSColor(fill).withAlphaComponent(0.28)
         context.coordinator.onFinish = onFinish
     }
 

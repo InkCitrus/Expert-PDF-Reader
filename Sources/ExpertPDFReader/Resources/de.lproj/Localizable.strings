@@ -555,3 +555,8 @@
 
 "返回之前的页面|||Return to Previous Page" = "Zur vorherigen Seite zurückkehren";
 "Return to Previous Page" = "Zur vorherigen Seite zurückkehren";
+
+"在侧边栏显示标签页|||Show Tabs in Sidebar" = "Tabs in der Seitenleiste anzeigen";
+"Show Tabs in Sidebar" = "Tabs in der Seitenleiste anzeigen";
+"在顶部显示标签栏|||Show Tabs in Titlebar" = "Tabs in der Titelleiste anzeigen";
+"Show Tabs in Titlebar" = "Tabs in der Titelleiste anzeigen";

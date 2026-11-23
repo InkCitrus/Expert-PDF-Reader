@@ -124,6 +124,7 @@ public struct MainWindowView: View {
         let sidebarTitle = sidebarVisible
             ? L10n.tr("隐藏左边面板", "Hide Left Panel") : L10n.tr("显示左边面板", "Show Left Panel")
         let controlsWidth: CGFloat = 88
+        let trailingControlsWidth: CGFloat = 64
         return HStack(spacing: 0) {
             HStack(spacing: 4) {
                 ToolbarIconButton(icon: "sidebar.left", tooltip: "\(sidebarTitle) (⌘B)",
@@ -142,7 +143,19 @@ public struct MainWindowView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(.trailing, controlsWidth)
+                    .padding(.trailing, max(0, controlsWidth - trailingControlsWidth))
+                HStack(spacing: 0) {
+                    TitlebarTabLayoutButton(tabsInSidebar: true, isDark: isDark, width: 30) {
+                        withAnimation(AppAnimation.reduceMotion ? nil : AppAnimation.panel) {
+                            store.tabsInSidebar = false
+                        }
+                    }
+                    TitlebarShortcutsButton(isDark: isDark, width: 34) {
+                        store.activateWindowSession(session.id)
+                        store.presentShortcutsSheet(in: session.id)
+                    }
+                }
+                .frame(width: trailingControlsWidth, alignment: .trailing)
             } else {
                 TabBarView(store: store, session: session, isDark: isDark)
             }
@@ -247,13 +260,21 @@ public struct MainWindowView: View {
                     let expandedLayout = !isCollapsed || drawerWidth > railWidth + 0.5
                     let reveal = min(1, max(0, (drawerWidth - railWidth) / (popupWidth - railWidth)))
                     sidebarTabsColumn(width: expandedLayout ? popupWidth : railWidth,
-                                      visibleWidth: drawerWidth, isCollapsed: !expandedLayout)
+                                      visibleWidth: drawerWidth, isCollapsed: !expandedLayout,
+                                      drawerReveal: reveal)
                     .frame(width: drawerWidth, alignment: .leading)
+                    .background {
+                        SidebarBackdropMaterial(isDark: isDark, reveal: reveal)
+                            .allowsHitTesting(false)
+                    }
                     .background(PanelCursorRect(priority: 2))
                     .clipped()
                     .contentShape(Rectangle())
                     .overlay(alignment: .trailing) {
-                        AppPalette.panelHairline(isDark).frame(width: 1).allowsHitTesting(false)
+                        AppPalette.panelHairline(isDark)
+                            .opacity(isDark ? 0.95 : 0.85)
+                            .frame(width: 1)
+                            .allowsHitTesting(false)
                     }
                     .overlay(alignment: .trailing) {
                         if !isCollapsed {
@@ -277,7 +298,8 @@ public struct MainWindowView: View {
                             .padding(.bottom, TabBarView.sidebarFooterHeight)
                         }
                     }
-                    .shadow(color: .black.opacity(reveal * (isDark ? 0.28 : 0.12)), radius: 10, x: 4, y: 0)
+                    .shadow(color: .black.opacity(reveal * (isDark ? 0.32 : 0.14)), radius: 16, x: 6, y: 0)
+                    .shadow(color: .black.opacity(reveal * (isDark ? 0.16 : 0.06)), radius: 2, x: 1, y: 0)
                     .background(SidebarTabHoverArea(session: session) { isSidebarHovered = $0 })
                 }
                 .animation(AppAnimation.sidebarReveal, value: isCollapsed)
@@ -313,9 +335,11 @@ public struct MainWindowView: View {
         .background(PanelCursorRect())
     }
 
-    private func sidebarTabsColumn(width: CGFloat, visibleWidth: CGFloat, isCollapsed: Bool) -> some View {
+    private func sidebarTabsColumn(width: CGFloat, visibleWidth: CGFloat, isCollapsed: Bool,
+                                   drawerReveal: CGFloat = 0) -> some View {
         TabBarView(store: store, session: session, isDark: isDark, isSidebar: true,
                    isCollapsed: isCollapsed, sidebarRowWidth: SidebarTabMetrics.rowWidth(in: visibleWidth),
+                   drawerReveal: drawerReveal,
                    onDragActivityChanged: { isSidebarDragging = $0 })
         .frame(width: width, alignment: .leading)
     }
@@ -613,10 +637,114 @@ struct ReaderResizeHandle: NSViewRepresentable {
 
 // MARK: - Tab Bar
 
+private struct SidebarBackdropMaterial: NSViewRepresentable {
+    let isDark: Bool
+    let reveal: CGFloat
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = PassThroughVisualEffectView()
+        view.material = .popover
+        view.blendingMode = .withinWindow
+        updateAppearanceAndState(view)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        updateAppearanceAndState(nsView)
+    }
+
+    private func updateAppearanceAndState(_ nsView: NSVisualEffectView) {
+        let desiredName: NSAppearance.Name = isDark ? .darkAqua : .aqua
+        if nsView.appearance?.name != desiredName {
+            nsView.appearance = NSAppearance(named: desiredName)
+        }
+        let active = reveal > 0.001
+        if nsView.isHidden != !active {
+            nsView.isHidden = !active
+        }
+        nsView.alphaValue = reveal
+        nsView.state = active ? .active : .inactive
+    }
+
+    private final class PassThroughVisualEffectView: NSVisualEffectView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+}
+
+private struct TitlebarTabLayoutButton: View {
+    let tabsInSidebar: Bool
+    let isDark: Bool
+    var width: CGFloat = 30
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    private var iconName: String {
+        tabsInSidebar ? "rectangle.topthird.inset.filled" : "sidebar.squares.leading"
+    }
+
+    private var tooltip: String {
+        tabsInSidebar
+            ? L10n.tr("在顶部显示标签栏", "Show Tabs in Titlebar")
+            : L10n.tr("在侧边栏显示标签栏", "Show Tabs in Sidebar")
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: iconName)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(isHovered ? AppPalette.labelPrimary(isDark) : AppPalette.labelSecondary(isDark))
+                .frame(width: 26, height: 26)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(isHovered ? AppPalette.tabHoverBackground(isDark) : Color.clear)
+                )
+                .frame(width: width)
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .animation(AppAnimation.micro, value: isHovered)
+        }
+        .buttonStyle(TactilePressButtonStyle())
+        .help(tooltip)
+        .accessibilityLabel(Text(tooltip))
+        .onHover { isHovered = $0 }
+    }
+}
+
+private struct TitlebarShortcutsButton: View {
+    let isDark: Bool
+    var width: CGFloat = 34
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "questionmark.circle")
+                .font(.system(size: 13, weight: .regular))
+                .foregroundStyle(isHovered ? AppPalette.labelPrimary(isDark) : AppPalette.labelTertiary(isDark))
+                .frame(width: 26, height: 26)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(isHovered ? AppPalette.tabHoverBackground(isDark) : Color.clear)
+                )
+                .frame(width: max(26, width - 4))
+                .padding(.trailing, 4)
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .animation(AppAnimation.micro, value: isHovered)
+        }
+        .buttonStyle(TactilePressButtonStyle())
+        .help(L10n.tr("快捷键与技巧 (⌘/)", "Shortcuts & Tips (⌘/)"))
+        .accessibilityLabel(Text(L10n.tr("快捷键与技巧", "Shortcuts & Tips")))
+        .onHover { isHovered = $0 }
+    }
+}
+
 enum SidebarTabMetrics {
     static let railWidth: CGFloat = 48
-    static let listInset: CGFloat = 6
-    static let leadingInset: CGFloat = 8
+    static let listInset: CGFloat = 3
+    static let leadingInset: CGFloat = 6
     static let trailingInset: CGFloat = 2
     static let iconSlotWidth = rowWidth(in: railWidth)
 
@@ -629,10 +757,24 @@ struct SidebarTabBackground: View {
     let color: Color
     let width: CGFloat
     let cornerRadius: CGFloat
+    var borderColor: Color = .clear
+    var borderWidth: CGFloat = 0
+    var shadowColor: Color = .clear
+    var shadowRadius: CGFloat = 0
+    var shadowY: CGFloat = 0
+    var verticalInset: CGFloat = 0
 
     var body: some View {
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        shape
             .fill(color)
+            .overlay {
+                if borderWidth > 0 {
+                    shape.strokeBorder(borderColor, lineWidth: borderWidth)
+                }
+            }
+            .shadow(color: shadowColor, radius: shadowRadius, x: 0, y: shadowY)
+            .padding(.vertical, verticalInset)
             .frame(width: width)
     }
 }
@@ -689,12 +831,12 @@ struct TabBarView: View {
     var isSidebar = false
     var isCollapsed = false
     var sidebarRowWidth: CGFloat?
+    var drawerReveal: CGFloat = 0
     var onDragActivityChanged: ((Bool) -> Void)?
 
     @State private var hoveredTabID: UUID?
     @State private var isAllTabsHovered = false
     @State private var isOpenFileHovered = false
-    @State private var isShortcutsHelpHovered = false
     @State private var allTabsAnchor = NSViewAnchor()
 
     @State private var draggingTabID: UUID?
@@ -703,13 +845,14 @@ struct TabBarView: View {
     @Namespace private var tabSelectionNamespace
 
     private static let allTabsButtonWidth: CGFloat = 30
+    private static let layoutToggleButtonWidth: CGFloat = 30
     private static let shortcutsHelpButtonWidth: CGFloat = 34
     private static let minimumTabWidth: CGFloat = 168
     private static let maximumTabWidth: CGFloat = 340
     private static let maximumGroupWidth: CGFloat = 180
     private static let sidebarRowHeight: CGFloat = 44
-    /// The Open File row plus its bottom inset; the popup resize boundary stays above it so the row keeps its clicks
-    static let sidebarFooterHeight: CGFloat = sidebarRowHeight + 6
+    /// The Open File row, top hairline, and bottom inset; the popup resize boundary stays above it so the row keeps its clicks
+    static let sidebarFooterHeight: CGFloat = sidebarRowHeight + 8
     /// Leave room between the last tab and the help button.
     private static let reservedTrailingWidth: CGFloat = 48
 
@@ -723,7 +866,9 @@ struct TabBarView: View {
             else { topTabs }
         }
         .background(TabStripAnchor(session: session, axis: isSidebar ? .vertical : .horizontal))
-        .background(isSidebar ? AppPalette.sidebarTabsBackground(isDark) : AppPalette.tabStripBackground(isDark),
+        .background((isSidebar
+                     ? AppPalette.sidebarTabsBackground(isDark).opacity(1.0 - drawerReveal * (isDark ? 0.22 : 0.16))
+                     : AppPalette.tabStripBackground(isDark)),
                     ignoresSafeAreaEdges: [])
         .animation(AppAnimation.tab, value: session.tabDragPreview?.placement)
         .accessibilityElement(children: .contain)
@@ -782,10 +927,18 @@ struct TabBarView: View {
 
     private func groupWidth(_ group: ReaderTabGroup, available: CGFloat) -> CGFloat {
         if session.editingTabGroupID == group.id { return min(Self.maximumGroupWidth, available) }
-        if group.name.isEmpty { return 32 }
-        let font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        if group.name.isEmpty {
+            if group.isCollapsed && !group.tabIDs.isEmpty {
+                return group.tabIDs.count >= 10 ? 54 : 48
+            }
+            return 32
+        }
+        let font = NSFont.systemFont(ofSize: 11.5, weight: .semibold)
         let labelWidth = (group.name as NSString).size(withAttributes: [.font: font]).width
-        return min(Self.maximumGroupWidth, max(52, ceil(labelWidth) + 24))
+        let collapsedBadgeExtra: CGFloat = (group.isCollapsed && !group.tabIDs.isEmpty)
+            ? (group.tabIDs.count >= 10 ? 32 : 24)
+            : 0
+        return min(Self.maximumGroupWidth, max(62, ceil(labelWidth) + 44 + collapsedBadgeExtra))
     }
 
     private func groupHeader(_ group: ReaderTabGroup) -> some View {
@@ -841,8 +994,9 @@ struct TabBarView: View {
                 .background(alignment: .leading) {
                     if !group.isCollapsed && !group.tabIDs.isEmpty {
                         Capsule().fill(AppPalette.tabOutline(group.color, isDark))
-                            .frame(width: 2)
-                            .padding(.top, 8)
+                            .opacity(0.85)
+                            .frame(width: 2.5)
+                            .padding(.vertical, 6)
                             .allowsHitTesting(false)
                     }
                 }
@@ -877,10 +1031,15 @@ struct TabBarView: View {
         let sections = session.displayedTabGroups.count + (showsUngroupedSection ? 1 : 0)
         let naturalHeight = groupHeight + ungroupedHeight + CGFloat(max(0, sections - 1)) * 6 + 8
         return GeometryReader { geometry in
-            let listHeight = min(naturalHeight, max(0, geometry.size.height - 50))
+            let listHeight = min(naturalHeight, max(0, geometry.size.height - Self.sidebarFooterHeight))
             VStack(spacing: 0) {
                 scrollingTabs(.vertical) { sidebarList }
                 .frame(height: listHeight)
+                AppPalette.panelSeparator(isDark)
+                    .opacity(0.75)
+                    .frame(height: 1)
+                    .padding(.horizontal, isCollapsed ? 10 : 12)
+                    .padding(.bottom, 1)
                 openFileButton
                     .padding(.leading, SidebarTabMetrics.leadingInset)
                     .padding(.trailing, SidebarTabMetrics.trailingInset)
@@ -907,6 +1066,7 @@ struct TabBarView: View {
             ).width) + 50)
             let trailingControlsWidth = openWidth
                 + (showsAllTabsMenu ? Self.allTabsButtonWidth : 0)
+                + Self.layoutToggleButtonWidth
                 + Self.shortcutsHelpButtonWidth
             let available = max(
                 0,
@@ -945,6 +1105,19 @@ struct TabBarView: View {
                             .frame(height: proxy.size.height)
                     }
                     .frame(width: available, height: proxy.size.height)
+                    .mask {
+                        if needsScrolling {
+                            HStack(spacing: 0) {
+                                LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
+                                    .frame(width: 10)
+                                Color.black
+                                LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                                    .frame(width: 16)
+                            }
+                        } else {
+                            Color.black
+                        }
+                    }
                 }
                 .animation(AppAnimation.tabGroup, value: layoutAnimationState)
 
@@ -953,13 +1126,21 @@ struct TabBarView: View {
 
                     if showsAllTabsMenu {
                         allTabsButton(documentTabs: documentTabs)
-                            .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                            .transition(AppAnimation.reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.9)))
                     }
 
                     Spacer(minLength: Self.reservedTrailingWidth)
                         .background(WindowDragArea())
 
-                    shortcutsHelpButton
+                    TitlebarTabLayoutButton(tabsInSidebar: false, isDark: isDark, width: Self.layoutToggleButtonWidth) {
+                        withAnimation(AppAnimation.reduceMotion ? nil : AppAnimation.panel) {
+                            store.tabsInSidebar = true
+                        }
+                    }
+                    TitlebarShortcutsButton(isDark: isDark, width: Self.shortcutsHelpButtonWidth) {
+                        store.activateWindowSession(session.id)
+                        store.presentShortcutsSheet(in: session.id)
+                    }
                 }
                 .frame(width: max(0, proxy.size.width - (1 + stripSlotWidth)), height: proxy.size.height)
                 .background(AppPalette.tabStripBackground(isDark))
@@ -1210,32 +1391,35 @@ struct TabBarView: View {
             store.activateWindowSession(session.id)
             store.openFilePicker(in: session.id)
         } label: {
-            HStack(spacing: 5) {
+            HStack(spacing: isSidebar ? 4 : 5) {
                 Image(systemName: "plus")
-                    .font(.system(size: isSidebar ? 17 : 14))
+                    .font(.system(size: isSidebar ? 16 : 13.5, weight: .medium))
                     .frame(width: isSidebar ? SidebarTabMetrics.iconSlotWidth : nil)
-                if !isCollapsed { Text(openFileTitle).font(.system(size: 12)) }
+                if !isCollapsed {
+                    Text(openFileTitle)
+                        .font(.system(size: 12, weight: .medium))
+                }
             }
-            .foregroundStyle(AppPalette.labelSecondary(isDark))
-            .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
+            .foregroundStyle(isOpenFileHovered ? AppPalette.labelPrimary(isDark) : AppPalette.labelSecondary(isDark))
+            .frame(maxWidth: .infinity, alignment: isSidebar ? .leading : (isCollapsed ? .center : .leading))
             .padding(.leading, isSidebar ? 0 : 12)
             .padding(.trailing, isCollapsed ? 0 : 8)
             .frame(maxHeight: .infinity)
             .background(alignment: .leading) {
                 if let sidebarRowWidth {
                     SidebarTabBackground(color: isOpenFileHovered ? AppPalette.sidebarTabHoverBackground(isDark) : .clear,
-                                         width: sidebarRowWidth, cornerRadius: 6)
+                                         width: sidebarRowWidth, cornerRadius: 8, verticalInset: 3)
                 } else {
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
                         .fill(isOpenFileHovered ? AppPalette.tabHoverBackground(isDark) : .clear)
                         .padding(.horizontal, 4)
-                        .padding(.vertical, 6)
+                        .padding(.vertical, 5)
                 }
             }
             .contentShape(Rectangle())
             .animation(AppAnimation.micro, value: isOpenFileHovered)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(TactilePressButtonStyle())
         .help(L10n.tr("打开 PDF 文档 (⌘O)", "Open PDF Document (⌘O)"))
         .accessibilityLabel(Text(L10n.tr("打开 PDF 文档 (⌘O)", "Open PDF Document (⌘O)")))
         .onHover { isOpenFileHovered = $0 }
@@ -1248,10 +1432,10 @@ struct TabBarView: View {
         } label: {
             Image(systemName: "chevron.down")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(AppPalette.labelSecondary(isDark))
+                .foregroundColor(isAllTabsHovered ? AppPalette.labelPrimary(isDark) : AppPalette.labelSecondary(isDark))
                 .frame(width: 24, height: 28)
                 .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
                         .fill(isAllTabsHovered ? AppPalette.tabHoverBackground(isDark) : Color.clear)
                 )
                 .frame(width: Self.allTabsButtonWidth)
@@ -1259,39 +1443,12 @@ struct TabBarView: View {
                 .contentShape(Rectangle())
                 .animation(AppAnimation.micro, value: isAllTabsHovered)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(TactilePressButtonStyle())
         .background(ViewAnchorRepresentable(anchor: allTabsAnchor).allowsHitTesting(false))
         .help(L10n.tr("所有标签页 (⌃⇥ 切换)", "All Tabs (⌃⇥ to Switch)"))
         .accessibilityLabel(Text(L10n.tr("所有标签页", "All Tabs")))
         .onHover { hovering in
             isAllTabsHovered = hovering
-        }
-    }
-
-    private var shortcutsHelpButton: some View {
-        Button {
-            store.activateWindowSession(session.id)
-            store.presentShortcutsSheet(in: session.id)
-        } label: {
-            Image(systemName: "questionmark.circle")
-                .font(.system(size: 13, weight: .regular))
-                .foregroundColor(isShortcutsHelpHovered ? AppPalette.labelPrimary(isDark) : AppPalette.labelTertiary(isDark))
-                .frame(width: 26, height: 26)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(isShortcutsHelpHovered ? AppPalette.tabHoverBackground(isDark) : Color.clear)
-                )
-                .frame(width: Self.shortcutsHelpButtonWidth)
-                .frame(maxHeight: .infinity)
-                .contentShape(Rectangle())
-                .animation(AppAnimation.micro, value: isShortcutsHelpHovered)
-        }
-        .buttonStyle(.plain)
-        .padding(.trailing, 4)
-        .help(L10n.tr("快捷键与技巧 (⌘/)", "Shortcuts & Tips (⌘/)"))
-        .accessibilityLabel(Text(L10n.tr("快捷键与技巧", "Shortcuts & Tips")))
-        .onHover { hovering in
-            isShortcutsHelpHovered = hovering
         }
     }
 
@@ -1363,8 +1520,8 @@ struct DocumentTabItemView: View {
         !isCollapsed && (isSelected || isHovered)
     }
 
-    private var isUngroupedSelected: Bool {
-        isSelected && session.displayedTabGroup(containing: state.id) == nil
+    private var groupColor: TabGroupColor? {
+        session.displayedTabGroup(containing: state.id)?.color
     }
 
     private var labelColor: Color {
@@ -1375,63 +1532,115 @@ struct DocumentTabItemView: View {
         AppPalette.documentTabHighlight(isSelected: isSelected, isSidebar: isSidebar, isDark: isDark)
     }
 
+    private var sidebarAccentTint: Color {
+        groupColor.map { AppPalette.tabOutline($0, isDark) } ?? accent
+    }
+
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: isSidebar ? 4 : 5) {
             if isSidebar {
                 // This slot stays in the same place when the row reveals its title.
-                Image(systemName: "doc.text")
-                    .font(.system(size: 17))
-                    .foregroundStyle(isUngroupedSelected ? accent : labelColor)
+                Image(systemName: isSelected ? "doc.text.fill" : "doc.text")
+                    .font(.system(size: 16.5, weight: isSelected ? .medium : .regular))
+                    .foregroundStyle(isSelected ? sidebarAccentTint : labelColor)
                     .frame(width: SidebarTabMetrics.iconSlotWidth)
                     .accessibilityHidden(true)
             }
             if !isCollapsed {
-                HStack(spacing: 5) {
-                    Text(state.title)
-                        .font(.system(size: 12, weight: isSelected ? .medium : .regular))
-                        .foregroundColor(labelColor)
-                        .lineLimit(isSidebar ? 2 : 1)
-                        .truncationMode(.middle)
-
-                    if let disambiguatedFolder {
-                        Text(disambiguatedFolder)
-                            .font(.system(size: 10.5, weight: .regular))
-                            .foregroundColor(AppPalette.labelTertiary(isDark))
+                if isSidebar {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(state.title)
+                            .font(.system(size: 12.5, weight: isSelected ? .semibold : .medium))
+                            .foregroundColor(labelColor)
                             .lineLimit(1)
-                            .truncationMode(.tail)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(
-                                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                    .fill(AppPalette.segmentedTrack(isDark).opacity(isSelected ? 0.9 : 0.6))
-                            )
-                            .layoutPriority(-1)
+                            .truncationMode(.middle)
+
+                        HStack(spacing: 5) {
+                            if state.pageCount > 0 {
+                                Text("\(state.displayPageNumber(at: state.currentPageIndex)) / \(state.pageCount)")
+                                    .font(.system(size: 10.5, weight: .regular))
+                                    .monospacedDigit()
+                                    .foregroundColor(AppPalette.labelTertiary(isDark))
+                                    .lineLimit(1)
+                            }
+                            if state.splitMode != .disabled {
+                                Image(systemName: state.splitMode.iconName)
+                                    .font(.system(size: 9.5, weight: .medium))
+                                    .foregroundColor(isSelected ? sidebarAccentTint : AppPalette.labelTertiary(isDark))
+                            }
+                            if let disambiguatedFolder {
+                                Text(disambiguatedFolder)
+                                    .font(.system(size: 10, weight: .regular))
+                                    .foregroundColor(AppPalette.labelTertiary(isDark))
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 1)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                            .fill(AppPalette.segmentedTrack(isDark).opacity(isSelected ? 0.9 : 0.6))
+                                    )
+                                    .layoutPriority(-1)
+                            }
+                        }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityHidden(true)
+                    .animation(AppAnimation.micro, value: isSelected)
+                } else {
+                    HStack(spacing: 5) {
+                        if state.splitMode != .disabled {
+                            Image(systemName: state.splitMode.iconName)
+                                .font(.system(size: 9.5, weight: .medium))
+                                .foregroundColor(AppPalette.labelTertiary(isDark))
+                        }
+                        Text(state.title)
+                            .font(.system(size: 12, weight: isSelected ? .medium : .regular))
+                            .foregroundColor(labelColor)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+
+                        if let disambiguatedFolder {
+                            Text(disambiguatedFolder)
+                                .font(.system(size: 10.5, weight: .regular))
+                                .foregroundColor(AppPalette.labelTertiary(isDark))
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                        .fill(AppPalette.segmentedTrack(isDark).opacity(isSelected ? 0.9 : 0.6))
+                                )
+                                .layoutPriority(-1)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityHidden(true)
+                    .animation(AppAnimation.micro, value: isSelected)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityHidden(true)
-                .animation(AppAnimation.micro, value: isSelected)
             }
 
             if !isCollapsed {
+                let closeSize: CGFloat = isSidebar ? 20 : 18
                 Button {
                     store.closeTab(id: state.id, in: session.id)
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: 8.5, weight: .semibold))
                         .foregroundColor(isCloseHovered ? AppPalette.labelPrimary(isDark) : AppPalette.labelSecondary(isDark))
-                        .frame(width: 18, height: 18)
+                        .frame(width: closeSize, height: closeSize)
                         .background(
-                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            Circle()
                                 .fill(isCloseHovered ? AppPalette.toolbarHover(isDark) : Color.clear)
                         )
-                        .contentShape(Rectangle())
+                        .contentShape(Circle())
                         .animation(AppAnimation.micro, value: isCloseHovered)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(TactilePressButtonStyle())
                 .help(L10n.tr("关闭标签 (⌘W · ⇧⌘T 恢复)", "Close Tab (⌘W · ⇧⌘T to Reopen)"))
                 .accessibilityLabel(Text("\(L10n.tr("关闭标签", "Close Tab")) \(state.title)"))
-                .scaleEffect(showsCloseButton ? 1.0 : 0.85)
+                .scaleEffect(showsCloseButton ? 1.0 : (AppAnimation.reduceMotion ? 1.0 : 0.85))
                 .opacity(showsCloseButton ? 1 : 0)
                 .allowsHitTesting(showsCloseButton)
                 .accessibilityHidden(!showsCloseButton)
@@ -1445,8 +1654,17 @@ struct DocumentTabItemView: View {
         .frame(maxHeight: .infinity)
         .background(alignment: .leading) {
             if let sidebarRowWidth {
-                SidebarTabBackground(color: isSelected || isHovered ? highlight : .clear,
-                                     width: sidebarRowWidth, cornerRadius: 8)
+                SidebarTabBackground(
+                    color: isSelected || isHovered ? highlight : .clear,
+                    width: sidebarRowWidth,
+                    cornerRadius: 9,
+                    borderColor: isSelected ? AppPalette.tabSelectedBorder(isDark) : .clear,
+                    borderWidth: isSelected ? 0.5 : 0,
+                    shadowColor: isSelected ? Color.black.opacity(isDark ? 0.24 : 0.08) : .clear,
+                    shadowRadius: isSelected ? 2 : 0,
+                    shadowY: isSelected ? 1 : 0,
+                    verticalInset: 2
+                )
                     .animation(AppAnimation.micro, value: isSelected)
                     .animation(AppAnimation.micro, value: isHovered)
             } else if session.displayedTabGroup(containing: state.id) != nil {
@@ -1456,10 +1674,10 @@ struct DocumentTabItemView: View {
                     .animation(AppAnimation.snappy, value: isSelected)
             } else {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
                         .fill(isHovered && !isSelected ? AppPalette.tabHoverBackground(isDark) : Color.clear)
                         .padding(.horizontal, 4)
-                        .padding(.vertical, 6)
+                        .padding(.vertical, 5)
                         .animation(AppAnimation.micro, value: isHovered)
                     if isSelected {
                         activeOrdinaryTabPill
@@ -1553,11 +1771,15 @@ struct DocumentTabItemView: View {
 
     @ViewBuilder
     private var activeOrdinaryTabPill: some View {
-        let pill = RoundedRectangle(cornerRadius: 6, style: .continuous)
+        let pillShape = RoundedRectangle(cornerRadius: 7, style: .continuous)
+        let pill = pillShape
             .fill(AppPalette.tabSelectedBackground(isDark))
-            .shadow(color: Color.black.opacity(isDark ? 0.28 : 0.08), radius: 1.5, x: 0, y: 0.5)
+            .overlay {
+                pillShape.strokeBorder(AppPalette.tabSelectedBorder(isDark), lineWidth: 0.5)
+            }
+            .shadow(color: Color.black.opacity(isDark ? 0.26 : 0.08), radius: 2, x: 0, y: 1)
             .padding(.horizontal, 4)
-            .padding(.vertical, 6)
+            .padding(.vertical, 5)
         if let selectionNamespace {
             pill.matchedGeometryEffect(id: "activeTopTab", in: selectionNamespace)
         } else {

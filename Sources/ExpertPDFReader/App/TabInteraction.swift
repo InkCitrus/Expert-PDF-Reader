@@ -207,7 +207,14 @@ struct TabStripAnchor: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ view: NSView, context: Context) {}
+    func updateNSView(_ view: NSView, context: Context) {
+        guard let anchor = view as? TabStripAnchorView else { return }
+        anchor.session = session
+        anchor.axis = axis
+        if anchor.window != nil && session.tabStripView !== anchor {
+            session.tabStripView = anchor
+        }
+    }
 }
 
 private final class TabStripAnchorView: NSView {

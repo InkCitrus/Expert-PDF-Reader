@@ -639,7 +639,10 @@ public struct ReaderLeftSidebarView: View {
     private var headerAccessory: some View {
         switch tab.activeSidebarTab {
         case .thumbnails:
-            Text(L10n.pageCountText(tab.activeThumbnailSource.document.pageCount))
+            let selectedCount = tab.selectedThumbnailPages(in: tab.activeThumbnailSource).count
+            Text(selectedCount > 0
+                 ? L10n.selectedPagesCount(selectedCount)
+                 : L10n.pageCountText(tab.activeThumbnailSource.document.pageCount))
                 .font(.system(size: 11))
                 .monospacedDigit()
                 .foregroundColor(AppPalette.labelTertiary(isDark))
@@ -768,86 +771,43 @@ struct PDFPageThumbnailsPanel: View {
     let panelWidth: CGFloat
     let isDark: Bool
 
-    @Environment(\.appAccentColor) private var accent
-
     var body: some View {
         let source = tab.activeThumbnailSource
         let selectedPages = tab.selectedThumbnailPages(in: source)
         let scale = panelWidth / ReaderLeftSidebarView.width
         // Reuse nearby resolutions during a drag instead of rendering on every point of movement.
         let renderScale = (scale * 4).rounded(.up) / 4
-        VStack(spacing: 0) {
-            if !selectedPages.isEmpty {
-                let ordered = selectedPages.sorted()
-                let canExport = PageImageClipboard.canCopy(source.document.page(at: ordered[0]))
-                let targetWindow = store.window(forTabID: tab.id)
-                HStack(spacing: 6) {
-                    Text(L10n.selectedPagesCount(ordered.count))
-                        .font(.system(size: 11, weight: .medium))
-                        .monospacedDigit()
-                        .foregroundColor(AppPalette.labelPrimary(isDark))
-                        .lineLimit(1)
-                    Spacer(minLength: 4)
-                    Button(L10n.tr("导出…", "Export…")) {
-                        tab.beginExportPanel(in: targetWindow, initialPages: ordered, source: source)
-                    }
-                    .buttonStyle(.borderless)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(canExport ? accent : AppPalette.labelQuaternary(isDark))
-                    .disabled(!canExport)
-                    Button {
-                        tab.clearThumbnailSelection()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 12))
-                            .foregroundColor(AppPalette.labelTertiary(isDark))
-                    }
-                    .buttonStyle(.plain)
-                    .help(L10n.tr("取消选择", "Deselect All"))
-                    .accessibilityLabel(Text(L10n.tr("取消选择", "Deselect All")))
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background(AppPalette.toolbarBackground(isDark))
-                .overlay(alignment: .bottom) {
-                    Rectangle()
-                        .fill(AppPalette.panelSeparator(isDark))
-                        .frame(height: 1)
-                }
-            }
-
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 14) {
-                        ForEach(0..<source.document.pageCount, id: \.self) { pageIdx in
-                            PageThumbnailCell(
-                                store: store,
-                                tab: tab,
-                                source: source,
-                                pageIndex: pageIdx,
-                                maxSize: CGSize(width: 148 * scale, height: 192 * scale),
-                                renderSize: CGSize(width: 296 * renderScale, height: 384 * renderScale),
-                                isDark: isDark
-                            ) {
-                                tab.navigateToThumbnail(pageIdx)
-                            }
-                            .id(pageIdx)
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 14) {
+                    ForEach(0..<source.document.pageCount, id: \.self) { pageIdx in
+                        PageThumbnailCell(
+                            store: store,
+                            tab: tab,
+                            source: source,
+                            pageIndex: pageIdx,
+                            maxSize: CGSize(width: 148 * scale, height: 192 * scale),
+                            renderSize: CGSize(width: 296 * renderScale, height: 384 * renderScale),
+                            isDark: isDark
+                        ) {
+                            tab.navigateToThumbnail(pageIdx)
                         }
+                        .id(pageIdx)
                     }
-                    .padding(.vertical, 16)
-                    .frame(maxWidth: .infinity)
                 }
-                .onAppear {
-                    proxy.scrollTo(source.pageIndex, anchor: .center)
-                }
-                .onChange(of: source.pageIndex) { _, newIdx in
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        proxy.scrollTo(newIdx, anchor: .center)
-                    }
+                .padding(.vertical, 16)
+                .frame(maxWidth: .infinity)
+            }
+            .onAppear {
+                proxy.scrollTo(source.pageIndex, anchor: .center)
+            }
+            .onChange(of: source.pageIndex) { _, newIdx in
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    proxy.scrollTo(newIdx, anchor: .center)
                 }
             }
-            .id(ObjectIdentifier(source.document))
         }
+        .id(ObjectIdentifier(source.document))
         .onExitCommand {
             if !selectedPages.isEmpty {
                 tab.clearThumbnailSelection()
@@ -879,7 +839,10 @@ struct PageThumbnailCell: View {
 
     var body: some View {
         let isCurrent = source.pageIndex == pageIndex
-        let isSelected = tab.isThumbnailSelected(pageIndex, in: source.document)
+        let selectedPages = tab.selectedThumbnailPages(in: source)
+        let isSelected = selectedPages.contains(pageIndex)
+        let hasMultiSelection = !selectedPages.isEmpty
+        let isEmphasized = hasMultiSelection ? isSelected : isCurrent
         let isBookmarked = store.isPageBookmarked(pageIndex: pageIndex, in: source.documentID)
         let page = source.document.page(at: pageIndex)
         let pageLabel = tab.thumbnailPageNumber(at: pageIndex, in: source.document)
@@ -937,41 +900,38 @@ struct PageThumbnailCell: View {
                                     .offset(y: -2)
                             }
                         }
-                        .overlay(alignment: .topLeading) {
-                            if isSelected {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(.white, accent)
-                                    .shadow(color: Color.black.opacity(0.28), radius: 1.5, x: 0, y: 0.5)
-                                    .padding(5)
-                            }
-                        }
                         .shadow(color: Color.black.opacity(isDark ? 0.45 : 0.10), radius: 2.5, x: 0, y: 1)
                         .padding(4)
                         .background(
                             RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                .fill(isSelected ? accent.opacity(isDark ? 0.18 : 0.10) : Color.clear)
+                                .fill(isSelected ? accent.opacity(isDark ? 0.14 : 0.08) : Color.clear)
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 5, style: .continuous)
                                 .stroke(
-                                    (isSelected || isCurrent)
+                                    isEmphasized
                                         ? accent
-                                        : (isHovered ? accent.opacity(0.35) : Color.clear),
-                                    lineWidth: 2
+                                        : (hasMultiSelection && isCurrent
+                                            ? AppPalette.labelQuaternary(isDark)
+                                            : (isHovered ? accent.opacity(0.35) : Color.clear)),
+                                    lineWidth: isEmphasized ? 2 : (hasMultiSelection && isCurrent ? 1.5 : 2)
                                 )
                         )
                 }
 
                 Text(pageLabel)
-                    .font(.system(size: 11, weight: isCurrent ? .semibold : .regular))
+                    .font(.system(size: 11, weight: isEmphasized ? .semibold : .regular))
                     .monospacedDigit()
-                    .foregroundColor(isCurrent ? .white : AppPalette.labelSecondary(isDark))
+                    .foregroundColor(
+                        isEmphasized
+                            ? .white
+                            : (hasMultiSelection && isCurrent ? AppPalette.labelPrimary(isDark) : AppPalette.labelSecondary(isDark))
+                    )
                     .padding(.horizontal, 7)
                     .padding(.vertical, 2)
                     .background(
                         RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .fill(isCurrent ? accent : Color.clear)
+                            .fill(isEmphasized ? accent : (hasMultiSelection && isCurrent ? AppPalette.rowHover(isDark) : Color.clear))
                     )
             }
             .contentShape(Rectangle())

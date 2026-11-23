@@ -344,16 +344,16 @@ private final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate
         formatPopUp.target = self
         formatPopUp.action = #selector(formatChanged)
 
+        let pageCount = context.document.pageCount
         pagesModePopUp.addItems(withTitles: [
-            L10n.tr("全部页面", "All Pages"),
-            L10n.tr("当前页", "Current Page"),
+            L10n.parenthetical(L10n.tr("全部页面", "All Pages"), L10n.pageCountText(pageCount)),
+            L10n.parenthetical(L10n.tr("当前页", "Current Page"), context.labelForPage(context.currentPageIndex)),
             L10n.tr("指定页码", "Page Range")
         ])
         pagesModePopUp.selectItem(at: selectedMode.rawValue)
         pagesModePopUp.target = self
         pagesModePopUp.action = #selector(pagesModeChanged)
 
-        let pageCount = context.document.pageCount
         if !initialPages.isEmpty {
             rangeField.stringValue = PageRangeParser.format(
                 initialPages,
@@ -401,39 +401,62 @@ private final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.lineBreakMode = .byTruncatingTail
 
+        let rangeStack = NSStackView(views: [rangeField, statusLabel])
+        rangeStack.translatesAutoresizingMaskIntoConstraints = false
+        rangeStack.orientation = .vertical
+        rangeStack.alignment = .leading
+        rangeStack.spacing = 4
+
         let formatLabel = NSTextField(labelWithString: L10n.tr("格式：", "Format:"))
+        formatLabel.font = NSFont.systemFont(ofSize: 13)
+        formatLabel.textColor = .secondaryLabelColor
         formatLabel.alignment = .right
         let pagesLabel = NSTextField(labelWithString: L10n.tr("页面：", "Pages:"))
+        pagesLabel.font = NSFont.systemFont(ofSize: 13)
+        pagesLabel.textColor = .secondaryLabelColor
         pagesLabel.alignment = .right
 
         let grid = NSGridView(views: [
             [formatLabel, formatPopUp],
             [pagesLabel, pagesControlContainer],
-            [NSGridCell.emptyContentView, rangeField],
-            [NSGridCell.emptyContentView, statusLabel]
+            [NSGridCell.emptyContentView, rangeStack]
         ])
         grid.translatesAutoresizingMaskIntoConstraints = false
-        grid.rowSpacing = 8
-        grid.columnSpacing = 8
+        grid.rowSpacing = 10
+        grid.columnSpacing = 9
         grid.yPlacement = .center
+        grid.row(at: 2).yPlacement = .top
         grid.column(at: 0).xPlacement = .trailing
         grid.column(at: 1).xPlacement = .fill
         rangeRow = grid.row(at: 2)
 
+        // Match macOS Save Panel's 380pt top form: 85pt right-aligned labels end at x=101,
+        // 9pt column gap, and 231pt controls span x=110..341 (right margin 39pt).
+        let formContainer = NSView()
+        formContainer.translatesAutoresizingMaskIntoConstraints = false
+        formContainer.addSubview(grid)
+
         let accessoryContainer = NSView()
         accessoryContainer.translatesAutoresizingMaskIntoConstraints = false
-        accessoryContainer.addSubview(grid)
+        accessoryContainer.addSubview(formContainer)
+        let minWidth = accessoryContainer.widthAnchor.constraint(greaterThanOrEqualToConstant: 380)
+        minWidth.priority = .defaultHigh
         NSLayoutConstraint.activate([
-            formatPopUp.widthAnchor.constraint(equalToConstant: 240),
-            pagesControlContainer.widthAnchor.constraint(equalToConstant: 240),
-            rangeField.widthAnchor.constraint(equalToConstant: 240),
-            statusLabel.widthAnchor.constraint(equalToConstant: 240),
+            minWidth,
+            formContainer.widthAnchor.constraint(equalToConstant: 380),
+            formContainer.centerXAnchor.constraint(equalTo: accessoryContainer.centerXAnchor),
+            formContainer.topAnchor.constraint(equalTo: accessoryContainer.topAnchor),
+            formContainer.bottomAnchor.constraint(equalTo: accessoryContainer.bottomAnchor),
 
-            grid.topAnchor.constraint(equalTo: accessoryContainer.topAnchor, constant: 12),
-            grid.bottomAnchor.constraint(equalTo: accessoryContainer.bottomAnchor, constant: -12),
-            grid.leadingAnchor.constraint(greaterThanOrEqualTo: accessoryContainer.leadingAnchor, constant: 20),
-            grid.trailingAnchor.constraint(lessThanOrEqualTo: accessoryContainer.trailingAnchor, constant: -20),
-            grid.centerXAnchor.constraint(equalTo: accessoryContainer.centerXAnchor)
+            formatLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 85),
+            pagesLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 85),
+            rangeField.widthAnchor.constraint(equalTo: rangeStack.widthAnchor),
+            statusLabel.widthAnchor.constraint(equalTo: rangeStack.widthAnchor),
+
+            grid.topAnchor.constraint(equalTo: formContainer.topAnchor, constant: 14),
+            grid.bottomAnchor.constraint(equalTo: formContainer.bottomAnchor, constant: -14),
+            grid.leadingAnchor.constraint(equalTo: formContainer.leadingAnchor, constant: 16),
+            grid.trailingAnchor.constraint(equalTo: formContainer.trailingAnchor, constant: -39)
         ])
 
         panel.accessoryView = accessoryContainer
@@ -526,7 +549,17 @@ private final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate
         let isPDF = selectedFormat == .pdf
         pagesModePopUp.isHidden = !isPDF
         pngPageField.isHidden = isPDF
-        rangeRow?.isHidden = !(isPDF && selectedMode == .range)
+        if isPDF {
+            let isRange = selectedMode == .range
+            rangeField.isHidden = !isRange
+            statusLabel.isHidden = !isRange
+            rangeRow?.isHidden = !isRange
+        } else {
+            let isInvalidPNG = resolvedPNGPageIndex() == nil && !pngPageField.stringValue.isEmpty
+            rangeField.isHidden = true
+            statusLabel.isHidden = !isInvalidPNG
+            rangeRow?.isHidden = !isInvalidPNG
+        }
         panel.accessoryView?.layoutSubtreeIfNeeded()
     }
 
@@ -624,6 +657,11 @@ private final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate
     private func updateStatusLabel(forceError: Bool = false) {
         switch selectedFormat {
         case .pdf:
+            guard selectedMode == .range else {
+                statusLabel.stringValue = ""
+                syncControlVisibility()
+                return
+            }
             if let indices = resolvedPDFPageIndices(), !indices.isEmpty {
                 statusLabel.textColor = .secondaryLabelColor
                 statusLabel.stringValue = L10n.exportPageCountSummary(indices.count)
@@ -631,14 +669,24 @@ private final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate
                 statusLabel.textColor = .systemRed
                 statusLabel.stringValue = L10n.tr("请输入有效的页码范围", "Enter a valid page range")
             }
+            syncControlVisibility()
         case .png:
-            if let idx = resolvedPNGPageIndex() {
-                statusLabel.textColor = .secondaryLabelColor
-                statusLabel.stringValue = L10n.pageTitle(context.labelForPage(idx))
-            } else {
-                statusLabel.textColor = forceError || !pngPageField.stringValue.isEmpty ? .systemRed : .secondaryLabelColor
+            if resolvedPNGPageIndex() != nil {
+                statusLabel.stringValue = ""
+                statusLabel.isHidden = true
+                rangeRow?.isHidden = true
+            } else if forceError || !pngPageField.stringValue.isEmpty {
+                statusLabel.textColor = .systemRed
                 statusLabel.stringValue = L10n.tr("请输入有效页码", "Enter a valid page number")
+                rangeField.isHidden = true
+                statusLabel.isHidden = false
+                rangeRow?.isHidden = false
+            } else {
+                statusLabel.stringValue = ""
+                statusLabel.isHidden = true
+                rangeRow?.isHidden = true
             }
+            panel.accessoryView?.layoutSubtreeIfNeeded()
         }
     }
 

@@ -494,10 +494,9 @@ struct PageOverviewGridView: View {
     @ObservedObject var tab: DocumentTabState
     let isDark: Bool
 
-    @Environment(\.appAccentColor) private var accent
-
     var body: some View {
         let source = tab.activeThumbnailSource
+        let pdfTheme = store.resolvedPDFTheme(isDark: isDark)
         let selectedPages = tab.selectedThumbnailPages(in: source)
         ScrollViewReader { proxy in
             ScrollView {
@@ -524,7 +523,7 @@ struct PageOverviewGridView: View {
                 }
                 .padding(.top, 28)
                 .padding(.horizontal, 28)
-                .padding(.bottom, selectedPages.isEmpty ? 28 : 84)
+                .padding(.bottom, selectedPages.isEmpty ? 28 : 80)
             }
             .task {
                 // Scrolling from onAppear runs before the lazy grid has a layout and is lost
@@ -534,29 +533,32 @@ struct PageOverviewGridView: View {
             }
         }
         .id(ObjectIdentifier(source.document))
-        .background(store.resolvedPDFTheme(isDark: isDark).documentBackgroundColor(isDarkUI: isDark))
+        .background(pdfTheme.documentBackgroundColor(isDarkUI: isDark))
         .overlay(alignment: .bottom) {
             if !selectedPages.isEmpty {
                 let ordered = selectedPages.sorted()
                 let canExport = PageImageClipboard.canCopy(source.document.page(at: ordered[0]))
                 let targetWindow = store.window(forTabID: tab.id)
+                let foreground = AppPalette.pageIndicatorForeground(pdfTheme: pdfTheme, isDarkUI: isDark)
                 HStack(spacing: 10) {
                     Text(L10n.selectedPagesCount(ordered.count))
                         .font(.system(size: 12, weight: .medium))
                         .monospacedDigit()
-                        .foregroundColor(AppPalette.labelPrimary(isDark))
+                        .foregroundColor(foreground)
 
-                    Divider()
-                        .frame(height: 14)
+                    Rectangle()
+                        .fill(foreground.opacity(0.22))
+                        .frame(width: 1, height: 14)
 
                     Button {
                         tab.rotatePages(ordered, in: source.document, clockwise: false)
                     } label: {
                         Image(systemName: "rotate.left")
-                            .font(.system(size: 12.5, weight: .medium))
+                            .font(.system(size: 12, weight: .medium))
+                            .frame(width: 22, height: 22)
                     }
                     .buttonStyle(.plain)
-                    .foregroundColor(AppPalette.toolbarIcon(isDark))
+                    .foregroundColor(foreground.opacity(0.88))
                     .help(L10n.tr("向左旋转", "Rotate Left"))
                     .accessibilityLabel(Text(L10n.tr("向左旋转", "Rotate Left")))
 
@@ -564,22 +566,30 @@ struct PageOverviewGridView: View {
                         tab.rotatePages(ordered, in: source.document, clockwise: true)
                     } label: {
                         Image(systemName: "rotate.right")
-                            .font(.system(size: 12.5, weight: .medium))
+                            .font(.system(size: 12, weight: .medium))
+                            .frame(width: 22, height: 22)
                     }
                     .buttonStyle(.plain)
-                    .foregroundColor(AppPalette.toolbarIcon(isDark))
+                    .foregroundColor(foreground.opacity(0.88))
                     .help(L10n.tr("向右旋转", "Rotate Right"))
                     .accessibilityLabel(Text(L10n.tr("向右旋转", "Rotate Right")))
 
-                    Divider()
-                        .frame(height: 14)
+                    Rectangle()
+                        .fill(foreground.opacity(0.22))
+                        .frame(width: 1, height: 14)
 
                     Button(L10n.tr("导出…", "Export…")) {
                         tab.beginExportPanel(in: targetWindow, initialPages: ordered, source: source)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(accent)
-                    .controlSize(.small)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(canExport ? foreground : foreground.opacity(0.38))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color.white.opacity(0.14))
+                    )
                     .disabled(!canExport)
 
                     Button {
@@ -587,21 +597,24 @@ struct PageOverviewGridView: View {
                     } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 10.5, weight: .semibold))
-                            .foregroundColor(AppPalette.labelSecondary(isDark))
+                            .foregroundColor(foreground.opacity(0.75))
                             .frame(width: 20, height: 20)
                     }
                     .buttonStyle(.plain)
                     .help(L10n.tr("取消选择", "Deselect All"))
                     .accessibilityLabel(Text(L10n.tr("取消选择", "Deselect All")))
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(.regularMaterial, in: Capsule())
-                .overlay(
-                    Capsule()
-                        .strokeBorder(AppPalette.chromeHairline(isDark), lineWidth: 1)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(AppPalette.pageIndicatorBackground(pdfTheme: pdfTheme, isDarkUI: isDark, isHovered: false))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                .strokeBorder(AppPalette.pageIndicatorBorder(pdfTheme: pdfTheme, isDarkUI: isDark, isHovered: false), lineWidth: 1)
+                        )
+                        .shadow(color: Color.black.opacity(pdfTheme == .night || isDark ? 0.45 : 0.18), radius: 6, x: 0, y: 2)
                 )
-                .shadow(color: Color.black.opacity(isDark ? 0.45 : 0.16), radius: 12, x: 0, y: 4)
                 .padding(.bottom, 22)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }

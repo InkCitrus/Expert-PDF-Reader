@@ -1,31 +1,83 @@
 import CoreGraphics
 import PDFKit
 
-/// Locate vector panels that enclose text, including attached heading ribbons.
+/// Locate vector panels, paired vertical sidebars, ruled tables, and diagram figures.
 @MainActor
 enum PDFFramedRegions {
+    struct Region {
+        enum Kind {
+            case panel
+            case table
+            case figure
+        }
+
+        let bounds: CGRect
+        let kind: Kind
+    }
+
+    struct PageLayout {
+        let regions: [Region]
+        let freeVerticalRules: [CGRect]
+    }
+
     static func bounds(on page: PDFPage, geometry: NativePDFPageGeometry) -> [CGRect] {
-        guard let source = page.pageRef, !geometry.rows.isEmpty else { return [] }
+        regions(on: page, geometry: geometry).map(\.bounds)
+    }
+
+    static func regions(on page: PDFPage, geometry: NativePDFPageGeometry) -> [Region] {
+        layout(on: page, geometry: geometry).regions
+    }
+
+    static func layout(on page: PDFPage, geometry: NativePDFPageGeometry) -> PageLayout {
+        guard let source = page.pageRef, !geometry.rows.isEmpty else {
+            return PageLayout(regions: [], freeVerticalRules: [])
+        }
         let crop = geometry.cropBox
         let heights = geometry.rows.map { $0.bounds.height }.sorted()
         let inkHeight = heights[heights.count / 2]
-        let drawings = PDFPanelScan.drawings(on: source, clippedTo: crop)
-        let panels = drawings.filter { drawing in
+        let scan = PDFPanelScan.scan(on: source, clippedTo: crop)
+
+        func rowCount(inside box: CGRect, limit: Int) -> Int {
+            geometry.rows.lazy.filter { row in
+                box.contains(row.bounds.center) || row.glyphs.contains { box.contains($0.bounds.center) }
+            }.prefix(limit).count
+        }
+        func roughlyEqual(_ a: CGRect, _ b: CGRect) -> Bool {
+            let inter = a.intersection(b)
+            guard !inter.isNull, !inter.isEmpty else { return false }
+            let areaA = a.area, areaB = b.area
+            return areaA > 0 && areaB > 0 && inter.area >= max(areaA, areaB) * 0.85
+        }
+        func isRedundant(_ candidate: CGRect, against existing: [Region]) -> Bool {
+            existing.contains { region in
+                roughlyEqual(region.bounds, candidate)
+                    || (region.bounds.insetBy(dx: -2, dy: -2).contains(candidate)
+                        && candidate.area > region.bounds.area * 0.75)
+            }
+        }
+
+        // 1. Closed vector panels and attached heading ribbons.
+        let panels = scan.drawings.filter { drawing in
             let box = drawing.bounds
             guard drawing.isPanel, box.width >= max(inkHeight * 6, crop.width * 0.16),
                   box.height >= inkHeight * 2, box.height < crop.height * 0.85 else { return false }
-            return geometry.rows.lazy.filter { row in
-                box.contains(row.bounds.center) || row.glyphs.contains { box.contains($0.bounds.center) }
-            }.prefix(2).count == 2
-        }.sorted { $0.bounds.width * $0.bounds.height > $1.bounds.width * $1.bounds.height }
+            return rowCount(inside: box, limit: 2) == 2
+        }.sorted { $0.bounds.area > $1.bounds.area }
 
-        var result: [CGRect] = []
+        var regions: [Region] = []
+        var panelBodies: [CGRect] = []
+        var panelPrimitives: [CGRect] = []
         for panel in panels {
             let body = panel.bounds
-            // A frame is often several overpainted rectangles. Keep the outside border.
-            guard !result.contains(where: { $0.contains(body) }) else { continue }
+            // Keep nested panels only when noticeably smaller than the enclosing frame;
+            // otherwise treat overpainted concentric borders as one frame.
+            if panelBodies.contains(where: { $0.insetBy(dx: -2, dy: -2).contains(body) && body.area > $0.area * 0.75 }) {
+                panelPrimitives.append(body)
+                continue
+            }
             var box = body
-            for drawing in drawings {
+            var attachedRibbons: [CGRect] = []
+            for drawing in scan.drawings {
                 let ribbon = drawing.bounds
                 let overlap = min(ribbon.maxX, body.maxX) - max(ribbon.minX, body.minX)
                 guard ribbon.height <= inkHeight * 3, ribbon.width <= body.width * 1.25,
@@ -40,23 +92,262 @@ enum PDFFramedRegions {
                         return center.y > body.maxY && ribbon.contains(center)
                     }
                 }
-                if title { box = box.union(ribbon) }
+                if title {
+                    box = box.union(ribbon)
+                    attachedRibbons.append(ribbon)
+                }
             }
-            result.append(box)
+            panelPrimitives.append(body)
+            panelPrimitives.append(contentsOf: attachedRibbons)
+            if regions.contains(where: { $0.bounds.insetBy(dx: -2, dy: -2).contains(box) && box.area > $0.bounds.area * 0.75 }) {
+                continue
+            }
+            panelBodies.append(body)
+            regions.append(Region(bounds: box, kind: .panel))
         }
-        return result
+
+        // Mark inner panel fills and top header banners so figure clustering never treats them as figures.
+        for drawing in scan.drawings {
+            let box = drawing.bounds
+            if panelBodies.contains(where: { outer in
+                outer.insetBy(dx: -1.5, dy: -1.5).contains(box)
+                    && (box.area > outer.area * 0.75
+                        || (box.width >= outer.width * 0.75 && box.height <= inkHeight * 3
+                            && abs(box.maxY - outer.maxY) <= inkHeight * 0.5))
+            }) {
+                panelPrimitives.append(box)
+            }
+        }
+
+        // 2. Paired vertical sidebars (e.g. Solution blocks bordered on left and right margins).
+        var usedVerticalIndices = Set<Int>()
+        let vRules = scan.verticalRules
+        let sidebarCandidates = vRules.indices.filter { idx in
+            let rule = vRules[idx]
+            guard rule.height >= inkHeight * 3, rule.height < crop.height * 0.85 else { return false }
+            return !regions.contains { panel in
+                let vOverlap = min(rule.maxY, panel.bounds.maxY) - max(rule.minY, panel.bounds.minY)
+                guard vOverlap >= rule.height * 0.7 else { return false }
+                let edgeTol = max(4, rule.width)
+                return abs(rule.minX - panel.bounds.minX) <= edgeTol || abs(rule.maxX - panel.bounds.maxX) <= edgeTol
+            }
+        }.sorted { vRules[$0].minX < vRules[$1].minX }
+
+        for aPos in sidebarCandidates.indices {
+            let i = sidebarCandidates[aPos]
+            guard !usedVerticalIndices.contains(i) else { continue }
+            let left = vRules[i]
+            for bPos in (aPos + 1)..<sidebarCandidates.count {
+                let j = sidebarCandidates[bPos]
+                guard !usedVerticalIndices.contains(j) else { continue }
+                let right = vRules[j]
+                let maxH = max(left.height, right.height)
+                let vOverlap = min(left.maxY, right.maxY) - max(left.minY, right.minY)
+                guard abs(left.minY - right.minY) <= inkHeight * 1.5,
+                      abs(left.maxY - right.maxY) <= inkHeight * 1.5,
+                      vOverlap >= maxH * 0.85 else { continue }
+                let span = left.union(right)
+                guard span.width >= max(inkHeight * 6, crop.width * 0.16),
+                      span.height < crop.height * 0.85 else { continue }
+                let hasDivider = vRules.contains { mid in
+                    mid.minX > left.maxX + 2 && mid.maxX < right.minX - 2
+                        && (min(mid.maxY, span.maxY) - max(mid.minY, span.minY)) >= maxH * 0.7
+                }
+                guard !hasDivider, rowCount(inside: span, limit: 2) == 2,
+                      !isRedundant(span, against: regions) else { continue }
+                usedVerticalIndices.insert(i)
+                usedVerticalIndices.insert(j)
+                regions.append(Region(bounds: span, kind: .panel))
+                break
+            }
+        }
+
+        // 3. Ruled grid tables (axis-aligned horizontal and vertical strokes touching within tolerance).
+        let hRules = scan.horizontalRules
+        var rulePrimitives: [(isHorizontal: Bool, index: Int, rect: CGRect)] = []
+        for (i, r) in hRules.enumerated() { rulePrimitives.append((true, i, r)) }
+        for (j, r) in vRules.enumerated() where !usedVerticalIndices.contains(j) {
+            rulePrimitives.append((false, j, r))
+        }
+        let tableTol = max(1, inkHeight * 0.6)
+        var visitedRules = Array(repeating: false, count: rulePrimitives.count)
+        var usedHorizontalTableRules = Set<Int>()
+        var usedVerticalTableRules = Set<Int>()
+        var tables: [Region] = []
+        for start in rulePrimitives.indices where !visitedRules[start] {
+            var queue = [start]
+            visitedRules[start] = true
+            var component: [Int] = []
+            var head = 0
+            while head < queue.count {
+                let cur = queue[head]
+                head += 1
+                component.append(cur)
+                let expanded = rulePrimitives[cur].rect.insetBy(dx: -tableTol, dy: -tableTol)
+                for next in rulePrimitives.indices where !visitedRules[next] {
+                    if expanded.intersects(rulePrimitives[next].rect) {
+                        visitedRules[next] = true
+                        queue.append(next)
+                    }
+                }
+            }
+            let hs = component.filter { rulePrimitives[$0].isHorizontal }.map { rulePrimitives[$0].rect }
+            let vs = component.filter { !rulePrimitives[$0].isHorizontal }.map { rulePrimitives[$0].rect }
+            guard hs.count >= 2, vs.count >= 2 else { continue }
+            func distinctCount(_ values: [CGFloat]) -> Int {
+                var count = 0
+                var last = -CGFloat.infinity
+                for v in values.sorted() where v - last > 2 {
+                    count += 1
+                    last = v
+                }
+                return count
+            }
+            guard distinctCount(hs.map(\.midY)) >= 2, distinctCount(vs.map(\.midX)) >= 2 else { continue }
+            let box = component.reduce(CGRect.null) { $0.union(rulePrimitives[$1].rect) }
+            guard box.width >= inkHeight * 4, box.height >= inkHeight * 2,
+                  box.height < crop.height * 0.85,
+                  rowCount(inside: box, limit: 2) == 2,
+                  !isRedundant(box, against: regions) else { continue }
+            let region = Region(bounds: box, kind: .table)
+            tables.append(region)
+            regions.append(region)
+            for idx in component {
+                if rulePrimitives[idx].isHorizontal { usedHorizontalTableRules.insert(rulePrimitives[idx].index) }
+                else { usedVerticalTableRules.insert(rulePrimitives[idx].index) }
+            }
+        }
+
+        // 4. Connected vector figure clusters (seeded by non-panel shapes, attaching adjacent short rules).
+        let candidateShapes = scan.shapes.filter { shape in
+            guard !(shape.width > crop.width * 0.85 && shape.height > crop.height * 0.85) else { return false }
+            if panelPrimitives.contains(where: { roughlyEqual($0, shape) }) { return false }
+            if tables.contains(where: {
+                let inter = $0.bounds.intersection(shape)
+                return !inter.isNull && shape.area > 0 && inter.area >= shape.area * 0.75
+            }) {
+                return false
+            }
+            return true
+        }
+        var freeRules: [CGRect] = []
+        let maxFigureRuleLength = crop.width * 0.55
+        for (i, r) in hRules.enumerated() where !usedHorizontalTableRules.contains(i) && r.width < maxFigureRuleLength {
+            freeRules.append(r)
+        }
+        for (j, r) in vRules.enumerated() where !usedVerticalIndices.contains(j) && !usedVerticalTableRules.contains(j) && r.height < maxFigureRuleLength {
+            freeRules.append(r)
+        }
+
+        // Precompute short contiguous text label spans so diagram annotations attach to their figure
+        // without swallowing multi-word captions or column-wide equations.
+        let labelSpans: [CGRect] = geometry.rows.flatMap { row -> [CGRect] in
+            var spans: [CGRect] = []
+            var current = CGRect.null
+            var prevMaxX: CGFloat?
+            for glyph in row.glyphs {
+                if let prev = prevMaxX, glyph.bounds.minX - prev > inkHeight * 2.5, !current.isNull {
+                    spans.append(current)
+                    current = glyph.bounds
+                } else {
+                    current = current.isNull ? glyph.bounds : current.union(glyph.bounds)
+                }
+                prevMaxX = glyph.bounds.maxX
+            }
+            if !current.isNull { spans.append(current) }
+            return spans.filter { $0.width < max(inkHeight * 12, crop.width * 0.18) && $0.height <= inkHeight * 2.2 }
+        }
+
+        let figureTol = max(1, inkHeight * 0.8)
+        var visitedShapes = Array(repeating: false, count: candidateShapes.count)
+        var visitedFreeRules = Array(repeating: false, count: freeRules.count)
+        for seed in candidateShapes.indices where !visitedShapes[seed] {
+            visitedShapes[seed] = true
+            var queue: [(isShape: Bool, index: Int)] = [(true, seed)]
+            var clusterBox = candidateShapes[seed]
+            var head = 0
+            while head < queue.count {
+                let cur = queue[head]
+                head += 1
+                let rect = cur.isShape ? candidateShapes[cur.index] : freeRules[cur.index]
+                let expanded = rect.insetBy(dx: -figureTol, dy: -figureTol)
+                for sIdx in candidateShapes.indices where !visitedShapes[sIdx] {
+                    if expanded.intersects(candidateShapes[sIdx]) {
+                        visitedShapes[sIdx] = true
+                        clusterBox = clusterBox.union(candidateShapes[sIdx])
+                        queue.append((true, sIdx))
+                    }
+                }
+                for rIdx in freeRules.indices where !visitedFreeRules[rIdx] {
+                    if expanded.intersects(freeRules[rIdx]) {
+                        visitedFreeRules[rIdx] = true
+                        clusterBox = clusterBox.union(freeRules[rIdx])
+                        queue.append((false, rIdx))
+                    }
+                }
+            }
+            guard clusterBox.width >= inkHeight * 4,
+                  clusterBox.height >= inkHeight * 3,
+                  !(clusterBox.width > crop.width * 0.9 && clusterBox.height > crop.height * 0.85) else { continue }
+            let coveredByTable = tables.contains { table in
+                let inter = table.bounds.intersection(clusterBox)
+                return !inter.isNull && clusterBox.area > 0 && inter.area >= clusterBox.area * 0.75
+            }
+            guard !coveredByTable else { continue }
+            let wideProseRows = geometry.rows.lazy.filter { row in
+                row.bounds.width > crop.width * 0.45 && clusterBox.contains(row.bounds.center)
+            }.prefix(3).count
+            guard wideProseRows < 3 else { continue }
+
+            let labelReach = clusterBox.insetBy(dx: -inkHeight * 2.2, dy: -inkHeight * 0.6)
+            var expandedBox = clusterBox
+            for span in labelSpans where labelReach.intersects(span) {
+                expandedBox = expandedBox.union(span)
+            }
+            guard !isRedundant(expandedBox, against: regions) else { continue }
+            regions.append(Region(bounds: expandedBox, kind: .figure))
+        }
+
+        let panelRegions = regions.filter { $0.kind == .panel }
+        let nonPanelContainers = regions.filter { $0.kind != .panel }
+        let remainingVerticalRules = vRules.indices.compactMap { j -> CGRect? in
+            guard !usedVerticalIndices.contains(j), !usedVerticalTableRules.contains(j) else { return nil }
+            let rule = vRules[j]
+            let onPanelEdge = panelRegions.contains { panel in
+                let vOverlap = min(rule.maxY, panel.bounds.maxY) - max(rule.minY, panel.bounds.minY)
+                guard vOverlap >= rule.height * 0.7 else { return false }
+                let edgeTol = max(4, rule.width)
+                return abs(rule.minX - panel.bounds.minX) <= edgeTol || abs(rule.maxX - panel.bounds.maxX) <= edgeTol
+            }
+            guard !onPanelEdge else { return nil }
+            let insideTableOrFigure = nonPanelContainers.contains { region in
+                let inter = region.bounds.insetBy(dx: -1, dy: -1).intersection(rule)
+                return !inter.isNull && rule.area > 0 && inter.area >= rule.area * 0.75
+            }
+            return insideTableOrFigure ? nil : rule
+        }
+
+        return PageLayout(regions: regions, freeVerticalRules: remainingVerticalRules)
     }
 }
 
 private extension CGRect {
     var center: CGPoint { CGPoint(x: midX, y: midY) }
+    var area: CGFloat { max(0, width) * max(0, height) }
 }
 
-/// Quartz supplies parsed PDF operands. Only collect the paths used to paint panel shapes.
+/// Quartz supplies parsed PDF operands for panels, open orthogonal rules, and vector figures.
 private final class PDFPanelScan {
     struct Drawing {
         let bounds: CGRect
         let isPanel: Bool
+    }
+
+    struct ScanResult {
+        let drawings: [Drawing]
+        let horizontalRules: [CGRect]
+        let verticalRules: [CGRect]
+        let shapes: [CGRect]
     }
 
     struct GraphicsState {
@@ -64,6 +355,7 @@ private final class PDFPanelScan {
         var clip: CGRect
         var lineWidth: CGFloat = 1
         var whiteFill = false
+        var whiteStroke = false
     }
 
     private var state: GraphicsState
@@ -73,13 +365,18 @@ private final class PDFPanelScan {
     private var closed = false
     private var updatesClip = false
     private var drawings: [Drawing] = []
+    private var horizontalRules: [CGRect] = []
+    private var verticalRules: [CGRect] = []
+    private var shapes: [CGRect] = []
 
     private init(crop: CGRect) {
         state = GraphicsState(clip: crop)
     }
 
-    static func drawings(on page: CGPDFPage, clippedTo crop: CGRect) -> [Drawing] {
-        guard let table = CGPDFOperatorTableCreate() else { return [] }
+    static func scan(on page: CGPDFPage, clippedTo crop: CGRect) -> ScanResult {
+        guard let table = CGPDFOperatorTableCreate() else {
+            return ScanResult(drawings: [], horizontalRules: [], verticalRules: [], shapes: [])
+        }
         defer { CGPDFOperatorTableRelease(table) }
         let callbacks: [(String, CGPDFOperatorCallback)] = [
             ("q", { _, info in PDFPanelScan.instance(info)?.save() }),
@@ -89,6 +386,9 @@ private final class PDFPanelScan {
             ("g", { scanner, info in PDFPanelScan.instance(info)?.setFill(scanner, components: 1) }),
             ("rg", { scanner, info in PDFPanelScan.instance(info)?.setFill(scanner, components: 3) }),
             ("k", { scanner, info in PDFPanelScan.instance(info)?.setFill(scanner, components: 4) }),
+            ("G", { scanner, info in PDFPanelScan.instance(info)?.setStroke(scanner, components: 1) }),
+            ("RG", { scanner, info in PDFPanelScan.instance(info)?.setStroke(scanner, components: 3) }),
+            ("K", { scanner, info in PDFPanelScan.instance(info)?.setStroke(scanner, components: 4) }),
             ("m", { scanner, info in PDFPanelScan.instance(info)?.move(scanner) }),
             ("l", { scanner, info in PDFPanelScan.instance(info)?.line(scanner) }),
             ("c", { scanner, info in PDFPanelScan.instance(info)?.curve(scanner) }),
@@ -118,7 +418,11 @@ private final class PDFPanelScan {
         defer { CGPDFContentStreamRelease(stream) }
         let scanner = CGPDFScannerCreate(stream, table, Unmanaged.passUnretained(scan).toOpaque())
         defer { CGPDFScannerRelease(scanner) }
-        return CGPDFScannerScan(scanner) ? scan.drawings : []
+        guard CGPDFScannerScan(scanner) else {
+            return ScanResult(drawings: [], horizontalRules: [], verticalRules: [], shapes: [])
+        }
+        return ScanResult(drawings: scan.drawings, horizontalRules: scan.horizontalRules,
+                          verticalRules: scan.verticalRules, shapes: scan.shapes)
     }
 
     private static func instance(_ info: UnsafeMutableRawPointer?) -> PDFPanelScan? {
@@ -150,11 +454,17 @@ private final class PDFPanelScan {
         if let width = Self.numbers(1, in: scanner)?.first { state.lineWidth = max(0, width) }
     }
 
+    private static func isWhite(_ scanner: CGPDFScannerRef?, components: Int) -> Bool? {
+        guard let values = numbers(components, in: scanner) else { return nil }
+        return components == 4 ? values.allSatisfy { $0 < 0.005 } : values.allSatisfy { $0 > 0.995 }
+    }
+
     private func setFill(_ scanner: CGPDFScannerRef?, components: Int) {
-        guard let values = Self.numbers(components, in: scanner) else { return }
-        state.whiteFill = components == 4
-            ? values.allSatisfy { $0 < 0.005 }
-            : values.allSatisfy { $0 > 0.995 }
+        if let white = Self.isWhite(scanner, components: components) { state.whiteFill = white }
+    }
+
+    private func setStroke(_ scanner: CGPDFScannerRef?, components: Int) {
+        if let white = Self.isWhite(scanner, components: components) { state.whiteStroke = white }
     }
 
     private func point(_ values: [CGFloat], at index: Int) -> CGPoint {
@@ -204,12 +514,18 @@ private final class PDFPanelScan {
         }
         if close { self.close() }
         let bounds = path.boundingBoxOfPath
-        if !bounds.isEmpty, !bounds.isInfinite, bounds.width.isFinite, bounds.height.isFinite,
-           (fill && !state.whiteFill || stroke && (closed || subpathStart == path.currentPoint)) {
+        let visibleFill = fill && !state.whiteFill
+        let visibleStroke = stroke && !state.whiteStroke
+        if !bounds.isNull, !bounds.isInfinite, (bounds.width > 0 || bounds.height > 0),
+           bounds.width.isFinite, bounds.height.isFinite,
+           (visibleFill || visibleStroke) {
             let scale = max(hypot(state.transform.a, state.transform.b), hypot(state.transform.c, state.transform.d))
             let padding = stroke ? state.lineWidth * scale / 2 : 0
             let visible = bounds.insetBy(dx: -padding, dy: -padding).intersection(state.clip)
-            if !visible.isNull, visible.width >= state.clip.width * 0.08, visible.height >= 2 {
+
+            let isClosedOrLoop = closed || subpathStart == path.currentPoint
+            if visibleFill || (visibleStroke && isClosedOrLoop),
+               !visible.isNull, visible.width >= state.clip.width * 0.08, visible.height >= 2 {
                 let rule: CGPathFillRule = evenOdd ? .evenOdd : .winding
                 // A rounded box still covers a grid inset from its corners, while a triangle
                 // or illustration usually does not. Keep thin ribbon shapes for attachment too.
@@ -220,6 +536,61 @@ private final class PDFPanelScan {
                     }
                 }
                 drawings.append(Drawing(bounds: visible, isPanel: isPanel))
+            }
+
+            var current = CGPoint.zero
+            var startPt: CGPoint?
+            var orthoSegments: [(CGPoint, CGPoint)] = []
+            var hasCurves = false
+            var hasDiagonal = false
+            var hasCloseOp = false
+            path.applyWithBlock { elementPtr in
+                let element = elementPtr.pointee
+                switch element.type {
+                case .moveToPoint:
+                    let pt = element.points[0]
+                    current = pt
+                    startPt = pt
+                case .addLineToPoint:
+                    let pt = element.points[0]
+                    let dx = abs(pt.x - current.x), dy = abs(pt.y - current.y)
+                    if dx > 0.5 && dy > 0.5 { hasDiagonal = true }
+                    else if dx > 0.5 || dy > 0.5 { orthoSegments.append((current, pt)) }
+                    current = pt
+                case .addQuadCurveToPoint:
+                    hasCurves = true
+                    current = element.points[1]
+                case .addCurveToPoint:
+                    hasCurves = true
+                    current = element.points[2]
+                case .closeSubpath:
+                    hasCloseOp = true
+                    if let s = startPt {
+                        let dx = abs(s.x - current.x), dy = abs(s.y - current.y)
+                        if dx > 0.5 && dy > 0.5 { hasDiagonal = true }
+                        current = s
+                    }
+                @unknown default:
+                    break
+                }
+            }
+
+            if visibleStroke && !visibleFill && !hasCloseOp && !isClosedOrLoop && !hasCurves && !hasDiagonal {
+                let rulePad = max(padding, 0.25)
+                for (a, b) in orthoSegments {
+                    let seg = CGRect(x: min(a.x, b.x), y: min(a.y, b.y),
+                                     width: abs(b.x - a.x), height: abs(b.y - a.y))
+                        .insetBy(dx: -rulePad, dy: -rulePad)
+                        .intersection(state.clip)
+                    guard !seg.isNull else { continue }
+                    if abs(b.y - a.y) <= 0.5 && abs(b.x - a.x) > 0.5 {
+                        horizontalRules.append(seg)
+                    } else if abs(b.x - a.x) <= 0.5 && abs(b.y - a.y) > 0.5 {
+                        verticalRules.append(seg)
+                    }
+                }
+            } else if !visible.isNull && (visible.width >= 1 || visible.height >= 1) {
+                shapes.append(visible)
             }
         }
         if updatesClip { state.clip = state.clip.intersection(bounds) }

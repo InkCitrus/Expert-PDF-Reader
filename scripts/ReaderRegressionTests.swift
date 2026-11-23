@@ -129,6 +129,450 @@ struct ReaderRegressionTests {
             } == true, "a stroked frame crops to its drawn extent after applying the PDF transform")
         }
         do {
+            // Paired vertical sidebars enclosing solution rows form a single panel region.
+            let data = NSMutableData()
+            var media = CGRect(x: 0, y: 0, width: 612, height: 792)
+            let context = CGContext(consumer: CGDataConsumer(data: data)!, mediaBox: &media, nil)!
+            context.beginPDFPage(nil)
+            context.setFillColor(gray: 1, alpha: 1)
+            context.fill(media)
+            context.setStrokeColor(red: 0, green: 0, blue: 0.6, alpha: 1)
+            context.setLineWidth(2.8)
+            context.move(to: CGPoint(x: 72, y: 180)); context.addLine(to: CGPoint(x: 72, y: 380)); context.strokePath()
+            context.move(to: CGPoint(x: 540, y: 180)); context.addLine(to: CGPoint(x: 540, y: 380)); context.strokePath()
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.black]
+            ("Outside header line." as NSString).draw(at: CGPoint(x: 85, y: 420), withAttributes: attrs)
+            ("Solution: First solution step." as NSString).draw(at: CGPoint(x: 90, y: 350), withAttributes: attrs)
+            ("Second solution step." as NSString).draw(at: CGPoint(x: 90, y: 325), withAttributes: attrs)
+            ("Final answer." as NSString).draw(at: CGPoint(x: 90, y: 300), withAttributes: attrs)
+            NSGraphicsContext.restoreGraphicsState()
+            context.endPDFPage()
+            context.closePDF()
+            let document = PDFDocument(data: data as Data)!
+            let page = document.page(at: 0)!
+            let regions = PDFFramedRegions.regions(on: page, geometry: NativePDFPageGeometry.geometry(for: page))
+            check(regions.count == 1 && regions[0].kind == .panel
+                  && abs(regions[0].bounds.minX - 70.6) < 1 && abs(regions[0].bounds.maxX - 541.4) < 1
+                  && abs(regions[0].bounds.minY - 178.6) < 2 && abs(regions[0].bounds.maxY - 381.4) < 2,
+                  "paired vertical sidebars enclose solution content as one framed panel")
+        }
+        do {
+            // Outer framed box containing a vector diagram with short labels and a ruled 2x2 table.
+            let data = NSMutableData()
+            var media = CGRect(x: 0, y: 0, width: 612, height: 792)
+            let context = CGContext(consumer: CGDataConsumer(data: data)!, mediaBox: &media, nil)!
+            context.beginPDFPage(nil)
+            context.setFillColor(gray: 1, alpha: 1)
+            context.fill(media)
+            context.setStrokeColor(gray: 0.2, alpha: 1)
+            context.setLineWidth(1.5)
+            context.stroke(CGRect(x: 70, y: 300, width: 470, height: 340))
+            // Blue diagram block with feed arrow + diagonal arrowheads
+            context.setFillColor(red: 0, green: 0, blue: 1, alpha: 1)
+            context.setStrokeColor(gray: 0, alpha: 1)
+            context.setLineWidth(0.6)
+            context.addRect(CGRect(x: 280, y: 500, width: 32, height: 60))
+            context.drawPath(using: .fillStroke)
+            context.move(to: CGPoint(x: 245, y: 530)); context.addLine(to: CGPoint(x: 279, y: 530)); context.strokePath()
+            context.move(to: CGPoint(x: 275, y: 533)); context.addLine(to: CGPoint(x: 279, y: 530)); context.addLine(to: CGPoint(x: 275, y: 527)); context.strokePath()
+            context.move(to: CGPoint(x: 312, y: 530)); context.addLine(to: CGPoint(x: 346, y: 530)); context.strokePath()
+            context.move(to: CGPoint(x: 342, y: 533)); context.addLine(to: CGPoint(x: 346, y: 530)); context.addLine(to: CGPoint(x: 342, y: 527)); context.strokePath()
+            // Ruled 2x2 table
+            for y in [340.0, 360.0, 380.0] {
+                context.move(to: CGPoint(x: 220, y: y)); context.addLine(to: CGPoint(x: 380, y: y)); context.strokePath()
+            }
+            for x in [220.0, 300.0, 380.0] {
+                context.move(to: CGPoint(x: x, y: 340)); context.addLine(to: CGPoint(x: x, y: 380)); context.strokePath()
+            }
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.black]
+            ("Exercise Heading inside outer box." as NSString).draw(at: CGPoint(x: 85, y: 605), withAttributes: attrs)
+            ("feed" as NSString).draw(at: CGPoint(x: 215, y: 525), withAttributes: attrs)
+            ("out" as NSString).draw(at: CGPoint(x: 350, y: 525), withAttributes: attrs)
+            ("Col A" as NSString).draw(at: CGPoint(x: 235, y: 365), withAttributes: attrs)
+            ("Col B" as NSString).draw(at: CGPoint(x: 315, y: 365), withAttributes: attrs)
+            ("12" as NSString).draw(at: CGPoint(x: 245, y: 345), withAttributes: attrs)
+            ("34" as NSString).draw(at: CGPoint(x: 325, y: 345), withAttributes: attrs)
+            ("Concluding sentence inside outer box." as NSString).draw(at: CGPoint(x: 85, y: 312), withAttributes: attrs)
+            NSGraphicsContext.restoreGraphicsState()
+            context.endPDFPage()
+            context.closePDF()
+            let document = PDFDocument(data: data as Data)!
+            let page = document.page(at: 0)!
+            let regions = PDFFramedRegions.regions(on: page, geometry: NativePDFPageGeometry.geometry(for: page))
+            let figure = regions.first(where: { $0.kind == .figure })
+            let table = regions.first(where: { $0.kind == .table })
+            let panel = regions.first(where: { $0.kind == .panel })
+            check(panel != nil && figure != nil && table != nil,
+                  "nested figure and ruled table remain distinct inside an enclosing framed panel")
+            if let figure {
+                check(figure.bounds.minX <= 220 && figure.bounds.maxX >= 360,
+                      "vector figure region absorbs short adjacent diagram labels")
+            }
+        }
+        do {
+            // An open L-shaped orthogonal border around prose lines must not become a figure or panel.
+            let data = NSMutableData()
+            var media = CGRect(x: 0, y: 0, width: 612, height: 792)
+            let context = CGContext(consumer: CGDataConsumer(data: data)!, mediaBox: &media, nil)!
+            context.beginPDFPage(nil)
+            context.setFillColor(gray: 1, alpha: 1)
+            context.fill(media)
+            context.setStrokeColor(gray: 0.2, alpha: 1)
+            context.setLineWidth(1)
+            context.move(to: CGPoint(x: 150, y: 500))
+            context.addLine(to: CGPoint(x: 540, y: 500))
+            context.addLine(to: CGPoint(x: 540, y: 420))
+            context.strokePath()
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.black]
+            ("First prose sentence spanning across the page width cleanly." as NSString).draw(at: CGPoint(x: 80, y: 480), withAttributes: attrs)
+            ("Second prose sentence spanning across the page width cleanly." as NSString).draw(at: CGPoint(x: 80, y: 460), withAttributes: attrs)
+            NSGraphicsContext.restoreGraphicsState()
+            context.endPDFPage()
+            context.closePDF()
+            let document = PDFDocument(data: data as Data)!
+            let page = document.page(at: 0)!
+            let regions = PDFFramedRegions.regions(on: page, geometry: NativePDFPageGeometry.geometry(for: page))
+            check(regions.isEmpty, "open L-shaped rule borders do not produce false figure or table regions")
+        }
+        do {
+            // Combining negation slash stays attached and tall isolated math delimiters stay out of body rows.
+            let data = NSMutableData()
+            var media = CGRect(x: 0, y: 0, width: 612, height: 792)
+            let context = CGContext(consumer: CGDataConsumer(data: data)!, mediaBox: &media, nil)!
+            context.beginPDFPage(nil)
+            context.setFillColor(gray: 1, alpha: 1)
+            context.fill(media)
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            ("If det(A) =\u{0338} 0 then solve." as NSString).draw(
+                at: CGPoint(x: 90, y: 500),
+                withAttributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.black])
+            ("(" as NSString).draw(
+                at: CGPoint(x: 320, y: 488),
+                withAttributes: [.font: NSFont.systemFont(ofSize: 48), .foregroundColor: NSColor.black])
+            NSGraphicsContext.restoreGraphicsState()
+            context.endPDFPage()
+            context.closePDF()
+            let document = PDFDocument(data: data as Data)!
+            let page = document.page(at: 0)!
+            let geometry = NativePDFPageGeometry.geometry(for: page)
+            check(!geometry.excludedIndices.isEmpty && geometry.needsDirectSelection,
+                  "tall isolated math delimiters are excluded from body rows and trigger direct selection")
+            check(geometry.rows.contains { geometry.text(for: $0, on: page).contains("=\u{0338}") || geometry.text(for: $0, on: page).contains("\u{0338}=") || geometry.text(for: $0, on: page).contains("≠") },
+                  "combining negation slash is preserved in row text")
+        }
+        do {
+            @MainActor func buildAccessibilityRoot(for data: Data) -> (window: NSWindow, root: PDFContentAccessibility.GeometryElement?) {
+                let document = PDFDocument(data: data)!
+                let view = ThemedPDFView(frame: CGRect(x: 0, y: 0, width: 620, height: 820))
+                view.document = document
+                view.displayMode = .singlePage
+                view.autoScales = true
+                let window = NSWindow(contentRect: view.frame, styleMask: [.titled], backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false
+                window.contentView = view
+                window.orderBack(nil)
+                view.go(to: document.page(at: 0)!)
+                view.layoutDocumentView()
+                let root = view.accessibilityChildren()?.first(where: { $0 is PDFContentAccessibility.GeometryElement })
+                    as? PDFContentAccessibility.GeometryElement
+                return (window, root)
+            }
+            @MainActor func makePDF(draw: (CGContext) -> Void) -> Data {
+                let data = NSMutableData()
+                var media = CGRect(x: 0, y: 0, width: 612, height: 792)
+                let context = CGContext(consumer: CGDataConsumer(data: data)!, mediaBox: &media, nil)!
+                context.beginPDFPage(nil)
+                context.setFillColor(gray: 1, alpha: 1)
+                context.fill(media)
+                draw(context)
+                context.endPDFPage()
+                context.closePDF()
+                return data as Data
+            }
+
+            // 1. First-line indented 1.5x-spaced paragraphs with a short descenderless ending ("one.")
+            let indentPDF = makePDF { ctx in
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.black]
+                ("First indented opening line across the width." as NSString).draw(at: CGPoint(x: 92, y: 650), withAttributes: attrs)
+                ("Continuation line back at the left margin." as NSString).draw(at: CGPoint(x: 72, y: 630), withAttributes: attrs)
+                ("one." as NSString).draw(at: CGPoint(x: 72, y: 610), withAttributes: attrs)
+                ("Second indented paragraph directly below." as NSString).draw(at: CGPoint(x: 92, y: 590), withAttributes: attrs)
+                ("Second paragraph continuation at margin." as NSString).draw(at: CGPoint(x: 72, y: 570), withAttributes: attrs)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            let (win1, root1) = buildAccessibilityRoot(for: indentPDF)
+            defer { win1.orderOut(nil) }
+            let groups1 = root1?.allChildren.filter { $0.accessibilityRole() == .group } ?? []
+            check(groups1.count == 2 && groups1[0].allChildren.count == 3 && groups1[1].allChildren.count == 2,
+                  "first-line indented 1.5x-spaced paragraphs with a short ending group into distinct paragraph blocks")
+
+            // 2. Two-column staggered layout stays grouped independently per column
+            let twoColPDF = makePDF { ctx in
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.black]
+                ("Left column line one." as NSString).draw(at: CGPoint(x: 50, y: 600), withAttributes: attrs)
+                ("Right column line one." as NSString).draw(at: CGPoint(x: 330, y: 591), withAttributes: attrs)
+                ("Left column line two." as NSString).draw(at: CGPoint(x: 50, y: 582), withAttributes: attrs)
+                ("Right column line two." as NSString).draw(at: CGPoint(x: 330, y: 573), withAttributes: attrs)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            let (win2, root2) = buildAccessibilityRoot(for: twoColPDF)
+            defer { win2.orderOut(nil) }
+            let groups2 = root2?.allChildren.filter { $0.accessibilityRole() == .group } ?? []
+            check(groups2.count == 2 && groups2.allSatisfy { $0.allChildren.count == 2 },
+                  "two-column staggered baselines partition into two separate column paragraphs")
+
+            // 3. Paragraphs inside a framed panel and direct GeometryElement.accessibilityHitTest
+            let framedParaPDF = makePDF { ctx in
+                ctx.setStrokeColor(gray: 0.2, alpha: 1)
+                ctx.setLineWidth(1.5)
+                ctx.stroke(CGRect(x: 70, y: 400, width: 470, height: 210))
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.black]
+                ("Panel Title" as NSString).draw(at: CGPoint(x: 85, y: 585), withAttributes: attrs)
+                ("First body line inside framed panel." as NSString).draw(at: CGPoint(x: 85, y: 550), withAttributes: attrs)
+                ("Second body line inside framed panel." as NSString).draw(at: CGPoint(x: 85, y: 534), withAttributes: attrs)
+                ("Third body line inside framed panel." as NSString).draw(at: CGPoint(x: 85, y: 518), withAttributes: attrs)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            let (win3, root3) = buildAccessibilityRoot(for: framedParaPDF)
+            defer { win3.orderOut(nil) }
+            let panel3 = root3?.allChildren.first { $0.accessibilityRole() == .group }
+            let innerPara = panel3?.allChildren.first { $0.accessibilityRole() == .group && $0.allChildren.count == 3 }
+            check(panel3 != nil && panel3?.allChildren.count == 2 && innerPara != nil,
+                  "framed panel preserves separate heading while grouping body lines into a child paragraph")
+            if let root3, let innerPara, let l1 = innerPara.allChildren.first, let l2 = innerPara.allChildren.dropFirst().first {
+                let f1 = l1.accessibilityFrame(), f2 = l2.accessibilityFrame()
+                let gapPoint = CGPoint(x: f1.midX, y: (f1.minY + f2.maxY) / 2)
+                check((root3.accessibilityHitTest(gapPoint) as AnyObject?) === innerPara,
+                      "direct accessibilityHitTest in a panel paragraph gap hits the inner paragraph rather than the panel or page")
+            } else {
+                check(false, "direct accessibilityHitTest in a panel paragraph gap hits the inner paragraph rather than the panel or page")
+            }
+
+            // 4. Multi-step matrix derivation preserves delimiter bounds, protruding operators, and annotations
+            let matrixPDF = makePDF { ctx in
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.black]
+                let delimAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 48), .foregroundColor: NSColor.black]
+                ("We apply row operations to obtain:" as NSString).draw(at: CGPoint(x: 72, y: 700), withAttributes: attrs)
+                ("(" as NSString).draw(at: CGPoint(x: 135, y: 612), withAttributes: delimAttrs)
+                ("1 2" as NSString).draw(at: CGPoint(x: 155, y: 644), withAttributes: attrs)
+                ("3 4" as NSString).draw(at: CGPoint(x: 155, y: 629), withAttributes: attrs)
+                ("5 6" as NSString).draw(at: CGPoint(x: 155, y: 614), withAttributes: attrs)
+                (")" as NSString).draw(at: CGPoint(x: 185, y: 612), withAttributes: delimAttrs)
+                ("~" as NSString).draw(at: CGPoint(x: 205, y: 629), withAttributes: attrs)
+                ("(" as NSString).draw(at: CGPoint(x: 222, y: 612), withAttributes: delimAttrs)
+                ("1 2" as NSString).draw(at: CGPoint(x: 242, y: 644), withAttributes: attrs)
+                ("0 7" as NSString).draw(at: CGPoint(x: 242, y: 629), withAttributes: attrs)
+                ("0 8" as NSString).draw(at: CGPoint(x: 242, y: 614), withAttributes: attrs)
+                (")" as NSString).draw(at: CGPoint(x: 272, y: 612), withAttributes: delimAttrs)
+                ("R2 = row2" as NSString).draw(at: CGPoint(x: 345, y: 629), withAttributes: attrs)
+                ("R3 = row3" as NSString).draw(at: CGPoint(x: 345, y: 614), withAttributes: attrs)
+
+                ("~" as NSString).draw(at: CGPoint(x: 205, y: 579), withAttributes: attrs)
+                ("(" as NSString).draw(at: CGPoint(x: 222, y: 562), withAttributes: delimAttrs)
+                ("1 2" as NSString).draw(at: CGPoint(x: 242, y: 594), withAttributes: attrs)
+                ("0 7" as NSString).draw(at: CGPoint(x: 242, y: 579), withAttributes: attrs)
+                ("0 1" as NSString).draw(at: CGPoint(x: 242, y: 564), withAttributes: attrs)
+                (")" as NSString).draw(at: CGPoint(x: 272, y: 562), withAttributes: delimAttrs)
+                ("R3 = diff" as NSString).draw(at: CGPoint(x: 345, y: 564), withAttributes: attrs)
+                ("Translating back yields the solution." as NSString).draw(at: CGPoint(x: 72, y: 515), withAttributes: attrs)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            let (win4, root4) = buildAccessibilityRoot(for: matrixPDF)
+            defer { win4.orderOut(nil) }
+            let derivation = root4?.allChildren.first {
+                $0.accessibilityRole() == .group && $0.allChildren.count == 2
+            }
+            let step1 = derivation?.allChildren.first
+            let step2 = derivation?.allChildren.dropFirst().first
+            let step2Matrix = step2?.allChildren.first { $0.accessibilityRole() == .group }
+            let step1Text = step1?.accessibilityValue() as? String ?? ""
+            let step2Text = step2?.accessibilityValue() as? String ?? ""
+            let step2MatrixRect = step2Matrix?.pageRect ?? .zero
+            let enclosesFullMatrixDelimiters = step2MatrixRect.minX <= 228 && step2MatrixRect.maxX >= 278
+                && step2MatrixRect.minY <= 566 && step2MatrixRect.maxY >= 604
+            check(derivation != nil
+                  && step1Text.contains("R2 = row2") && step1Text.contains("R3 = row3")
+                  && step2Text.contains("R3 = diff") && step2Text.contains("0 1") && step2Text.contains("1 2")
+                  && (step2Matrix?.allChildren.count == 3)
+                  && enclosesFullMatrixDelimiters,
+                  "multi-step matrix derivation binds delimiters, protruding operators, and right annotations into complete nested groups")
+            if let root4, let step1, let step2, let step2Matrix {
+                let dFrame = step2Matrix.accessibilityFrame()
+                let delimPoint = CGPoint(x: dFrame.minX + 2, y: dFrame.midY)
+                let interStepPoint = CGPoint(x: step2.accessibilityFrame().midX,
+                                             y: (step1.accessibilityFrame().minY + step2.accessibilityFrame().maxY) / 2)
+                check((root4.accessibilityHitTest(delimPoint) as AnyObject?) === step2Matrix
+                      && (root4.accessibilityHitTest(interStepPoint) as AnyObject?) === derivation,
+                      "accessibilityHitTest hits matrix group on its delimiter and derivation group between steps")
+            } else {
+                check(false, "accessibilityHitTest hits matrix group on its delimiter and derivation group between steps")
+            }
+
+            // 5. Matrix in column 1 does not absorb column 2 prose across a vertical column gutter
+            let colMatrixPDF = makePDF { ctx in
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.black]
+                let delimAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 32), .foregroundColor: NSColor.black]
+                ("(" as NSString).draw(at: CGPoint(x: 90, y: 558), withAttributes: delimAttrs)
+                ("1 0" as NSString).draw(at: CGPoint(x: 108, y: 582), withAttributes: attrs)
+                ("0 1" as NSString).draw(at: CGPoint(x: 108, y: 564), withAttributes: attrs)
+                (")" as NSString).draw(at: CGPoint(x: 135, y: 558), withAttributes: delimAttrs)
+
+                ("Right column opening line." as NSString).draw(at: CGPoint(x: 320, y: 616), withAttributes: attrs)
+                ("Right column beside matrix one." as NSString).draw(at: CGPoint(x: 320, y: 598), withAttributes: attrs)
+                ("Right column beside matrix two." as NSString).draw(at: CGPoint(x: 320, y: 580), withAttributes: attrs)
+                ("Right column closing line." as NSString).draw(at: CGPoint(x: 320, y: 562), withAttributes: attrs)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            let (win5, root5) = buildAccessibilityRoot(for: colMatrixPDF)
+            defer { win5.orderOut(nil) }
+            let colGroups = root5?.allChildren.filter { $0.accessibilityRole() == .group } ?? []
+            let rightCol = colGroups.first { ($0.accessibilityValue() as? String)?.contains("Right column") == true }
+            let leftMatrix = colGroups.first { ($0.accessibilityValue() as? String)?.contains("1 0") == true }
+            check(colGroups.count == 2 && rightCol?.allChildren.count == 4 && leftMatrix?.allChildren.count == 2
+                  && !((leftMatrix?.pageRect ?? .zero).intersects(rightCol?.pageRect ?? .zero)),
+                  "two-column matrix does not absorb adjacent column prose")
+
+            // 6. Numbered list with inline tall delimited expression stays grouped while display heading stays separate
+            let inlineMathListPDF = makePDF { ctx in
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                let bodyAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.black]
+                let headAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.boldSystemFont(ofSize: 18), .foregroundColor: NSColor.black]
+                let inlineDelimAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 17), .foregroundColor: NSColor.black]
+
+                ("Section 4.2 Augmented Matrix Procedure" as NSString).draw(at: CGPoint(x: 72, y: 700), withAttributes: headAttrs)
+                ("We summarize the solving procedure with standard inline notation across the page width." as NSString).draw(at: CGPoint(x: 72, y: 672), withAttributes: bodyAttrs)
+                ("Each elementary step preserves solutions while reducing the coefficient block to triangular form." as NSString).draw(at: CGPoint(x: 72, y: 656), withAttributes: bodyAttrs)
+
+                ("1. Formulate the coefficient matrices A, x, and b from the system." as NSString).draw(at: CGPoint(x: 86, y: 620), withAttributes: bodyAttrs)
+                ("2. Create the augmented matrix" as NSString).draw(at: CGPoint(x: 86, y: 600), withAttributes: bodyAttrs)
+                ("(" as NSString).draw(at: CGPoint(x: 262, y: 597), withAttributes: inlineDelimAttrs)
+                ("A  b" as NSString).draw(at: CGPoint(x: 270, y: 600), withAttributes: bodyAttrs)
+                (")" as NSString).draw(at: CGPoint(x: 296, y: 597), withAttributes: inlineDelimAttrs)
+                ("3. Apply elementary row operations to obtain upper-triangular form." as NSString).draw(at: CGPoint(x: 86, y: 580), withAttributes: bodyAttrs)
+                ("4. Use back-substitution to solve cleanly for the remaining variables." as NSString).draw(at: CGPoint(x: 86, y: 562), withAttributes: bodyAttrs)
+                NSGraphicsContext.restoreGraphicsState()
+
+                ctx.setStrokeColor(gray: 0, alpha: 1)
+                ctx.setLineWidth(0.8)
+                ctx.move(to: CGPoint(x: 282, y: 596))
+                ctx.addLine(to: CGPoint(x: 282, y: 614))
+                ctx.strokePath()
+            }
+            let (win6, root6) = buildAccessibilityRoot(for: inlineMathListPDF)
+            defer { win6.orderOut(nil) }
+            let groups6 = root6?.allChildren.filter { $0.accessibilityRole() == .group } ?? []
+            let bodyPara6 = groups6.first { ($0.accessibilityValue() as? String)?.contains("summarize") == true }
+            let listGroup6 = groups6.first { ($0.accessibilityValue() as? String)?.contains("augmented matrix") == true }
+            let headingMerged6 = groups6.contains { ($0.accessibilityValue() as? String)?.contains("Section 4.2") == true }
+            check(!headingMerged6
+                  && bodyPara6?.allChildren.count == 2
+                  && listGroup6?.allChildren.count == 4,
+                  "display heading stays separate while numbered list with taller inline delimited math stays grouped")
+
+            // 7. Adjacent matrices with operators split free text cleanly and never merge across fractions
+            let multiMatrixRowPDF = makePDF { ctx in
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.black]
+                let delimAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 44), .foregroundColor: NSColor.black]
+                ("Compare the adjacent matrices and the scaled matrix product displayed across each row:" as NSString).draw(
+                    at: CGPoint(x: 72, y: 700), withAttributes: attrs)
+
+                ("A =" as NSString).draw(at: CGPoint(x: 110, y: 634), withAttributes: attrs)
+                ("(" as NSString).draw(at: CGPoint(x: 145, y: 611), withAttributes: delimAttrs)
+                ("1 2" as NSString).draw(at: CGPoint(x: 162, y: 643), withAttributes: attrs)
+                ("3 4" as NSString).draw(at: CGPoint(x: 162, y: 623), withAttributes: attrs)
+                (")" as NSString).draw(at: CGPoint(x: 190, y: 611), withAttributes: delimAttrs)
+                ("B =" as NSString).draw(at: CGPoint(x: 265, y: 634), withAttributes: attrs)
+                ("(" as NSString).draw(at: CGPoint(x: 300, y: 611), withAttributes: delimAttrs)
+                ("5 6" as NSString).draw(at: CGPoint(x: 317, y: 643), withAttributes: attrs)
+                ("7 8" as NSString).draw(at: CGPoint(x: 317, y: 623), withAttributes: attrs)
+                (")" as NSString).draw(at: CGPoint(x: 345, y: 611), withAttributes: delimAttrs)
+
+                ("(" as NSString).draw(at: CGPoint(x: 145, y: 521), withAttributes: delimAttrs)
+                ("1 0" as NSString).draw(at: CGPoint(x: 162, y: 553), withAttributes: attrs)
+                ("0 1" as NSString).draw(at: CGPoint(x: 162, y: 533), withAttributes: attrs)
+                (")" as NSString).draw(at: CGPoint(x: 190, y: 521), withAttributes: delimAttrs)
+                ("1" as NSString).draw(at: CGPoint(x: 218, y: 552), withAttributes: attrs)
+                ("2" as NSString).draw(at: CGPoint(x: 218, y: 531), withAttributes: attrs)
+                ("(" as NSString).draw(at: CGPoint(x: 250, y: 521), withAttributes: delimAttrs)
+                ("9 1" as NSString).draw(at: CGPoint(x: 267, y: 553), withAttributes: attrs)
+                ("2 3" as NSString).draw(at: CGPoint(x: 267, y: 533), withAttributes: attrs)
+                (")" as NSString).draw(at: CGPoint(x: 295, y: 521), withAttributes: delimAttrs)
+                NSGraphicsContext.restoreGraphicsState()
+
+                ctx.setStrokeColor(gray: 0, alpha: 1)
+                ctx.setLineWidth(0.9)
+                ctx.move(to: CGPoint(x: 212, y: 545))
+                ctx.addLine(to: CGPoint(x: 232, y: 545))
+                ctx.strokePath()
+            }
+            let (win7, root7) = buildAccessibilityRoot(for: multiMatrixRowPDF)
+            defer { win7.orderOut(nil) }
+            let rowA = root7?.allChildren.first {
+                $0.accessibilityRole() == .group && (($0.accessibilityValue() as? String)?.contains("A =") == true)
+            }
+            let aLabel = rowA?.allChildren.first { $0.accessibilityRole() == .staticText && (($0.accessibilityValue() as? String)?.contains("A") == true) }
+            let bLabel = rowA?.allChildren.first { $0.accessibilityRole() == .staticText && (($0.accessibilityValue() as? String)?.contains("B") == true) }
+            let rowAMatrices = rowA?.allChildren.filter { $0.accessibilityRole() == .group } ?? []
+            let noOperatorSpansMatrix1 = (aLabel != nil && bLabel != nil && rowAMatrices.count == 2)
+                && !aLabel!.pageRect.intersects(rowAMatrices[0].pageRect)
+                && !bLabel!.pageRect.intersects(rowAMatrices[0].pageRect)
+                && !bLabel!.pageRect.intersects(rowAMatrices[1].pageRect)
+            let rowB = root7?.allChildren.first {
+                $0.accessibilityRole() == .group && (($0.accessibilityValue() as? String)?.contains("9 1") == true)
+            }
+            let rowBMatrices = rowB?.allChildren.filter { $0.accessibilityRole() == .group } ?? []
+            let fracMatricesDisjoint = rowBMatrices.count == 2 && !rowBMatrices[0].pageRect.intersects(rowBMatrices[1].pageRect)
+            check(noOperatorSpansMatrix1 && fracMatricesDisjoint,
+                  "operator labels split around matrices and vertical fractions do not bridge separate matrices")
+
+            // 8. Short indented continuation and centered equation sharing right edge do not merge via indent/flush-right rules
+            let alignmentGuardPDF = makePDF { ctx in
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.black]
+                ("This reference prose line spans all the way across the normal column right edge." as NSString).draw(
+                    at: CGPoint(x: 72, y: 710), withAttributes: attrs)
+                ("Another reference prose line establishing the normal right margin of this column." as NSString).draw(
+                    at: CGPoint(x: 72, y: 694), withAttributes: attrs)
+
+                ("Indented item continuation line that stops well short." as NSString).draw(
+                    at: CGPoint(x: 105, y: 644), withAttributes: attrs)
+                ("2. Wider next item starting back left and extending further right than above." as NSString).draw(
+                    at: CGPoint(x: 86, y: 626), withAttributes: attrs)
+
+                ("d = (1, m)" as NSString).draw(at: CGPoint(x: 270, y: 564), withAttributes: attrs)
+                ("is parallel to the line (can you see why?)." as NSString).draw(at: CGPoint(x: 86, y: 546), withAttributes: attrs)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            let (win8, root8) = buildAccessibilityRoot(for: alignmentGuardPDF)
+            defer { win8.orderOut(nil) }
+            let groups8 = root8?.allChildren.filter { $0.accessibilityRole() == .group } ?? []
+            let falseIndentMerge = groups8.contains { ($0.accessibilityValue() as? String)?.contains("2. Wider") == true }
+            let falseFlushRightMerge = groups8.contains { ($0.accessibilityValue() as? String)?.contains("d = (1, m)") == true }
+            check(!falseIndentMerge && !falseFlushRightMerge,
+                  "narrow indented or centered lines do not falsely merge into wider left-margin prose lines")
+        }
+        do {
             // Two columns: a high left line and a low right line. A drag whose higher point sits in the
             // right column and lower point in the left column resolves the "first" line below the "last"
             // line, which used to invert verticalRange's closed range and trap.

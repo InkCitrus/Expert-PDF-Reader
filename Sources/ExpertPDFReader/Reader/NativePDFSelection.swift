@@ -33,13 +33,18 @@ enum NativePDFSelection {
         let text = NSMutableAttributedString(string: "")
         var highlights: [Highlight] = []
         var outside = false
+        var reordered = false
+        var missingFromNative = false
         for index in document.index(for: first.page)...document.index(for: last.page) {
             guard let page = document.page(at: index) else { continue }
             let geometry = NativePDFPageGeometry.geometry(for: page)
             let lo = page === first.page ? firstRow : 0
             let hi = page === last.page ? lastRow : geometry.rows.count - 1
             guard lo <= hi, geometry.rows.indices.contains(lo), geometry.rows.indices.contains(hi) else { continue }
+            let pageText = (page.string ?? "") as NSString
             var wanted = IndexSet()
+            var wantedNonWS = IndexSet()
+            var selectedLocations: [Int] = []
             for rowIndex in lo...hi {
                 let row = geometry.rows[rowIndex]
                 let sameRow = first.page === last.page && firstRow == lastRow
@@ -50,7 +55,21 @@ enum NativePDFSelection {
                 let rect = glyphs.dropFirst().reduce(glyphs[0].bounds) { $0.union($1.bounds) }
                 highlights.append(Highlight(page: page, rect: rect))
                 var rowRanges = IndexSet()
-                for glyph in glyphs { for range in glyph.ranges { rowRanges.insert(integersIn: range.location..<NSMaxRange(range)) } }
+                for glyph in glyphs {
+                    var firstNonWS: Int?
+                    for range in glyph.ranges {
+                        let rangeLo = max(0, range.location), rangeHi = min(pageText.length, NSMaxRange(range))
+                        rowRanges.insert(integersIn: range.location..<NSMaxRange(range))
+                        guard rangeLo < rangeHi else { continue }
+                        for loc in rangeLo..<rangeHi {
+                            let unit = pageText.character(at: loc)
+                            if let scalar = UnicodeScalar(unit), CharacterSet.whitespacesAndNewlines.contains(scalar) { continue }
+                            wantedNonWS.insert(loc)
+                            if firstNonWS == nil { firstNonWS = loc }
+                        }
+                    }
+                    if let firstNonWS { selectedLocations.append(firstNonWS) }
+                }
                 wanted.formUnion(rowRanges)
                 if text.length > 0 { text.append(NSAttributedString(string: "\n")) }
                 // Keep physical order even when native drawing commands interleave text runs.
@@ -84,11 +103,16 @@ enum NativePDFSelection {
                     }
                 }
             }
+            if zip(selectedLocations, selectedLocations.dropFirst()).contains(where: { $0 > $1 }) {
+                reordered = true
+            }
             var native = IndexSet()
             for rangeIndex in 0..<original.numberOfTextRanges(on: page) {
                 let range = original.range(at: rangeIndex, on: page)
                 if range.location != NSNotFound { native.insert(integersIn: range.location..<NSMaxRange(range)) }
             }
+            if !native.intersection(geometry.excludedIndices).isEmpty { outside = true }
+            if !wantedNonWS.subtracting(native).isEmpty { missingFromNative = true }
             for row in geometry.rows {
                 for glyph in row.glyphs {
                     let indices = glyph.ranges.reduce(into: IndexSet()) { $0.insert(integersIn: $1.location..<NSMaxRange($1)) }
@@ -103,10 +127,10 @@ enum NativePDFSelection {
                 return !candidates.isEmpty && candidates.allSatisfy { box.height > $0.rect.height * 3 }
             }
         }
-        guard force || outside || tooTall, selection.string?.isEmpty == false else { return nil }
-        // When the ranges already follow the gesture, only their displayed height is wrong. Keep
-        // the original extraction intact (including punctuation and ligatures) and replace its paint.
-        if !outside, original.string?.isEmpty == false {
+        guard force || outside || reordered || tooTall, selection.string?.isEmpty == false else { return nil }
+        // When the ranges already follow the gesture in physical order, only their displayed height is wrong.
+        // Keep the original extraction intact (including punctuation and ligatures) and replace its paint.
+        if !outside && !reordered && !missingFromNative, original.string?.isEmpty == false {
             let originalText = original.attributedString ?? NSAttributedString(string: original.string ?? "")
             return Result(selection: original, text: PDFTextCleanup.normalize(originalText), highlights: highlights)
         }
@@ -201,7 +225,18 @@ final class NativePDFSelectionTracker {
         directlyTracking = true
         pdfView.clearSelection()
         pdfView.window?.makeFirstResponder(overlay)
-        if event.clickCount >= 2, let word = page.selectionForWord(at: location) {
+        if event.clickCount >= 3 {
+            let geometry = NativePDFPageGeometry.geometry(for: page)
+            if let rowIndex = geometry.nearestRow(to: location) {
+                let rowBox = geometry.rows[rowIndex].bounds
+                if let result = NativePDFSelection.corrected(PDFSelection(document: document), in: document, from: page,
+                    at: CGPoint(x: rowBox.minX - 1, y: rowBox.midY), to: page, at: CGPoint(x: rowBox.maxX + 1, y: rowBox.midY), force: true) {
+                    apply(result)
+                }
+            }
+            gesture = nil
+            directlyTracking = false
+        } else if event.clickCount >= 2, let word = page.selectionForWord(at: location) {
             let box = word.bounds(for: page)
             if let result = NativePDFSelection.corrected(word, in: document, from: page,
                 at: CGPoint(x: box.minX, y: location.y), to: page, at: CGPoint(x: box.maxX, y: location.y), force: true) {

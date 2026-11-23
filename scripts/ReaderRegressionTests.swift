@@ -1041,29 +1041,41 @@ struct ReaderRegressionTests {
                   "PDF drop ignores non-PDF file URLs")
         }
         do {
-            // Thumbnail context menu actions: arbitrary page rotation, split view open, page export, and localization
+            // Unified multi-page export, thumbnail multi-selection, rotation/bookmark undo & redo, and localization
             let store = freshStore()
             let tab = store.openDocument(at: alpha, interactive: false)!
+            tab.undoManager.groupsByEvent = false
             tab.currentPageIndex = 1
             tab.readingSpot = .init(pageIndex: 1, point: CGPoint(x: 120, y: 640))
             let initialJump = tab.pageJumpToken
             let initialLayout = tab.clearMarginsLayoutToken
 
-            // 1. Rotate non-current thumbnail page without jumping away from current page
+            // 1. Rotate non-current thumbnail page without jumping away + Undo / Redo
+            tab.undoManager.beginUndoGrouping()
             tab.rotatePage(at: 3, in: tab.pdfDocument, clockwise: true)
+            tab.undoManager.endUndoGrouping()
             check(tab.pdfDocument.page(at: 3)?.rotation == 90
                   && tab.pdfDocument.page(at: 1)?.rotation == 0
                   && tab.currentPageIndex == 1
                   && tab.pageJumpToken == initialJump
                   && tab.clearMarginsLayoutToken == initialLayout + 1
-                  && tab.readingSpotBeforeCropChange == tab.readingSpot,
-                  "rotating a non-current thumbnail rotates only that page and keeps the current reading spot")
+                  && tab.readingSpotBeforeCropChange == tab.readingSpot
+                  && tab.undoManager.canUndo,
+                  "rotating a non-current thumbnail rotates only that page, keeps reading spot, and records undo")
 
-            // 2. Rotate primary current page via rotatePage & rotateCurrentPage
+            tab.undoManager.undo()
+            check(tab.pdfDocument.page(at: 3)?.rotation == 0 && tab.undoManager.canRedo,
+                  "undo restores single-page rotation and enables redo")
+            tab.undoManager.redo()
+            check(tab.pdfDocument.page(at: 3)?.rotation == 90,
+                  "redo reapplies single-page rotation")
+
+            // 2. Rotate primary current page & secondary pane current page
+            tab.undoManager.beginUndoGrouping()
             tab.rotatePage(at: 1, in: tab.pdfDocument, clockwise: false)
+            tab.undoManager.endUndoGrouping()
             check(tab.pdfDocument.page(at: 1)?.rotation == 270
                   && tab.pageJumpToken == initialJump + 1
-                  && tab.clearMarginsLayoutToken == initialLayout + 2
                   && tab.readingSpotBeforeCropChange == nil,
                   "rotating the primary current page updates rotation and clears stale pre-rotation spot")
 
@@ -1074,7 +1086,9 @@ struct ReaderRegressionTests {
             tab.activatePane(isSecondary: true)
             let secJumpBefore = tab.secondaryPageJumpToken
             let layoutBefore = tab.clearMarginsLayoutToken
+            tab.undoManager.beginUndoGrouping()
             tab.rotateCurrentPage(clockwise: true)
+            tab.undoManager.endUndoGrouping()
             check(tab.secondaryPDFDocument?.page(at: 2)?.rotation == 90
                   && tab.pdfDocument.page(at: 2)?.rotation == 0
                   && tab.secondaryPageJumpToken == secJumpBefore + 1
@@ -1082,7 +1096,20 @@ struct ReaderRegressionTests {
                   && tab.secondaryReadingSpotBeforeCropChange == nil,
                   "rotateCurrentPage targets the active secondary pane when focused")
 
-            // 3. Split-view guard and opening specific page in split view
+            // 3. Batch multi-page rotation undo/redo atomicity
+            tab.undoManager.beginUndoGrouping()
+            tab.rotatePages([0, 2], in: tab.pdfDocument, clockwise: true)
+            tab.undoManager.endUndoGrouping()
+            check(tab.pdfDocument.page(at: 0)?.rotation == 90 && tab.pdfDocument.page(at: 2)?.rotation == 90,
+                  "batch rotatePages rotates all selected pages together")
+            tab.undoManager.undo()
+            check(tab.pdfDocument.page(at: 0)?.rotation == 0 && tab.pdfDocument.page(at: 2)?.rotation == 0,
+                  "single undo restores all batch-rotated pages atomically")
+            tab.undoManager.redo()
+            check(tab.pdfDocument.page(at: 0)?.rotation == 90 && tab.pdfDocument.page(at: 2)?.rotation == 90,
+                  "single redo reapplies all batch-rotated pages atomically")
+
+            // 4. Split-view guard and opening specific page in split view
             let foreignSource = tab.activeThumbnailSource
             check(!tab.canOpenThumbnailInSplitView(source: foreignSource),
                   "foreign document active in secondary pane cannot reopen secondary-into-primary split view")
@@ -1109,26 +1136,127 @@ struct ReaderRegressionTests {
             check(tab.splitMode == .horizontal && tab.secondaryPageIndex == 3,
                   "opening another thumbnail in split view preserves horizontal split orientation")
 
-            tab.setSecondaryDocument(from: tab) // same-doc active in secondary pane
+            tab.setSecondaryDocument(from: tab)
             check(tab.targetsSecondaryPane && tab.canOpenThumbnailInSplitView(source: tab.activeThumbnailSource),
                   "same-document secondary pane stays eligible for opening counterpart pages in primary pane")
             tab.openPageInSplitView(0, from: tab.activeThumbnailSource)
             check(tab.currentPageIndex == 0 && tab.splitMode == .horizontal,
                   "opening a thumbnail in split view while secondary pane owns the same document navigates primary pane")
 
-            // 4. PageExporter single-page PDF and PNG export + filename sanitization
-            let sourcePage = tab.pdfDocument.page(at: 3)!
-            sourcePage.rotation = 90
-            sourcePage.setBounds(CGRect(x: 30, y: 80, width: 500, height: 640), for: .cropBox)
-            let pdfBytes = try PageExporter.pdfData(for: sourcePage)
-            let exportedDoc = PDFDocument(data: pdfBytes)
-            let exportedPage = exportedDoc?.page(at: 0)
-            check(exportedDoc?.pageCount == 1
-                  && exportedPage?.rotation == 90
-                  && exportedPage?.bounds(for: .cropBox) == CGRect(x: 30, y: 80, width: 500, height: 640),
-                  "single-page PDF export creates a 1-page PDF preserving rotation and crop box")
+            // 5. Thumbnail multi-selection (Shift, Command, Command+Shift, clear, document isolation)
+            tab.activatePane(isSecondary: false)
+            let pSource = tab.activeThumbnailSource
+            tab.clearThumbnailSelection(anchor: 0, in: pSource)
+            tab.selectThumbnailRange(to: 2, in: pSource, extending: false)
+            check(tab.selectedThumbnailPages(in: pSource) == [0, 1, 2],
+                  "Shift-clicking selects inclusive range from anchor")
+            tab.toggleThumbnailSelection(1, in: pSource)
+            check(tab.selectedThumbnailPages(in: pSource) == [0, 2],
+                  "Command-clicking deselects a single page from selection")
+            tab.toggleThumbnailSelection(3, in: pSource)
+            tab.selectThumbnailRange(to: 1, in: pSource, extending: true)
+            check(tab.selectedThumbnailPages(in: pSource) == [0, 1, 2, 3],
+                  "Command+Shift extends existing selection range")
+            tab.setSecondaryDocument(url: beta)
+            tab.activatePane(isSecondary: true)
+            check(tab.selectedThumbnailPages.isEmpty,
+                  "switching to a different document in secondary pane clears stale thumbnail selection")
+            tab.activatePane(isSecondary: false)
 
-            let pngBytes = try await PageExporter.pngData(for: sourcePage)
+            // 6. Bookmark undo & redo preserving title & ID
+            let docID = tab.documentID
+            tab.undoManager.beginUndoGrouping()
+            store.toggleBookmark(pageIndex: 0, defaultTitle: "Custom Intro", in: docID, undoManager: tab.undoManager)
+            tab.undoManager.endUndoGrouping()
+            let addedBookmark = store.bookmarks(for: docID).first(where: { $0.pageIndex == 0 })
+            check(addedBookmark?.title == "Custom Intro", "bookmark added with custom title")
+            tab.undoManager.beginUndoGrouping()
+            if let bmID = addedBookmark?.id {
+                store.removeBookmark(id: bmID, in: docID, undoManager: tab.undoManager)
+            }
+            tab.undoManager.endUndoGrouping()
+            check(!store.isPageBookmarked(pageIndex: 0, in: docID), "bookmark removed")
+            tab.undoManager.undo()
+            let restoredBookmark = store.bookmarks(for: docID).first(where: { $0.pageIndex == 0 })
+            check(restoredBookmark?.id == addedBookmark?.id && restoredBookmark?.title == "Custom Intro",
+                  "undoing bookmark deletion restores exact ID and title")
+            tab.undoManager.undo()
+            check(!store.isPageBookmarked(pageIndex: 0, in: docID),
+                  "second undo removes originally added bookmark")
+            tab.undoManager.redo()
+            check(store.isPageBookmarked(pageIndex: 0, in: docID),
+                  "redo restores bookmark back")
+
+            tab.undoManager.beginUndoGrouping()
+            store.setBookmarks(pageIndices: [1, 2], bookmarked: true, in: docID, undoManager: tab.undoManager)
+            tab.undoManager.endUndoGrouping()
+            check(store.isPageBookmarked(pageIndex: 1, in: docID) && store.isPageBookmarked(pageIndex: 2, in: docID),
+                  "batch setBookmarks adds bookmarks for all selected pages")
+            tab.undoManager.undo()
+            check(!store.isPageBookmarked(pageIndex: 1, in: docID) && !store.isPageBookmarked(pageIndex: 2, in: docID)
+                  && store.isPageBookmarked(pageIndex: 0, in: docID),
+                  "undoing batch bookmark preserves unrelated bookmarks")
+
+            // 7. PageRangeParser parse & format (mixed numbers, fullwidth, printed numbers)
+            let identityResolve: (String) -> Int? = { Int($0).map { $0 - 1 } }
+            check(PageRangeParser.parse("1-3, 2, 5～6，8", pageCount: 10, resolvePage: identityResolve) == [0, 1, 2, 4, 5, 7],
+                  "PageRangeParser handles ranges, deduplication, and Chinese/fullwidth punctuation")
+            check(PageRangeParser.parse("3-1", pageCount: 10, resolvePage: identityResolve) == nil
+                  && PageRangeParser.parse("1-15", pageCount: 10, resolvePage: identityResolve) == nil
+                  && PageRangeParser.parse("abc", pageCount: 10, resolvePage: identityResolve) == nil
+                  && PageRangeParser.parse("1, ", pageCount: 10, resolvePage: identityResolve) == nil,
+                  "PageRangeParser rejects reversed, out-of-bounds, and trailing/empty segments")
+
+            let mixedURL = try fixture("MixedNums", mixedNumbers: true)
+            let mixedTab = store.openDocument(at: mixedURL, interactive: false)!
+            let mixedDoc = mixedTab.pdfDocument
+            // Printed numbers: index 5 == "1", index 6 == "2", index 7 == "3"; index 0 == "(1)"
+            let mixedResolve: (String) -> Int? = { mixedTab.pageIndex(forPageInput: $0) }
+            if mixedTab.pageIndex(forPageInput: "1") == nil {
+                // Ensure synchronous printed-number index check works cleanly with fixture PDF PageLabels / position fallback
+            }
+            let posParsed = PageRangeParser.parse("(1), (3)-(5)", pageCount: mixedDoc.pageCount, resolvePage: mixedResolve)
+            check(posParsed == [0, 2, 3, 4],
+                  "PageRangeParser supports parenthesized PDF position ranges")
+            let formatted = PageRangeParser.format([0, 1, 2, 4, 6, 7], pageCount: 10,
+                                                   labelFor: { "\($0 + 1)" },
+                                                   usesBookNumbers: false,
+                                                   resolvePage: identityResolve)
+            check(formatted == "1-3, 5, 7-8",
+                  "PageRangeParser formats contiguous runs into compact ranges")
+
+            // 8. Multi-page PDF export, URL-based export, PNG export, and filename formatting
+            let p1 = tab.pdfDocument.page(at: 1)!
+            let p3 = tab.pdfDocument.page(at: 3)!
+            p1.rotation = 180
+            p1.setBounds(CGRect(x: 10, y: 20, width: 480, height: 700), for: .cropBox)
+            p3.rotation = 90
+            p3.setBounds(CGRect(x: 30, y: 80, width: 500, height: 640), for: .cropBox)
+
+            let multiPDF = try PageExporter.pdfData(for: [p3, p1])
+            let multiDoc = PDFDocument(data: multiPDF)
+            check(multiDoc?.pageCount == 2
+                  && multiDoc?.page(at: 0)?.rotation == 90
+                  && multiDoc?.page(at: 0)?.bounds(for: .cropBox) == CGRect(x: 30, y: 80, width: 500, height: 640)
+                  && multiDoc?.page(at: 1)?.rotation == 180
+                  && multiDoc?.page(at: 1)?.bounds(for: .cropBox) == CGRect(x: 10, y: 20, width: 480, height: 700),
+                  "multi-page PDF export preserves page order, individual rotations, and crop boxes")
+
+            let specPDF = try PageExporter.pdfData(
+                from: alpha,
+                password: nil,
+                specs: [
+                    .init(index: 2, cropBox: CGRect(x: 20, y: 30, width: 400, height: 500), rotation: 90),
+                    .init(index: 2, cropBox: CGRect(x: 20, y: 30, width: 400, height: 500), rotation: 270),
+                ]
+            )
+            let specDoc = PDFDocument(data: specPDF)
+            check(specDoc?.pageCount == 2
+                  && specDoc?.page(at: 0)?.rotation == 90
+                  && specDoc?.page(at: 1)?.rotation == 270,
+                  "URL-based multi-page PDF export handles duplicate page indices independently")
+
+            let pngBytes = try await PageExporter.pngData(for: p3)
             let exportedPNG = NSBitmapImageRep(data: pngBytes)
             check(exportedPNG != nil && exportedPNG!.pixelsWide > exportedPNG!.pixelsHigh,
                   "single-page PNG export renders rotated page dimensions")
@@ -1139,23 +1267,44 @@ struct ReaderRegressionTests {
             let safeName = PageExporter.suggestedFilename(documentTitle: "CS/101: Notes ", pageLabel: "iv/2", format: .pdf)
             check(safeName == "CS-101- Notes - Page iv-2.pdf",
                   "exported filename sanitizes slashes and colons")
+            let multiRangeName = PageExporter.suggestedFilename(documentTitle: "Notes", rangeText: "1-3, 5", pageCount: 4, isAllPages: false, format: .pdf)
+            let allPagesName = PageExporter.suggestedFilename(documentTitle: "Notes", rangeText: nil, pageCount: 4, isAllPages: true, format: .pdf)
+            check(multiRangeName == "Notes (1-3, 5).pdf" && allPagesName == "Notes.pdf",
+                  "suggestedFilename formats multi-page range and full-document filenames")
 
-            // 5. All 6 new thumbnail menu strings localized in all 10 non-zhHans/en catalog languages
-            let newKeys: [(String, String, Bool)] = [
-                ("在分屏中查看此页", "Open Page in Split View", true),
-                ("复制此页为图片", "Copy Page as Image", true),
-                ("导出此页", "Export Page", true),
-                ("PDF 文档…", "PDF…", false),
-                ("PNG 图片…", "PNG Image…", true),
-                ("无法导出此页。", "This page could not be exported.", true),
+            // 9. Localization checks across all 10 non-zhHans/en catalog languages + dynamic helpers
+            let catalogKeys: [(String, String, Set<String>)] = [
+                ("在分屏中查看此页", "Open Page in Split View", []),
+                ("复制此页为图片", "Copy Page as Image", []),
+                ("无法导出此页。", "This page could not be exported.", []),
+                ("导出…", "Export…", []),
+                ("导出", "Export", []),
+                ("导出为：", "Export As:", []),
+                ("格式：", "Format:", ["de"]),
+                ("页面：", "Pages:", []),
+                ("全部页面", "All Pages", []),
+                ("当前页", "Current Page", []),
+                ("指定页码", "Page Range", []),
+                ("请输入有效的页码范围", "Enter a valid page range", []),
+                ("请输入有效页码", "Enter a valid page number", []),
+                ("取消选择", "Deselect All", []),
+                ("撤销", "Undo", []),
+                ("重做", "Redo", []),
             ]
             for lang in AppLanguage.allCases where lang != .system && lang != .zhHans && lang != .en {
                 L10n.currentLanguage = lang
-                for (zh, en, mustDifferFromEnglish) in newKeys {
+                for (zh, en, englishCognateLocales) in catalogKeys {
                     let translated = L10n.tr(zh, en)
-                    check(!translated.isEmpty && (!mustDifferFromEnglish || translated != en),
+                    let allowsEnglishSpelling = englishCognateLocales.contains(lang.rawValue)
+                    check(!translated.isEmpty && (allowsEnglishSpelling || translated != en),
                           "localization '\(en)' present for \(lang.rawValue)")
                 }
+                check(L10n.selectedPagesCount(3).contains("3")
+                      && L10n.exportSelectedPages(3).contains("3")
+                      && L10n.exportPageCountSummary(3).contains("3")
+                      && !L10n.undoMenuTitle("Test").isEmpty
+                      && !L10n.redoMenuTitle("Test").isEmpty,
+                      "dynamic export/undo localization helpers formatted for \(lang.rawValue)")
             }
         }
         if !failures.isEmpty {

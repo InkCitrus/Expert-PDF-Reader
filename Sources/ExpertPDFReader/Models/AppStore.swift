@@ -749,6 +749,119 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         }
     }
 
+    // Thumbnail Multi-Selection (per document currently shown in the thumbnail panel / overview)
+    @Published public private(set) var selectedThumbnailPages: Set<Int> = []
+    public private(set) var thumbnailSelectionAnchor: Int?
+    private var thumbnailSelectionDocumentID: ObjectIdentifier?
+
+    private func ensureThumbnailSelectionDocument(_ document: PDFDocument) {
+        let docID = ObjectIdentifier(document)
+        if thumbnailSelectionDocumentID != docID {
+            selectedThumbnailPages.removeAll()
+            thumbnailSelectionAnchor = nil
+            thumbnailSelectionDocumentID = docID
+        }
+    }
+
+    func selectedThumbnailPages(in source: ReaderThumbnailSource) -> Set<Int> {
+        guard thumbnailSelectionDocumentID == ObjectIdentifier(source.document) else { return [] }
+        return selectedThumbnailPages
+    }
+
+    func isThumbnailSelected(_ pageIndex: Int, in document: PDFDocument) -> Bool {
+        thumbnailSelectionDocumentID == ObjectIdentifier(document) && selectedThumbnailPages.contains(pageIndex)
+    }
+
+    func toggleThumbnailSelection(_ pageIndex: Int, in source: ReaderThumbnailSource) {
+        let count = source.document.pageCount
+        guard (0..<count).contains(pageIndex) else { return }
+        ensureThumbnailSelectionDocument(source.document)
+        if selectedThumbnailPages.contains(pageIndex) {
+            selectedThumbnailPages.remove(pageIndex)
+            if thumbnailSelectionAnchor == pageIndex {
+                thumbnailSelectionAnchor = selectedThumbnailPages.sorted().first
+            }
+        } else {
+            selectedThumbnailPages.insert(pageIndex)
+            thumbnailSelectionAnchor = pageIndex
+        }
+    }
+
+    func selectThumbnailRange(to pageIndex: Int, in source: ReaderThumbnailSource, extending: Bool) {
+        let count = source.document.pageCount
+        guard (0..<count).contains(pageIndex) else { return }
+        ensureThumbnailSelectionDocument(source.document)
+        let anchor = thumbnailSelectionAnchor.flatMap { (0..<count).contains($0) ? $0 : nil }
+            ?? ((0..<count).contains(source.pageIndex) ? source.pageIndex : pageIndex)
+        let bounds = min(anchor, pageIndex)...max(anchor, pageIndex)
+        if extending {
+            selectedThumbnailPages.formUnion(bounds)
+        } else {
+            selectedThumbnailPages = Set(bounds)
+        }
+        if thumbnailSelectionAnchor == nil {
+            thumbnailSelectionAnchor = anchor
+        }
+    }
+
+    func clearThumbnailSelection(anchor: Int? = nil, in source: ReaderThumbnailSource? = nil) {
+        if !selectedThumbnailPages.isEmpty {
+            selectedThumbnailPages.removeAll()
+        }
+        if let anchor, let source, (0..<source.document.pageCount).contains(anchor) {
+            thumbnailSelectionDocumentID = ObjectIdentifier(source.document)
+            thumbnailSelectionAnchor = anchor
+        } else if anchor == nil {
+            thumbnailSelectionAnchor = nil
+            if let source {
+                thumbnailSelectionDocumentID = ObjectIdentifier(source.document)
+            } else {
+                thumbnailSelectionDocumentID = nil
+            }
+        }
+    }
+
+    func beginExportPanel(in window: NSWindow?, initialPages: [Int]? = nil, source: ReaderThumbnailSource? = nil) {
+        let targetSource = source ?? activeThumbnailSource
+        let doc = targetSource.document
+        guard doc.pageCount > 0 else { return }
+        let isSecondary = doc !== pdfDocument
+        let docTitle = isSecondary
+            ? (secondaryDocumentURL?.deletingPathExtension().lastPathComponent ?? title)
+            : title
+        let usesBookNums = !isSecondary && !pageIndicesByLabel.isEmpty
+        let context = PageExporter.ExportDocumentContext(
+            document: doc,
+            documentURL: targetSource.documentID.url,
+            password: targetSource.password,
+            documentTitle: docTitle,
+            currentPageIndex: max(0, min(doc.pageCount - 1, targetSource.pageIndex)),
+            usesBookNumbers: usesBookNums,
+            labelForPage: { [weak self] idx in
+                self?.thumbnailPageNumber(at: idx, in: doc) ?? "\(idx + 1)"
+            },
+            resolvePage: { [weak self] token in
+                self?.pageIndex(forPageInput: token, inSecondaryPane: isSecondary)
+            }
+        )
+        let mode: PageExporter.PageSelectionMode
+        let pages: [Int]?
+        if let initialPages, !initialPages.isEmpty {
+            mode = .range
+            pages = initialPages
+        } else {
+            let selection = selectedThumbnailPages(in: targetSource)
+            if selection.count > 1 {
+                mode = .range
+                pages = selection.sorted()
+            } else {
+                mode = .all
+                pages = nil
+            }
+        }
+        PageExporter.beginExportPanel(context: context, initialMode: mode, initialPages: pages, in: window)
+    }
+
     // Navigation History (Go Back / Go Forward)
     @Published public private(set) var backStack: [Int] = []
     @Published public private(set) var forwardStack: [Int] = []
@@ -780,6 +893,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     /// Where in the current page the primary pane is scrolled to; kept apart from the tab's `@Published`
     /// state so scrolling only refreshes the outline, not the whole reader
     public let readingLocation = ReadingLocation()
+    public let undoManager = UndoManager()
 
     public enum ZoomAction {
         case zoomIn
@@ -1059,6 +1173,9 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     func activatePane(isSecondary: Bool) {
         if isSecondaryPaneActive != isSecondary {
             isSecondaryPaneActive = isSecondary
+            if thumbnailSelectionDocumentID != ObjectIdentifier(activeThumbnailSource.document) {
+                clearThumbnailSelection()
+            }
         }
     }
 
@@ -1121,16 +1238,35 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         isSearchVisible = false
     }
 
-    public func rotatePage(at pageIndex: Int, in document: PDFDocument? = nil, clockwise: Bool) {
+    public func rotatePages(_ pageIndices: [Int], in document: PDFDocument? = nil, clockwise: Bool) {
         let targetDoc = document ?? activeThumbnailSource.document
-        guard (0..<targetDoc.pageCount).contains(pageIndex),
-              let page = targetDoc.page(at: pageIndex) else { return }
+        var seen = Set<Int>()
+        let valid = pageIndices.filter { (0..<targetDoc.pageCount).contains($0) && seen.insert($0).inserted }
+        guard !valid.isEmpty else { return }
         let delta = clockwise ? 90 : -90
-        let newRotation = ((page.rotation + delta) % 360 + 360) % 360
-        page.rotation = newRotation
+        let rotations: [(Int, Int)] = valid.compactMap { idx in
+            guard let page = targetDoc.page(at: idx) else { return nil }
+            let next = ((page.rotation + delta) % 360 + 360) % 360
+            return (idx, next)
+        }
+        guard !rotations.isEmpty else { return }
+        let actionName = clockwise ? L10n.tr("向右旋转", "Rotate Right") : L10n.tr("向左旋转", "Rotate Left")
+        applyPageRotations(rotations, in: targetDoc, actionName: actionName)
+    }
+
+    private func applyPageRotations(_ rotations: [(Int, Int)], in document: PDFDocument, actionName: String) {
+        let previous: [(Int, Int)] = rotations.compactMap { idx, _ in
+            guard let page = document.page(at: idx) else { return nil }
+            return (idx, page.rotation)
+        }
+        guard !previous.isEmpty else { return }
+        for (idx, newRotation) in rotations {
+            document.page(at: idx)?.rotation = newRotation
+        }
         rememberReadingSpots()
-        let affectsPrimaryCurrent = targetDoc === pdfDocument && pageIndex == currentPageIndex
-        let affectsSecondaryCurrent = targetDoc === secondaryPDFDocument && pageIndex == secondaryPageIndex
+        let indexSet = Set(rotations.map(\.0))
+        let affectsPrimaryCurrent = document === pdfDocument && indexSet.contains(currentPageIndex)
+        let affectsSecondaryCurrent = document === secondaryPDFDocument && indexSet.contains(secondaryPageIndex)
         if affectsPrimaryCurrent {
             readingSpot = nil
             readingSpotBeforeCropChange = nil
@@ -1143,11 +1279,24 @@ public final class DocumentTabState: ObservableObject, Identifiable {
             secondaryPageJumpToken &+= 1
         }
         clearMarginsLayoutToken &+= 1
+        undoManager.registerUndo(withTarget: self) { [weak document] tab in
+            MainActor.assumeIsolated {
+                guard let document else { return }
+                tab.applyPageRotations(previous, in: document, actionName: actionName)
+            }
+        }
+        if !undoManager.isUndoing && !undoManager.isRedoing {
+            undoManager.setActionName(actionName)
+        }
+    }
+
+    public func rotatePage(at pageIndex: Int, in document: PDFDocument? = nil, clockwise: Bool) {
+        rotatePages([pageIndex], in: document, clockwise: clockwise)
     }
 
     public func rotateCurrentPage(clockwise: Bool) {
         let source = activeThumbnailSource
-        rotatePage(at: source.pageIndex, in: source.document, clockwise: clockwise)
+        rotatePages([source.pageIndex], in: source.document, clockwise: clockwise)
     }
 
     public func setSecondaryDocument(url: URL) {
@@ -1183,6 +1332,9 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         showSplitDocumentPicker = false
         if activateSecondary {
             activatePane(isSecondary: true)
+        }
+        if thumbnailSelectionDocumentID != ObjectIdentifier(activeThumbnailSource.document) {
+            clearThumbnailSelection()
         }
         secondaryPageJumpToken &+= 1
         secondaryCropper = document === pdfDocument ? nil : makeCropper(for: document, url: id.url, password: password)
@@ -1911,9 +2063,11 @@ public final class AppStore: ObservableObject {
         closedTabs.map(\.documentID.url)
     }
 
+    @Published public private(set) var undoMenuToken: Int = 0
     private var dateFormatter: DateFormatter
     nonisolated(unsafe) private var localeObserver: NSObjectProtocol?
     nonisolated(unsafe) private var appDidBecomeActiveObserver: NSObjectProtocol?
+    nonisolated(unsafe) private var undoObservers: [NSObjectProtocol] = []
     nonisolated(unsafe) private var fileWatchers: [String: DispatchSourceFileSystemObject] = [:]
     private var pruneDebounceTask: Task<Void, Never>?
 
@@ -2029,11 +2183,28 @@ public final class AppStore: ObservableObject {
                 self?.pruneMissingDocuments()
             }
         }
+
+        let undoNotificationNames: [Notification.Name] = [
+            NSText.didBeginEditingNotification,
+            NSText.didEndEditingNotification,
+            NSText.didChangeNotification,
+            .NSUndoManagerDidCloseUndoGroup,
+            .NSUndoManagerDidUndoChange,
+            .NSUndoManagerDidRedoChange
+        ]
+        undoObservers = undoNotificationNames.map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in
+                    self?.undoMenuToken &+= 1
+                }
+            }
+        }
     }
 
     deinit {
         if let localeObserver { NotificationCenter.default.removeObserver(localeObserver) }
         if let appDidBecomeActiveObserver { NotificationCenter.default.removeObserver(appDidBecomeActiveObserver) }
+        for obs in undoObservers { NotificationCenter.default.removeObserver(obs) }
         for source in fileWatchers.values { source.cancel() }
         pruneDebounceTask?.cancel()
     }
@@ -2944,32 +3115,108 @@ public final class AppStore: ObservableObject {
         bookmarks(for: documentID).contains(where: { $0.pageIndex == pageIndex })
     }
 
-    public func toggleBookmark(pageIndex: Int, defaultTitle: String? = nil, in documentID: DocumentID) {
+    func window(forTabID tabID: UUID) -> NSWindow? {
+        allWindowSessions.first(where: { $0.tabs.contains(where: { $0.id == tabID }) })?.nsWindow
+            ?? activeSession.nsWindow
+    }
+
+    public func undoManager(for documentID: DocumentID) -> UndoManager? {
+        if let active = activeDocumentTab,
+           active.documentID == documentID || active.secondaryDocumentURL.map({ DocumentID(url: $0) }) == documentID {
+            return active.undoManager
+        }
+        for session in allWindowSessions {
+            for tab in session.tabs {
+                if case .document(let state) = tab,
+                   state.documentID == documentID || state.secondaryDocumentURL.map({ DocumentID(url: $0) }) == documentID {
+                    return state.undoManager
+                }
+            }
+        }
+        return nil
+    }
+
+    private func applyBookmarks(
+        _ newList: [BookmarkItem],
+        for documentID: DocumentID,
+        actionName: String,
+        undoManager: UndoManager?
+    ) {
+        let previousList = bookmarksByDocument[documentID.normalizedPath] ?? []
+        guard newList != previousList else { return }
+        bookmarksByDocument[documentID.normalizedPath] = newList
+        savePersistedState()
+        let targetUndo = undoManager ?? self.undoManager(for: documentID)
+        if let targetUndo {
+            targetUndo.registerUndo(withTarget: self) { store in
+                MainActor.assumeIsolated {
+                    store.applyBookmarks(previousList, for: documentID, actionName: actionName, undoManager: targetUndo)
+                }
+            }
+            if !targetUndo.isUndoing && !targetUndo.isRedoing {
+                targetUndo.setActionName(actionName)
+            }
+        }
+    }
+
+    public func toggleBookmark(
+        pageIndex: Int,
+        defaultTitle: String? = nil,
+        in documentID: DocumentID,
+        undoManager: UndoManager? = nil
+    ) {
         var list = bookmarksByDocument[documentID.normalizedPath] ?? []
+        let actionName: String
         if let existingIdx = list.firstIndex(where: { $0.pageIndex == pageIndex }) {
             list.remove(at: existingIdx)
+            actionName = L10n.tr("移除书签", "Remove Bookmark")
         } else {
             let label = defaultTitle ?? L10n.defaultBookmarkTitle(pageNumber: pageIndex + 1)
             list.append(BookmarkItem(pageIndex: pageIndex, title: label))
             list.sort(by: { $0.pageIndex < $1.pageIndex })
+            actionName = L10n.tr("添加书签", "Add Bookmark")
         }
-        bookmarksByDocument[documentID.normalizedPath] = list
-        savePersistedState()
+        applyBookmarks(list, for: documentID, actionName: actionName, undoManager: undoManager)
     }
 
-    public func removeBookmark(id: UUID, in documentID: DocumentID) {
-        guard var list = bookmarksByDocument[documentID.normalizedPath] else { return }
+    public func setBookmarks(
+        pageIndices: [Int],
+        bookmarked: Bool,
+        in documentID: DocumentID,
+        undoManager: UndoManager? = nil
+    ) {
+        var seen = Set<Int>()
+        let unique = pageIndices.filter { $0 >= 0 && seen.insert($0).inserted }
+        guard !unique.isEmpty else { return }
+        var list = bookmarksByDocument[documentID.normalizedPath] ?? []
+        let actionName: String
+        if bookmarked {
+            let existing = Set(list.map(\.pageIndex))
+            for idx in unique where !existing.contains(idx) {
+                list.append(BookmarkItem(pageIndex: idx, title: L10n.defaultBookmarkTitle(pageNumber: idx + 1)))
+            }
+            list.sort(by: { $0.pageIndex < $1.pageIndex })
+            actionName = L10n.tr("添加书签", "Add Bookmark")
+        } else {
+            let removals = Set(unique)
+            list.removeAll(where: { removals.contains($0.pageIndex) })
+            actionName = L10n.tr("移除书签", "Remove Bookmark")
+        }
+        applyBookmarks(list, for: documentID, actionName: actionName, undoManager: undoManager)
+    }
+
+    public func removeBookmark(id: UUID, in documentID: DocumentID, undoManager: UndoManager? = nil) {
+        guard var list = bookmarksByDocument[documentID.normalizedPath],
+              list.contains(where: { $0.id == id }) else { return }
         list.removeAll(where: { $0.id == id })
-        bookmarksByDocument[documentID.normalizedPath] = list
-        savePersistedState()
+        applyBookmarks(list, for: documentID, actionName: L10n.tr("删除书签", "Delete Bookmark"), undoManager: undoManager)
     }
 
-    public func renameBookmark(id: UUID, newTitle: String, in documentID: DocumentID) {
+    public func renameBookmark(id: UUID, newTitle: String, in documentID: DocumentID, undoManager: UndoManager? = nil) {
         guard var list = bookmarksByDocument[documentID.normalizedPath],
               let idx = list.firstIndex(where: { $0.id == id }) else { return }
         list[idx].title = newTitle
-        bookmarksByDocument[documentID.normalizedPath] = list
-        savePersistedState()
+        applyBookmarks(list, for: documentID, actionName: L10n.tr("书签", "Bookmarks"), undoManager: undoManager)
     }
 
     // MARK: - Persistence & Sample Initialization

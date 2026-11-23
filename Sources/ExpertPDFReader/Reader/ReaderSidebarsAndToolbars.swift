@@ -768,42 +768,91 @@ struct PDFPageThumbnailsPanel: View {
     let panelWidth: CGFloat
     let isDark: Bool
 
+    @Environment(\.appAccentColor) private var accent
+
     var body: some View {
         let source = tab.activeThumbnailSource
+        let selectedPages = tab.selectedThumbnailPages(in: source)
         let scale = panelWidth / ReaderLeftSidebarView.width
         // Reuse nearby resolutions during a drag instead of rendering on every point of movement.
         let renderScale = (scale * 4).rounded(.up) / 4
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 14) {
-                    ForEach(0..<source.document.pageCount, id: \.self) { pageIdx in
-                        PageThumbnailCell(
-                            store: store,
-                            tab: tab,
-                            source: source,
-                            pageIndex: pageIdx,
-                            maxSize: CGSize(width: 148 * scale, height: 192 * scale),
-                            renderSize: CGSize(width: 296 * renderScale, height: 384 * renderScale),
-                            isDark: isDark
-                        ) {
-                            tab.navigateToThumbnail(pageIdx)
+        VStack(spacing: 0) {
+            if !selectedPages.isEmpty {
+                let ordered = selectedPages.sorted()
+                let canExport = PageImageClipboard.canCopy(source.document.page(at: ordered[0]))
+                let targetWindow = store.window(forTabID: tab.id)
+                HStack(spacing: 6) {
+                    Text(L10n.selectedPagesCount(ordered.count))
+                        .font(.system(size: 11, weight: .medium))
+                        .monospacedDigit()
+                        .foregroundColor(AppPalette.labelPrimary(isDark))
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    Button(L10n.tr("导出…", "Export…")) {
+                        tab.beginExportPanel(in: targetWindow, initialPages: ordered, source: source)
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(canExport ? accent : AppPalette.labelQuaternary(isDark))
+                    .disabled(!canExport)
+                    Button {
+                        tab.clearThumbnailSelection()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(AppPalette.labelTertiary(isDark))
+                    }
+                    .buttonStyle(.plain)
+                    .help(L10n.tr("取消选择", "Deselect All"))
+                    .accessibilityLabel(Text(L10n.tr("取消选择", "Deselect All")))
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(AppPalette.toolbarBackground(isDark))
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(AppPalette.panelSeparator(isDark))
+                        .frame(height: 1)
+                }
+            }
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 14) {
+                        ForEach(0..<source.document.pageCount, id: \.self) { pageIdx in
+                            PageThumbnailCell(
+                                store: store,
+                                tab: tab,
+                                source: source,
+                                pageIndex: pageIdx,
+                                maxSize: CGSize(width: 148 * scale, height: 192 * scale),
+                                renderSize: CGSize(width: 296 * renderScale, height: 384 * renderScale),
+                                isDark: isDark
+                            ) {
+                                tab.navigateToThumbnail(pageIdx)
+                            }
+                            .id(pageIdx)
                         }
-                        .id(pageIdx)
+                    }
+                    .padding(.vertical, 16)
+                    .frame(maxWidth: .infinity)
+                }
+                .onAppear {
+                    proxy.scrollTo(source.pageIndex, anchor: .center)
+                }
+                .onChange(of: source.pageIndex) { _, newIdx in
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        proxy.scrollTo(newIdx, anchor: .center)
                     }
                 }
-                .padding(.vertical, 16)
-                .frame(maxWidth: .infinity)
             }
-            .onAppear {
-                proxy.scrollTo(source.pageIndex, anchor: .center)
-            }
-            .onChange(of: source.pageIndex) { _, newIdx in
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    proxy.scrollTo(newIdx, anchor: .center)
-                }
+            .id(ObjectIdentifier(source.document))
+        }
+        .onExitCommand {
+            if !selectedPages.isEmpty {
+                tab.clearThumbnailSelection()
             }
         }
-        .id(ObjectIdentifier(source.document))
     }
 }
 
@@ -830,11 +879,22 @@ struct PageThumbnailCell: View {
 
     var body: some View {
         let isCurrent = source.pageIndex == pageIndex
+        let isSelected = tab.isThumbnailSelected(pageIndex, in: source.document)
         let isBookmarked = store.isPageBookmarked(pageIndex: pageIndex, in: source.documentID)
         let page = source.document.page(at: pageIndex)
         let pageLabel = tab.thumbnailPageNumber(at: pageIndex, in: source.document)
 
-        Button(action: action) {
+        Button {
+            let flags = NSApp.currentEvent?.modifierFlags.intersection(.deviceIndependentFlagsMask) ?? []
+            if flags.contains(.shift) {
+                tab.selectThumbnailRange(to: pageIndex, in: source, extending: flags.contains(.command))
+            } else if flags.contains(.command) {
+                tab.toggleThumbnailSelection(pageIndex, in: source)
+            } else {
+                tab.clearThumbnailSelection(anchor: pageIndex, in: source)
+                action()
+            }
+        } label: {
             VStack(spacing: 7) {
                 if let page {
                     let request = PDFThumbnailCache.ThumbnailRequest(
@@ -877,12 +937,25 @@ struct PageThumbnailCell: View {
                                     .offset(y: -2)
                             }
                         }
+                        .overlay(alignment: .topLeading) {
+                            if isSelected {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(.white, accent)
+                                    .shadow(color: Color.black.opacity(0.28), radius: 1.5, x: 0, y: 0.5)
+                                    .padding(5)
+                            }
+                        }
                         .shadow(color: Color.black.opacity(isDark ? 0.45 : 0.10), radius: 2.5, x: 0, y: 1)
                         .padding(4)
+                        .background(
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .fill(isSelected ? accent.opacity(isDark ? 0.18 : 0.10) : Color.clear)
+                        )
                         .overlay(
                             RoundedRectangle(cornerRadius: 5, style: .continuous)
                                 .stroke(
-                                    isCurrent
+                                    (isSelected || isCurrent)
                                         ? accent
                                         : (isHovered ? accent.opacity(0.35) : Color.clear),
                                     lineWidth: 2
@@ -906,84 +979,97 @@ struct PageThumbnailCell: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(L10n.pageTitle(pageLabel)))
-        .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : [.isButton])
+        .accessibilityAddTraits((isCurrent || isSelected) ? [.isButton, .isSelected] : [.isButton])
         .onHover { isHovered = $0 }
         .contextMenu {
-            let documentTitle = source.document === tab.pdfDocument
-                ? tab.title
-                : (tab.secondaryDocumentURL?.deletingPathExtension().lastPathComponent ?? tab.title)
-            let targetWindow = store.allWindowSessions.first(where: { $0.tabs.contains(where: { $0.id == tab.id }) })?.nsWindow
-                ?? store.activeSession.nsWindow
+            let selectedPages = tab.selectedThumbnailPages(in: source)
+            let actsOnSelection = selectedPages.count > 1 && selectedPages.contains(pageIndex)
+            let targetWindow = store.window(forTabID: tab.id)
             let canCopyPage = PageImageClipboard.canCopy(page)
 
-            Button(L10n.jumpToPage(pageLabel), action: action)
-                .disabled(isCurrent && !tab.isPageOverviewVisible)
-
-            if tab.canOpenThumbnailInSplitView(source: source) {
-                Button(L10n.tr("在分屏中查看此页", "Open Page in Split View")) {
-                    tab.openPageInSplitView(pageIndex, from: source)
+            if actsOnSelection {
+                let orderedSelection = selectedPages.sorted()
+                let allBookmarked = orderedSelection.allSatisfy {
+                    store.isPageBookmarked(pageIndex: $0, in: source.documentID)
                 }
-            }
 
-            Divider()
+                Button(L10n.exportSelectedPages(orderedSelection.count)) {
+                    tab.beginExportPanel(in: targetWindow, initialPages: orderedSelection, source: source)
+                }
+                .disabled(!canCopyPage)
 
-            Button(isBookmarked ? L10n.tr("移除书签", "Remove Bookmark") : L10n.tr("添加书签", "Add Bookmark")) {
-                store.toggleBookmark(pageIndex: pageIndex, in: source.documentID)
-            }
+                Divider()
 
-            Divider()
-
-            Button(L10n.tr("向左旋转", "Rotate Left")) {
-                tab.rotatePage(at: pageIndex, in: source.document, clockwise: false)
-            }
-            .disabled(page == nil)
-
-            Button(L10n.tr("向右旋转", "Rotate Right")) {
-                tab.rotatePage(at: pageIndex, in: source.document, clockwise: true)
-            }
-            .disabled(page == nil)
-
-            Divider()
-
-            Button(L10n.tr("复制此页为图片", "Copy Page as Image")) {
-                guard let page else { return }
-                PageImageClipboard.beginCopy(
-                    page,
-                    in: targetWindow,
-                    title: L10n.tr("复制此页为图片", "Copy Page as Image")
-                )
-            }
-            .disabled(!canCopyPage)
-
-            Menu(L10n.tr("导出此页", "Export Page")) {
-                Button(L10n.tr("PDF 文档…", "PDF…")) {
-                    guard let page else { return }
-                    PageExporter.beginExport(
-                        page,
-                        format: .pdf,
-                        suggestedName: PageExporter.suggestedFilename(
-                            documentTitle: documentTitle,
-                            pageLabel: pageLabel,
-                            format: .pdf
-                        ),
-                        in: targetWindow
+                Button(allBookmarked ? L10n.tr("移除书签", "Remove Bookmark") : L10n.tr("添加书签", "Add Bookmark")) {
+                    store.setBookmarks(
+                        pageIndices: orderedSelection,
+                        bookmarked: !allBookmarked,
+                        in: source.documentID,
+                        undoManager: tab.undoManager
                     )
                 }
-                Button(L10n.tr("PNG 图片…", "PNG Image…")) {
-                    guard let page else { return }
-                    PageExporter.beginExport(
-                        page,
-                        format: .png,
-                        suggestedName: PageExporter.suggestedFilename(
-                            documentTitle: documentTitle,
-                            pageLabel: pageLabel,
-                            format: .png
-                        ),
-                        in: targetWindow
+
+                Divider()
+
+                Button(L10n.tr("向左旋转", "Rotate Left")) {
+                    tab.rotatePages(orderedSelection, in: source.document, clockwise: false)
+                }
+
+                Button(L10n.tr("向右旋转", "Rotate Right")) {
+                    tab.rotatePages(orderedSelection, in: source.document, clockwise: true)
+                }
+
+                Divider()
+
+                Button(L10n.tr("取消选择", "Deselect All")) {
+                    tab.clearThumbnailSelection()
+                }
+            } else {
+                if tab.canOpenThumbnailInSplitView(source: source) {
+                    Button(L10n.tr("在分屏中查看此页", "Open Page in Split View")) {
+                        tab.openPageInSplitView(pageIndex, from: source)
+                    }
+
+                    Divider()
+                }
+
+                Button(isBookmarked ? L10n.tr("移除书签", "Remove Bookmark") : L10n.tr("添加书签", "Add Bookmark")) {
+                    store.toggleBookmark(
+                        pageIndex: pageIndex,
+                        in: source.documentID,
+                        undoManager: tab.undoManager
                     )
                 }
+
+                Divider()
+
+                Button(L10n.tr("向左旋转", "Rotate Left")) {
+                    tab.rotatePage(at: pageIndex, in: source.document, clockwise: false)
+                }
+                .disabled(page == nil)
+
+                Button(L10n.tr("向右旋转", "Rotate Right")) {
+                    tab.rotatePage(at: pageIndex, in: source.document, clockwise: true)
+                }
+                .disabled(page == nil)
+
+                Divider()
+
+                Button(L10n.tr("复制此页为图片", "Copy Page as Image")) {
+                    guard let page else { return }
+                    PageImageClipboard.beginCopy(
+                        page,
+                        in: targetWindow,
+                        title: L10n.tr("复制此页为图片", "Copy Page as Image")
+                    )
+                }
+                .disabled(!canCopyPage)
+
+                Button(L10n.tr("导出…", "Export…")) {
+                    tab.beginExportPanel(in: targetWindow, initialPages: [pageIndex], source: source)
+                }
+                .disabled(!canCopyPage)
             }
-            .disabled(!canCopyPage)
         }
     }
 }

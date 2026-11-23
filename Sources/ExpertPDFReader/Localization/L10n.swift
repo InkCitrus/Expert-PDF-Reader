@@ -287,16 +287,113 @@ public enum L10n {
         "\(tr("关闭标签", "Close Tab")) \(title)"
     }
 
+    public static func selectedPagesCount(_ count: Int) -> String {
+        switch resolvedLanguage {
+        case .zhHans: return "已选 \(count) 页"
+        case .zhHant: return "已選 \(count) 頁"
+        case .ja:     return "\(count) ページ選択中"
+        case .ko:     return "\(count)페이지 선택됨"
+        case .fr:     return count == 1 ? "1 page sélectionnée" : "\(count) pages sélectionnées"
+        case .de:     return count == 1 ? "1 Seite ausgewählt" : "\(count) Seiten ausgewählt"
+        case .es:     return count == 1 ? "1 página seleccionada" : "\(count) páginas seleccionadas"
+        case .it:     return count == 1 ? "1 pagina selezionata" : "\(count) pagine selezionate"
+        case .pt:     return count == 1 ? "1 página selecionada" : "\(count) páginas selecionadas"
+        case .ru:     return "Выбрано стр.: \(count)"
+        case .uk:     return "Вибрано стор.: \(count)"
+        default:      return count == 1 ? "1 page selected" : "\(count) pages selected"
+        }
+    }
+
+    public static func exportSelectedPages(_ count: Int) -> String {
+        switch resolvedLanguage {
+        case .zhHans: return "导出所选 \(count) 页…"
+        case .zhHant: return "匯出所選 \(count) 頁…"
+        case .ja:     return "選択した \(count) ページを書き出す…"
+        case .ko:     return "선택한 \(count)페이지 내보내기…"
+        case .fr:     return count == 1 ? "Exporter la page sélectionnée…" : "Exporter les \(count) pages sélectionnées…"
+        case .de:     return count == 1 ? "Ausgewählte Seite exportieren…" : "\(count) ausgewählte Seiten exportieren…"
+        case .es:     return count == 1 ? "Exportar 1 página seleccionada…" : "Exportar \(count) páginas seleccionadas…"
+        case .it:     return count == 1 ? "Esporta 1 pagina selezionata…" : "Esporta \(count) pagine selezionate…"
+        case .pt:     return count == 1 ? "Exportar 1 página selecionada…" : "Exportar \(count) páginas selecionadas…"
+        case .ru:     return "Экспортировать выбранные (\(count))…"
+        case .uk:     return "Експортувати вибрані (\(count))…"
+        default:      return count == 1 ? "Export 1 Selected Page…" : "Export \(count) Selected Pages…"
+        }
+    }
+
+    public static func exportPageCountSummary(_ count: Int) -> String {
+        switch resolvedLanguage {
+        case .zhHans: return "将导出 \(count) 页"
+        case .zhHant: return "將匯出 \(count) 頁"
+        case .ja:     return "\(count) ページを書き出します"
+        case .ko:     return "\(count)페이지 내보내기"
+        case .fr:     return count == 1 ? "1 page sera exportée" : "\(count) pages seront exportées"
+        case .de:     return count == 1 ? "1 Seite wird exportiert" : "\(count) Seiten werden exportiert"
+        case .es:     return count == 1 ? "Se exportará 1 página" : "Se exportarán \(count) páginas"
+        case .it:     return count == 1 ? "Verrà esportata 1 pagina" : "Verranno esportate \(count) pagine"
+        case .pt:     return count == 1 ? "1 página será exportada" : "\(count) páginas serão exportadas"
+        case .ru:     return "Будет экспортировано стр.: \(count)"
+        case .uk:     return "Буде експортовано стор.: \(count)"
+        default:      return count == 1 ? "1 page will be exported" : "\(count) pages will be exported"
+        }
+    }
+
+    public static func undoMenuTitle(_ actionName: String) -> String {
+        guard !actionName.isEmpty else { return tr("撤销", "Undo") }
+        switch resolvedLanguage {
+        case .zhHans: return "撤销\(actionName)"
+        case .zhHant: return "還原\(actionName)"
+        case .ja:     return "取り消す：\(actionName)"
+        case .ko:     return "\(actionName) 실행 취소"
+        case .fr:     return "Annuler \(actionName)"
+        case .de:     return "\(actionName) widerrufen"
+        case .es:     return "Deshacer \(actionName)"
+        case .it:     return "Annulla \(actionName)"
+        case .pt:     return "Desfazer \(actionName)"
+        case .ru:     return "Отменить «\(actionName)»"
+        case .uk:     return "Скасувати «\(actionName)»"
+        default:      return "Undo \(actionName)"
+        }
+    }
+
+    public static func redoMenuTitle(_ actionName: String) -> String {
+        guard !actionName.isEmpty else { return tr("重做", "Redo") }
+        switch resolvedLanguage {
+        case .zhHans: return "重做\(actionName)"
+        case .zhHant: return "重做\(actionName)"
+        case .ja:     return "やり直す：\(actionName)"
+        case .ko:     return "\(actionName) 다시 실행"
+        case .fr:     return "Rétablir \(actionName)"
+        case .de:     return "\(actionName) wiederholen"
+        case .es:     return "Rehacer \(actionName)"
+        case .it:     return "Ripristina \(actionName)"
+        case .pt:     return "Refazer \(actionName)"
+        case .ru:     return "Повторить «\(actionName)»"
+        case .uk:     return "Повторити «\(actionName)»"
+        default:      return "Redo \(actionName)"
+        }
+    }
+
     private static let catalog: [String: [String: String]] = [
         "zh-Hant": [
             "复制当前页为图片|||Copy Current Page as Image": "複製目前頁面為圖片",
             "无法将此页复制为图片。|||This page could not be copied as an image.": "無法將此頁複製為圖片。",
             "在分屏中查看此页|||Open Page in Split View": "在分割視圖中檢視此頁",
             "复制此页为图片|||Copy Page as Image": "複製此頁為圖片",
-            "导出此页|||Export Page": "匯出此頁",
-            "PDF 文档…|||PDF…": "PDF 文件…",
-            "PNG 图片…|||PNG Image…": "PNG 圖片…",
             "无法导出此页。|||This page could not be exported.": "無法匯出此頁。",
+            "导出…|||Export…": "匯出…",
+            "导出|||Export": "匯出",
+            "导出为：|||Export As:": "匯出為：",
+            "格式：|||Format:": "格式：",
+            "页面：|||Pages:": "頁面：",
+            "全部页面|||All Pages": "全部頁面",
+            "当前页|||Current Page": "目前頁面",
+            "指定页码|||Page Range": "指定頁碼",
+            "请输入有效的页码范围|||Enter a valid page range": "請輸入有效的頁碼範圍",
+            "请输入有效页码|||Enter a valid page number": "請輸入有效頁碼",
+            "取消选择|||Deselect All": "取消選取",
+            "撤销|||Undo": "還原",
+            "重做|||Redo": "重做",
             "颜色|||Color": "顏色",
             "蓝色|||Blue": "藍色",
             "紫色|||Purple": "紫色",
@@ -551,10 +648,20 @@ public enum L10n {
             "无法将此页复制为图片。|||This page could not be copied as an image.": "このページを画像としてコピーできませんでした。",
             "在分屏中查看此页|||Open Page in Split View": "分割表示でこのページを開く",
             "复制此页为图片|||Copy Page as Image": "このページを画像としてコピー",
-            "导出此页|||Export Page": "このページを書き出す",
-            "PDF 文档…|||PDF…": "PDF…",
-            "PNG 图片…|||PNG Image…": "PNG 画像…",
             "无法导出此页。|||This page could not be exported.": "このページを書き出せませんでした。",
+            "导出…|||Export…": "書き出す…",
+            "导出|||Export": "書き出す",
+            "导出为：|||Export As:": "書き出し名：",
+            "格式：|||Format:": "フォーマット：",
+            "页面：|||Pages:": "ページ：",
+            "全部页面|||All Pages": "すべてのページ",
+            "当前页|||Current Page": "現在のページ",
+            "指定页码|||Page Range": "ページ範囲",
+            "请输入有效的页码范围|||Enter a valid page range": "有効なページ範囲を入力してください",
+            "请输入有效页码|||Enter a valid page number": "有効なページ番号を入力してください",
+            "取消选择|||Deselect All": "選択解除",
+            "撤销|||Undo": "取り消す",
+            "重做|||Redo": "やり直す",
             "颜色|||Color": "カラー",
             "蓝色|||Blue": "ブルー",
             "紫色|||Purple": "パープル",
@@ -809,10 +916,20 @@ public enum L10n {
             "无法将此页复制为图片。|||This page could not be copied as an image.": "이 페이지를 이미지로 복사할 수 없습니다.",
             "在分屏中查看此页|||Open Page in Split View": "분할 보기에서 이 페이지 열기",
             "复制此页为图片|||Copy Page as Image": "이 페이지를 이미지로 복사",
-            "导出此页|||Export Page": "이 페이지 내보내기",
-            "PDF 文档…|||PDF…": "PDF…",
-            "PNG 图片…|||PNG Image…": "PNG 이미지…",
             "无法导出此页。|||This page could not be exported.": "이 페이지를 내보낼 수 없습니다.",
+            "导出…|||Export…": "내보내기…",
+            "导出|||Export": "내보내기",
+            "导出为：|||Export As:": "별도 이름으로 내보내기:",
+            "格式：|||Format:": "포맷:",
+            "页面：|||Pages:": "페이지:",
+            "全部页面|||All Pages": "모든 페이지",
+            "当前页|||Current Page": "현재 페이지",
+            "指定页码|||Page Range": "페이지 범위",
+            "请输入有效的页码范围|||Enter a valid page range": "유효한 페이지 범위를 입력하세요",
+            "请输入有效页码|||Enter a valid page number": "유효한 페이지 번호를 입력하세요",
+            "取消选择|||Deselect All": "선택 해제",
+            "撤销|||Undo": "실행 취소",
+            "重做|||Redo": "다시 실행",
             "颜色|||Color": "색상",
             "蓝色|||Blue": "파란색",
             "紫色|||Purple": "보라색",
@@ -1067,10 +1184,20 @@ public enum L10n {
             "无法将此页复制为图片。|||This page could not be copied as an image.": "Impossible de copier cette page en image.",
             "在分屏中查看此页|||Open Page in Split View": "Ouvrir la page en vue scindée",
             "复制此页为图片|||Copy Page as Image": "Copier la page en image",
-            "导出此页|||Export Page": "Exporter la page",
-            "PDF 文档…|||PDF…": "PDF…",
-            "PNG 图片…|||PNG Image…": "Image PNG…",
             "无法导出此页。|||This page could not be exported.": "Impossible d’exporter cette page.",
+            "导出…|||Export…": "Exporter…",
+            "导出|||Export": "Exporter",
+            "导出为：|||Export As:": "Exporter sous :",
+            "格式：|||Format:": "Format :",
+            "页面：|||Pages:": "Pages :",
+            "全部页面|||All Pages": "Toutes les pages",
+            "当前页|||Current Page": "Page active",
+            "指定页码|||Page Range": "Plage de pages",
+            "请输入有效的页码范围|||Enter a valid page range": "Saisissez une plage de pages valide",
+            "请输入有效页码|||Enter a valid page number": "Saisissez un numéro de page valide",
+            "取消选择|||Deselect All": "Tout désélectionner",
+            "撤销|||Undo": "Annuler",
+            "重做|||Redo": "Rétablir",
             "颜色|||Color": "Couleur",
             "蓝色|||Blue": "Bleu",
             "紫色|||Purple": "Violet",
@@ -1325,10 +1452,20 @@ public enum L10n {
             "无法将此页复制为图片。|||This page could not be copied as an image.": "Diese Seite konnte nicht als Bild kopiert werden.",
             "在分屏中查看此页|||Open Page in Split View": "Seite in geteilter Ansicht öffnen",
             "复制此页为图片|||Copy Page as Image": "Seite als Bild kopieren",
-            "导出此页|||Export Page": "Seite exportieren",
-            "PDF 文档…|||PDF…": "PDF…",
-            "PNG 图片…|||PNG Image…": "PNG-Bild…",
             "无法导出此页。|||This page could not be exported.": "Diese Seite konnte nicht exportiert werden.",
+            "导出…|||Export…": "Exportieren…",
+            "导出|||Export": "Exportieren",
+            "导出为：|||Export As:": "Exportieren als:",
+            "格式：|||Format:": "Format:",
+            "页面：|||Pages:": "Seiten:",
+            "全部页面|||All Pages": "Alle Seiten",
+            "当前页|||Current Page": "Aktuelle Seite",
+            "指定页码|||Page Range": "Seitenbereich",
+            "请输入有效的页码范围|||Enter a valid page range": "Gültigen Seitenbereich eingeben",
+            "请输入有效页码|||Enter a valid page number": "Gültige Seitenzahl eingeben",
+            "取消选择|||Deselect All": "Auswahl aufheben",
+            "撤销|||Undo": "Widerrufen",
+            "重做|||Redo": "Wiederholen",
             "颜色|||Color": "Farbe",
             "蓝色|||Blue": "Blau",
             "紫色|||Purple": "Violett",
@@ -1583,10 +1720,20 @@ public enum L10n {
             "无法将此页复制为图片。|||This page could not be copied as an image.": "No se pudo copiar esta página como imagen.",
             "在分屏中查看此页|||Open Page in Split View": "Abrir página en vista dividida",
             "复制此页为图片|||Copy Page as Image": "Copiar página como imagen",
-            "导出此页|||Export Page": "Exportar página",
-            "PDF 文档…|||PDF…": "PDF…",
-            "PNG 图片…|||PNG Image…": "Imagen PNG…",
             "无法导出此页。|||This page could not be exported.": "No se pudo exportar esta página.",
+            "导出…|||Export…": "Exportar…",
+            "导出|||Export": "Exportar",
+            "导出为：|||Export As:": "Exportar como:",
+            "格式：|||Format:": "Formato:",
+            "页面：|||Pages:": "Páginas:",
+            "全部页面|||All Pages": "Todas las páginas",
+            "当前页|||Current Page": "Página actual",
+            "指定页码|||Page Range": "Intervalo de páginas",
+            "请输入有效的页码范围|||Enter a valid page range": "Introduce un intervalo de páginas válido",
+            "请输入有效页码|||Enter a valid page number": "Introduce un número de página válido",
+            "取消选择|||Deselect All": "Deseleccionar todo",
+            "撤销|||Undo": "Deshacer",
+            "重做|||Redo": "Rehacer",
             "颜色|||Color": "Color",
             "蓝色|||Blue": "Azul",
             "紫色|||Purple": "Morado",
@@ -1841,10 +1988,20 @@ public enum L10n {
             "无法将此页复制为图片。|||This page could not be copied as an image.": "Impossibile copiare questa pagina come immagine.",
             "在分屏中查看此页|||Open Page in Split View": "Apri pagina in vista divisa",
             "复制此页为图片|||Copy Page as Image": "Copia pagina come immagine",
-            "导出此页|||Export Page": "Esporta pagina",
-            "PDF 文档…|||PDF…": "PDF…",
-            "PNG 图片…|||PNG Image…": "Immagine PNG…",
             "无法导出此页。|||This page could not be exported.": "Impossibile esportare questa pagina.",
+            "导出…|||Export…": "Esporta…",
+            "导出|||Export": "Esporta",
+            "导出为：|||Export As:": "Esporta col nome:",
+            "格式：|||Format:": "Formato:",
+            "页面：|||Pages:": "Pagine:",
+            "全部页面|||All Pages": "Tutte le pagine",
+            "当前页|||Current Page": "Pagina corrente",
+            "指定页码|||Page Range": "Intervallo pagine",
+            "请输入有效的页码范围|||Enter a valid page range": "Inserisci un intervallo di pagine valido",
+            "请输入有效页码|||Enter a valid page number": "Inserisci un numero di pagina valido",
+            "取消选择|||Deselect All": "Deseleziona tutto",
+            "撤销|||Undo": "Annulla",
+            "重做|||Redo": "Ripristina",
             "颜色|||Color": "Colore",
             "蓝色|||Blue": "Blu",
             "紫色|||Purple": "Viola",
@@ -2099,10 +2256,20 @@ public enum L10n {
             "无法将此页复制为图片。|||This page could not be copied as an image.": "Não foi possível copiar esta página como imagem.",
             "在分屏中查看此页|||Open Page in Split View": "Abrir página em tela dividida",
             "复制此页为图片|||Copy Page as Image": "Copiar página como imagem",
-            "导出此页|||Export Page": "Exportar página",
-            "PDF 文档…|||PDF…": "PDF…",
-            "PNG 图片…|||PNG Image…": "Imagem PNG…",
             "无法导出此页。|||This page could not be exported.": "Não foi possível exportar esta página.",
+            "导出…|||Export…": "Exportar…",
+            "导出|||Export": "Exportar",
+            "导出为：|||Export As:": "Exportar como:",
+            "格式：|||Format:": "Formato:",
+            "页面：|||Pages:": "Páginas:",
+            "全部页面|||All Pages": "Todas as páginas",
+            "当前页|||Current Page": "Página atual",
+            "指定页码|||Page Range": "Intervalo de páginas",
+            "请输入有效的页码范围|||Enter a valid page range": "Digite um intervalo de páginas válido",
+            "请输入有效页码|||Enter a valid page number": "Digite um número de página válido",
+            "取消选择|||Deselect All": "Desmarcar tudo",
+            "撤销|||Undo": "Desfazer",
+            "重做|||Redo": "Refazer",
             "颜色|||Color": "Cor",
             "蓝色|||Blue": "Azul",
             "紫色|||Purple": "Roxo",
@@ -2357,10 +2524,20 @@ public enum L10n {
             "无法将此页复制为图片。|||This page could not be copied as an image.": "Не удалось скопировать эту страницу как изображение.",
             "在分屏中查看此页|||Open Page in Split View": "Открыть страницу в разделённом виде",
             "复制此页为图片|||Copy Page as Image": "Скопировать страницу как изображение",
-            "导出此页|||Export Page": "Экспортировать страницу",
-            "PDF 文档…|||PDF…": "PDF…",
-            "PNG 图片…|||PNG Image…": "Изображение PNG…",
             "无法导出此页。|||This page could not be exported.": "Не удалось экспортировать эту страницу.",
+            "导出…|||Export…": "Экспортировать…",
+            "导出|||Export": "Экспорт",
+            "导出为：|||Export As:": "Экспортировать как:",
+            "格式：|||Format:": "Формат:",
+            "页面：|||Pages:": "Страницы:",
+            "全部页面|||All Pages": "Все страницы",
+            "当前页|||Current Page": "Текущая страница",
+            "指定页码|||Page Range": "Диапазон страниц",
+            "请输入有效的页码范围|||Enter a valid page range": "Введите допустимый диапазон страниц",
+            "请输入有效页码|||Enter a valid page number": "Введите допустимый номер страницы",
+            "取消选择|||Deselect All": "Снять выделение",
+            "撤销|||Undo": "Отменить",
+            "重做|||Redo": "Повторить",
             "颜色|||Color": "Цвет",
             "蓝色|||Blue": "Синий",
             "紫色|||Purple": "Фиолетовый",
@@ -2615,10 +2792,20 @@ public enum L10n {
             "无法将此页复制为图片。|||This page could not be copied as an image.": "Не вдалося скопіювати цю сторінку як зображення.",
             "在分屏中查看此页|||Open Page in Split View": "Відкрити сторінку в розділеному вигляді",
             "复制此页为图片|||Copy Page as Image": "Скопіювати сторінку як зображення",
-            "导出此页|||Export Page": "Експортувати сторінку",
-            "PDF 文档…|||PDF…": "PDF…",
-            "PNG 图片…|||PNG Image…": "Зображення PNG…",
             "无法导出此页。|||This page could not be exported.": "Не вдалося експортувати цю сторінку.",
+            "导出…|||Export…": "Експортувати…",
+            "导出|||Export": "Експорт",
+            "导出为：|||Export As:": "Експортувати як:",
+            "格式：|||Format:": "Формат:",
+            "页面：|||Pages:": "Сторінки:",
+            "全部页面|||All Pages": "Усі сторінки",
+            "当前页|||Current Page": "Поточна сторінка",
+            "指定页码|||Page Range": "Діапазон сторінок",
+            "请输入有效的页码范围|||Enter a valid page range": "Введіть коректний діапазон сторінок",
+            "请输入有效页码|||Enter a valid page number": "Введіть коректний номер сторінки",
+            "取消选择|||Deselect All": "Зняти виділення",
+            "撤销|||Undo": "Скасувати",
+            "重做|||Redo": "Повторити",
             "颜色|||Color": "Колір",
             "蓝色|||Blue": "Синій",
             "紫色|||Purple": "Фіолетовий",

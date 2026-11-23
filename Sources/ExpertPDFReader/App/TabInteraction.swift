@@ -207,7 +207,14 @@ struct TabStripAnchor: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ view: NSView, context: Context) {}
+    func updateNSView(_ view: NSView, context: Context) {
+        guard let anchor = view as? TabStripAnchorView else { return }
+        anchor.session = session
+        anchor.axis = axis
+        if anchor.window != nil && session.tabStripView !== anchor {
+            session.tabStripView = anchor
+        }
+    }
 }
 
 private final class TabStripAnchorView: NSView {
@@ -514,9 +521,9 @@ extension ReaderWindowSession {
         }
         CATransaction.commit()
         let hasDocumentIcon = tab != nil && isSidebar
-        let isCompact = isSidebar && frame.width < 80
         let leading: CGFloat = hasDocumentIcon ? SidebarTabMetrics.iconSlotWidth + 3 : (groupRadius == nil ? 12 : 6)
         let trailing: CGFloat = tab != nil ? 30 : 12
+        let isCompact = isSidebar && frame.width < leading + trailing + 48
         let wraps = isSidebar && groupRadius == nil
         let labelWidth = max(0, frame.width - leading - trailing)
         func textHeight(_ text: String) -> CGFloat {
@@ -549,7 +556,7 @@ extension ReaderWindowSession {
         (label?.cell as? NSTextFieldCell)?.wraps = wraps
         documentIcon?.isHidden = !hasDocumentIcon
         documentIcon?.contentTintColor = NSColor(ink)
-        documentIcon?.frame = NSRect(x: ((isCompact ? frame.width : SidebarTabMetrics.iconSlotWidth) - 17) / 2,
+        documentIcon?.frame = NSRect(x: (min(frame.width, SidebarTabMetrics.iconSlotWidth) - 17) / 2,
                                     y: (frame.height - 22) / 2, width: 17, height: 22)
         closeIcon?.isHidden = tab == nil || isCompact
         closeIcon?.contentTintColor = NSColor(AppPalette.labelSecondary(isDark))

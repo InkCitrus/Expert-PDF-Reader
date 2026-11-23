@@ -200,6 +200,8 @@ struct SearchResultRow: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .animation(AppAnimation.micro, value: isHovered)
+        .animation(AppAnimation.micro, value: isSelected)
         .onHover { isHovered = $0 }
     }
 
@@ -547,6 +549,8 @@ struct PageOverviewGridView: View {
                     Text(L10n.selectedPagesCount(ordered.count))
                         .font(.system(size: 12, weight: .medium))
                         .monospacedDigit()
+                        .contentTransition(.numericText())
+                        .animation(AppAnimation.micro, value: ordered.count)
                         .foregroundColor(foreground)
 
                     Rectangle()
@@ -560,7 +564,7 @@ struct PageOverviewGridView: View {
                             .font(.system(size: 12, weight: .medium))
                             .frame(width: 22, height: 22)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(TactilePressButtonStyle())
                     .foregroundColor(foreground.opacity(0.88))
                     .help(L10n.tr("向左旋转", "Rotate Left"))
                     .accessibilityLabel(Text(L10n.tr("向左旋转", "Rotate Left")))
@@ -572,7 +576,7 @@ struct PageOverviewGridView: View {
                             .font(.system(size: 12, weight: .medium))
                             .frame(width: 22, height: 22)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(TactilePressButtonStyle())
                     .foregroundColor(foreground.opacity(0.88))
                     .help(L10n.tr("向右旋转", "Rotate Right"))
                     .accessibilityLabel(Text(L10n.tr("向右旋转", "Rotate Right")))
@@ -582,9 +586,14 @@ struct PageOverviewGridView: View {
                         .frame(width: 1, height: 14)
 
                     Button(L10n.tr("导出…", "Export…")) {
-                        tab.beginExportPanel(in: targetWindow, initialPages: ordered, source: source)
+                        tab.beginExportPanel(
+                            in: targetWindow,
+                            initialPages: ordered,
+                            source: source,
+                            session: store.windowSession(forTabID: tab.id)
+                        )
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(TactilePressButtonStyle())
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(canExport ? foreground : foreground.opacity(0.38))
                     .padding(.horizontal, 9)
@@ -603,7 +612,7 @@ struct PageOverviewGridView: View {
                             .foregroundColor(foreground.opacity(0.75))
                             .frame(width: 20, height: 20)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(TactilePressButtonStyle())
                     .help(L10n.tr("取消选择", "Deselect All"))
                     .accessibilityLabel(Text(L10n.tr("取消选择", "Deselect All")))
                 }
@@ -630,5 +639,118 @@ struct PageOverviewGridView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Text(L10n.tr("页面概览", "Page Overview")))
+    }
+}
+
+// MARK: - ExportActivityToast
+
+/// Floating bottom HUD pill showing background export progress (with Cancel) and completion (with Show in Finder).
+struct ExportActivityToast: View {
+    let state: ExportActivityState
+    let pdfTheme: PDFViewTheme
+    let isDarkUI: Bool
+    let onCancel: () -> Void
+    let onReveal: () -> Void
+    let onDismiss: () -> Void
+    let onHoverChanged: (Bool) -> Void
+
+    @Environment(\.appAccentColor) private var accent
+    @State private var isHovered = false
+
+    var body: some View {
+        let foreground = AppPalette.pageIndicatorForeground(pdfTheme: pdfTheme, isDarkUI: isDarkUI)
+        HStack(spacing: 10) {
+            switch state.phase {
+            case .exporting(let completed, let total, let formatLabel):
+                ProgressView()
+                    .controlSize(.small)
+                    .environment(\.colorScheme, .dark)
+
+                Text(L10n.exportingProgressText(completed: completed, total: total, formatName: formatLabel))
+                    .font(.system(size: 12, weight: .medium))
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+                    .foregroundColor(foreground)
+
+                if total > 1 {
+                    let fraction = max(0, min(1, CGFloat(completed) / CGFloat(total)))
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(Color.white.opacity(0.18))
+                        Capsule()
+                            .fill(accent)
+                            .frame(width: 56 * fraction)
+                    }
+                    .frame(width: 56, height: 3.5)
+                    .animation(AppAnimation.micro, value: completed)
+                }
+
+                Rectangle()
+                    .fill(foreground.opacity(0.22))
+                    .frame(width: 1, height: 14)
+
+                Button(L10n.tr("取消", "Cancel"), action: onCancel)
+                    .buttonStyle(TactilePressButtonStyle())
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundColor(foreground.opacity(0.85))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color.white.opacity(0.12))
+                    )
+
+            case .completed(let pageCount, let formatLabel, _, let isFolder):
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .foregroundColor(AppPalette.systemGreen)
+                    .symbolEffect(.bounce, value: state.id)
+
+                Text(L10n.exportCompletedText(pageCount: pageCount, formatName: formatLabel, isFolder: isFolder))
+                    .font(.system(size: 12, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundColor(foreground)
+
+                Rectangle()
+                    .fill(foreground.opacity(0.22))
+                    .frame(width: 1, height: 14)
+
+                Button(L10n.tr("在 Finder 中显示", "Show in Finder"), action: onReveal)
+                    .buttonStyle(TactilePressButtonStyle())
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundColor(foreground)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(accent.opacity(0.85))
+                    )
+
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundColor(foreground.opacity(0.75))
+                        .frame(width: 20, height: 20)
+                }
+                .buttonStyle(TactilePressButtonStyle())
+                .accessibilityLabel(Text(L10n.tr("关闭", "Close")))
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(AppPalette.pageIndicatorBackground(pdfTheme: pdfTheme, isDarkUI: isDarkUI, isHovered: isHovered))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(AppPalette.pageIndicatorBorder(pdfTheme: pdfTheme, isDarkUI: isDarkUI, isHovered: isHovered), lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(pdfTheme == .night || isDarkUI ? 0.48 : 0.20), radius: 8, x: 0, y: 3)
+        )
+        .animation(AppAnimation.micro, value: isHovered)
+        .onHover { hovering in
+            isHovered = hovering
+            onHoverChanged(hovering)
+        }
     }
 }

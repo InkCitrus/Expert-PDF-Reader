@@ -358,6 +358,10 @@ public enum AppPalette {
         return Color(nsColor: base.blended(withFraction: isDark ? 0.35 : 0, of: .white) ?? base)
     }
 
+    public static func tabSelectedBorder(_ isDark: Bool) -> Color {
+        isDark ? Color.white.opacity(0.11) : Color.black.opacity(0.08)
+    }
+
     // Window chrome uses neighboring neutral surfaces. The selected tab stays distinct without a
     // near-black strip above the toolbar or a bright gray block in dark appearance.
     public static func tabStripBackground(_ isDark: Bool) -> Color {
@@ -554,6 +558,31 @@ public enum AppAnimation {
 
     /// Reveal fixed-width contents without spring overshoot or text reflow.
     public static var sidebarReveal: Animation { .easeInOut(duration: sidebarRevealDuration) }
+
+    /// Dynamic height & accessory expansion transitions in native sheets.
+    public static var sheetMorphDuration: Double { reduceMotion ? 0 : 0.20 }
+
+    /// Left sidebar panel tab switching (Thumbnails / Outline / Bookmarks).
+    public static var sidebarSwitch: Animation {
+        reduceMotion ? .easeOut(duration: 0.10) : .spring(duration: 0.22, bounce: 0)
+    }
+
+    /// Bottom floating export progress / completion HUD toast.
+    public static var toast: Animation {
+        reduceMotion ? .easeOut(duration: 0.14) : .spring(response: 0.30, dampingFraction: 0.84)
+    }
+}
+
+/// Subtle tactile press compression matching macOS native controls while honoring Reduce Motion.
+public struct TactilePressButtonStyle: ButtonStyle {
+    public init() {}
+
+    public func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && !AppAnimation.reduceMotion ? 0.96 : 1.0)
+            .opacity(configuration.isPressed ? 0.88 : 1.0)
+            .animation(AppAnimation.micro, value: configuration.isPressed)
+    }
 }
 
 extension Color {

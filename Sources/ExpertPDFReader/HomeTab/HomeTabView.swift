@@ -515,6 +515,7 @@ struct HomeLinkButton: View {
             Text(title)
                 .font(.system(size: 13.5))
                 .foregroundColor(accent.opacity(isHovered ? 0.75 : 1))
+                .animation(AppAnimation.micro, value: isHovered)
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
@@ -536,9 +537,10 @@ struct HomePrimaryButton: View {
                 .padding(.horizontal, 18)
                 .frame(height: 30)
                 .background(Capsule().fill(accent.opacity(isHovered ? 0.88 : 1)))
+                .animation(AppAnimation.micro, value: isHovered)
                 .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(TactilePressButtonStyle())
         .onHover { isHovered = $0 }
     }
 }

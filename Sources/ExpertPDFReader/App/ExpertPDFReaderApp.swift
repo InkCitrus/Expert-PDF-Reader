@@ -325,7 +325,10 @@ struct ReaderMenuCommands: Commands {
         // Replaces File › Close / Close All, whose ⌘W clashed with Close Tab
         CommandGroup(replacing: .saveItem) {
             Button(L10n.tr("导出…", "Export…")) {
-                store.activeDocumentTab?.beginExportPanel(in: store.activeSession.nsWindow)
+                store.activeDocumentTab?.beginExportPanel(
+                    in: store.activeSession.nsWindow,
+                    session: store.activeSession
+                )
             }
             .keyboardShortcut("e", modifiers: [.command, .shift])
             .disabled(!PageImageClipboard.canCopy(store.activeDocumentTab?.currentPageForCopying))

@@ -245,6 +245,22 @@
 "Current Page" = "目前頁面";
 "指定页码|||Page Range" = "指定頁碼";
 "Page Range" = "指定頁碼";
+"奇数页|||Odd Pages" = "奇數頁";
+"Odd Pages" = "奇數頁";
+"偶数页|||Even Pages" = "偶數頁";
+"Even Pages" = "偶數頁";
+"清晰度：|||Resolution:" = "解析度：";
+"Resolution:" = "解析度：";
+"质量：|||Quality:" = "品質：";
+"Quality:" = "品質：";
+"144 DPI（标准）|||144 DPI (Standard)" = "144 DPI（標準）";
+"144 DPI (Standard)" = "144 DPI（標準）";
+"216 DPI（高清）|||216 DPI (High)" = "216 DPI（高畫質）";
+"216 DPI (High)" = "216 DPI（高畫質）";
+"300 DPI（打印）|||300 DPI (Print)" = "300 DPI（列印）";
+"300 DPI (Print)" = "300 DPI（列印）";
+"关闭|||Close" = "關閉";
+"Close" = "關閉";
 "请输入有效的页码范围|||Enter a valid page range" = "請輸入有效的頁碼範圍";
 "Enter a valid page range" = "請輸入有效的頁碼範圍";
 "请输入有效页码|||Enter a valid page number" = "請輸入有效頁碼";
@@ -539,3 +555,8 @@
 
 "返回之前的页面|||Return to Previous Page" = "返回先前的頁面";
 "Return to Previous Page" = "返回先前的頁面";
+
+"在侧边栏显示标签页|||Show Tabs in Sidebar" = "在側邊欄顯示分頁";
+"Show Tabs in Sidebar" = "在側邊欄顯示分頁";
+"在顶部显示标签栏|||Show Tabs in Titlebar" = "在頂部顯示分頁列";
+"Show Tabs in Titlebar" = "在頂部顯示分頁列";

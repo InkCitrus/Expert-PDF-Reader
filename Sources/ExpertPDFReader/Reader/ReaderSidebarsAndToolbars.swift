@@ -132,6 +132,7 @@ public struct ReaderToolbarView: View {
                 tooltip: isBookmarked ? L10n.tr("移除当前页书签 (⌘D)", "Remove Bookmark for Current Page (⌘D)") : L10n.tr("为当前页添加书签 (⌘D)", "Add Bookmark for Current Page (⌘D)"),
                 isActive: isBookmarked,
                 activeTint: accent,
+                bouncesOnActiveChange: true,
                 iconWidth: density.iconWidth,
                 isDark: isDark
             ) {
@@ -294,10 +295,12 @@ public struct ReaderToolbarView: View {
                         .font(.system(size: 11.5))
                         .foregroundColor(AppPalette.labelTertiary(isDark))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(TactilePressButtonStyle())
                 .help(L10n.tr("清除搜索", "Clear Search"))
+                .transition(.scale(scale: 0.7).combined(with: .opacity))
             }
         }
+        .animation(AppAnimation.micro, value: tab.searchQuery.isEmpty)
         .padding(.horizontal, 8)
         .frame(height: 28)
         .background(
@@ -307,6 +310,7 @@ public struct ReaderToolbarView: View {
         .overlay(
             RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .stroke(accent.opacity(isSearchFieldFocused ? 0.75 : 0), lineWidth: 1.5)
+                .animation(AppAnimation.micro, value: isSearchFieldFocused)
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Text(searchLabel))
@@ -356,6 +360,7 @@ struct ToolbarIconButton: View {
     var isActive: Bool = false
     var isDisabled: Bool = false
     var activeTint: Color?
+    var bouncesOnActiveChange: Bool = false
     var iconWidth: CGFloat = 34
     var fillsRow = false
     let isDark: Bool
@@ -366,9 +371,7 @@ struct ToolbarIconButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 5) {
-                Image(systemName: icon)
-                    .font(.system(size: 14.5, weight: .regular))
-                    .foregroundColor(iconForegroundColor)
+                iconImage
                 if let title {
                     Text(title)
                         .font(.system(size: 12, weight: .medium))
@@ -393,12 +396,24 @@ struct ToolbarIconButton: View {
                 .animation(AppAnimation.micro, value: isHovered)
                 .animation(AppAnimation.micro, value: isActive)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(TactilePressButtonStyle())
         .disabled(isDisabled)
         .help(tooltip)
         .accessibilityLabel(Text(tooltip))
         .accessibilityAddTraits(isActive ? .isSelected : [])
         .onHover { isHovered = $0 }
+    }
+
+    @ViewBuilder
+    private var iconImage: some View {
+        let base = Image(systemName: icon)
+            .font(.system(size: 14.5, weight: .regular))
+            .foregroundColor(iconForegroundColor)
+        if bouncesOnActiveChange && !AppAnimation.reduceMotion {
+            base.symbolEffect(.bounce, value: isActive)
+        } else {
+            base
+        }
     }
 
     private var iconForegroundColor: Color {
@@ -446,8 +461,9 @@ struct ZoomStepButton: View {
                         .fill(isHovered ? AppPalette.toolbarActive(isDark) : Color.clear)
                 )
                 .contentShape(Rectangle())
+                .animation(AppAnimation.micro, value: isHovered)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(TactilePressButtonStyle())
         .help(tooltip)
         .accessibilityLabel(Text(tooltip))
         .onHover { isHovered = $0 }
@@ -627,6 +643,7 @@ public struct ReaderLeftSidebarView: View {
                 Spacer()
                 headerAccessory
             }
+            .animation(AppAnimation.sidebarSwitch, value: tab.activeSidebarTab)
             .padding(.horizontal, 14)
             .frame(height: 34)
 
@@ -635,7 +652,7 @@ public struct ReaderLeftSidebarView: View {
                 .frame(height: 1)
 
             // Active Panel Content
-            Group {
+            ZStack {
                 switch tab.activeSidebarTab {
                 case .thumbnails:
                     PDFPageThumbnailsPanel(store: store, tab: tab, panelWidth: panelWidth, isDark: isDark)
@@ -645,7 +662,15 @@ public struct ReaderLeftSidebarView: View {
                     PDFBookmarksPanel(store: store, tab: tab, isDark: isDark)
                 }
             }
+            .id(tab.activeSidebarTab)
+            .transition(
+                AppAnimation.reduceMotion
+                    ? .opacity
+                    : .opacity.combined(with: .offset(y: 4))
+            )
+            .animation(AppAnimation.sidebarSwitch, value: tab.activeSidebarTab)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
         }
     }
 
@@ -659,6 +684,8 @@ public struct ReaderLeftSidebarView: View {
                  : L10n.pageCountText(tab.activeThumbnailSource.document.pageCount))
                 .font(.system(size: 11))
                 .monospacedDigit()
+                .contentTransition(.numericText())
+                .animation(AppAnimation.micro, value: selectedCount)
                 .foregroundColor(AppPalette.labelTertiary(isDark))
         case .outline, .bookmarks:
             EmptyView()
@@ -886,6 +913,7 @@ struct PageThumbnailCell: View {
                         }
                     }
                     .frame(maxWidth: maxSize.width, maxHeight: maxSize.height)
+                    .animation(AppAnimation.micro, value: thumbnail != nil)
                     .task(id: request) {
                         if let image = await PDFThumbnailCache.shared.thumbnail(for: request), !Task.isCancelled {
                             thumbnail = image
@@ -896,14 +924,22 @@ struct PageThumbnailCell: View {
                                 .stroke(Color.black.opacity(isDark ? 0.4 : 0.12), lineWidth: 0.5)
                         )
                         .overlay(alignment: .topTrailing) {
-                            if isBookmarked {
-                                Image(systemName: "bookmark.fill")
-                                    .font(.system(size: 13))
-                                    .foregroundColor(accent)
-                                    .shadow(color: Color.black.opacity(0.2), radius: 1, x: 0, y: 0.5)
-                                    .padding(.trailing, 8)
-                                    .offset(y: -2)
+                            ZStack(alignment: .topTrailing) {
+                                if isBookmarked {
+                                    Image(systemName: "bookmark.fill")
+                                        .font(.system(size: 13))
+                                        .foregroundColor(accent)
+                                        .shadow(color: Color.black.opacity(0.2), radius: 1, x: 0, y: 0.5)
+                                        .padding(.trailing, 8)
+                                        .offset(y: -2)
+                                        .transition(
+                                            AppAnimation.reduceMotion
+                                                ? .opacity
+                                                : .scale(scale: 0.6, anchor: .top).combined(with: .opacity)
+                                        )
+                                }
                             }
+                            .animation(AppAnimation.snappy, value: isBookmarked)
                         }
                         .shadow(color: Color.black.opacity(isDark ? 0.45 : 0.10), radius: 2.5, x: 0, y: 1)
                         .padding(4)
@@ -939,6 +975,9 @@ struct PageThumbnailCell: View {
                             .fill(isEmphasized ? accent : (hasMultiSelection && isCurrent ? AppPalette.rowHover(isDark) : Color.clear))
                     )
             }
+            .scaleEffect(isHovered && !AppAnimation.reduceMotion ? 1.012 : 1.0)
+            .animation(AppAnimation.micro, value: isHovered)
+            .animation(AppAnimation.snappy, value: isEmphasized)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -959,7 +998,12 @@ struct PageThumbnailCell: View {
                 }
 
                 Button(L10n.exportSelectedPages(orderedSelection.count)) {
-                    tab.beginExportPanel(in: targetWindow, initialPages: orderedSelection, source: source)
+                    tab.beginExportPanel(
+                        in: targetWindow,
+                        initialPages: orderedSelection,
+                        source: source,
+                        session: store.windowSession(forTabID: tab.id)
+                    )
                 }
                 .disabled(!canCopyPage)
 
@@ -1031,7 +1075,12 @@ struct PageThumbnailCell: View {
                 .disabled(!canCopyPage)
 
                 Button(L10n.tr("导出…", "Export…")) {
-                    tab.beginExportPanel(in: targetWindow, initialPages: [pageIndex], source: source)
+                    tab.beginExportPanel(
+                        in: targetWindow,
+                        initialPages: [pageIndex],
+                        source: source,
+                        session: store.windowSession(forTabID: tab.id)
+                    )
                 }
                 .disabled(!canCopyPage)
             }
@@ -1238,6 +1287,7 @@ struct PDFOutlineRowView: View {
                             .font(.system(size: 9.5, weight: .semibold))
                             .foregroundColor(AppPalette.labelTertiary(isDark))
                             .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                            .animation(AppAnimation.snappy, value: isExpanded)
                             .frame(width: 18, height: 18)
                             .contentShape(Rectangle())
                     }
@@ -1279,6 +1329,8 @@ struct PDFOutlineRowView: View {
                 .padding(.leading, 30 + CGFloat(level) * 14)
         }
         .contentShape(Rectangle())
+        .animation(AppAnimation.micro, value: isHovered)
+        .animation(AppAnimation.micro, value: isActive)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Text(pageLabel.map { "\(node.title), \(L10n.pageTitle($0))" } ?? node.title))
         .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : [.isButton])
@@ -1367,6 +1419,8 @@ struct BookmarkRowView: View {
                 .padding(.leading, 33)
         }
         .contentShape(Rectangle())
+        .animation(AppAnimation.micro, value: isHovered)
+        .animation(AppAnimation.micro, value: isCurrent)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text("\(bookmark.title), \(L10n.pageTitle(pageLabel))"))
         .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : [.isButton])

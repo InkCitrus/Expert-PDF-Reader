@@ -245,6 +245,22 @@
 "Current Page" = "現在のページ";
 "指定页码|||Page Range" = "ページ範囲";
 "Page Range" = "ページ範囲";
+"奇数页|||Odd Pages" = "奇数ページ";
+"Odd Pages" = "奇数ページ";
+"偶数页|||Even Pages" = "偶数ページ";
+"Even Pages" = "偶数ページ";
+"清晰度：|||Resolution:" = "解像度：";
+"Resolution:" = "解像度：";
+"质量：|||Quality:" = "品質：";
+"Quality:" = "品質：";
+"144 DPI（标准）|||144 DPI (Standard)" = "144 DPI（標準）";
+"144 DPI (Standard)" = "144 DPI（標準）";
+"216 DPI（高清）|||216 DPI (High)" = "216 DPI（高画質）";
+"216 DPI (High)" = "216 DPI（高画質）";
+"300 DPI（打印）|||300 DPI (Print)" = "300 DPI（印刷）";
+"300 DPI (Print)" = "300 DPI（印刷）";
+"关闭|||Close" = "閉じる";
+"Close" = "閉じる";
 "请输入有效的页码范围|||Enter a valid page range" = "有効なページ範囲を入力してください";
 "Enter a valid page range" = "有効なページ範囲を入力してください";
 "请输入有效页码|||Enter a valid page number" = "有効なページ番号を入力してください";
@@ -539,3 +555,8 @@
 
 "返回之前的页面|||Return to Previous Page" = "前のページに戻る";
 "Return to Previous Page" = "前のページに戻る";
+
+"在侧边栏显示标签页|||Show Tabs in Sidebar" = "サイドバーにタブを表示";
+"Show Tabs in Sidebar" = "サイドバーにタブを表示";
+"在顶部显示标签栏|||Show Tabs in Titlebar" = "タイトルバーにタブを表示";
+"Show Tabs in Titlebar" = "タイトルバーにタブを表示";

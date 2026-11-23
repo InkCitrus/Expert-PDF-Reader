@@ -338,6 +338,106 @@ public enum L10n {
         }
     }
 
+    public static func exportImageSummary(count: Int, formatName: String, pixelSize: CGSize?) -> String {
+        if count == 1 {
+            let dims = pixelSize.map { " · \(Int($0.width)) × \(Int($0.height))" } ?? ""
+            switch resolvedLanguage {
+            case .zhHans: return pixelSize.map { "1 张 \(formatName) 图片 · \(Int($0.width)) × \(Int($0.height)) 像素" } ?? "1 张 \(formatName) 图片"
+            case .zhHant: return pixelSize.map { "1 張 \(formatName) 圖片 · \(Int($0.width)) × \(Int($0.height)) 像素" } ?? "1 張 \(formatName) 圖片"
+            case .ja:     return "1 枚の \(formatName) 画像\(dims.isEmpty ? "" : "\(dims) px")"
+            case .ko:     return "1장의 \(formatName) 이미지\(dims.isEmpty ? "" : "\(dims) px")"
+            case .fr:     return "1 image \(formatName)\(dims.isEmpty ? "" : "\(dims) px")"
+            case .de:     return "1 \(formatName)-Bild\(dims.isEmpty ? "" : "\(dims) px")"
+            case .es:     return "1 imagen \(formatName)\(dims.isEmpty ? "" : "\(dims) px")"
+            case .it:     return "1 immagine \(formatName)\(dims.isEmpty ? "" : "\(dims) px")"
+            case .pt:     return "1 imagem \(formatName)\(dims.isEmpty ? "" : "\(dims) px")"
+            case .ru:     return "1 изобр. \(formatName)\(dims.isEmpty ? "" : "\(dims) пикс.")"
+            case .uk:     return "1 зобр. \(formatName)\(dims.isEmpty ? "" : "\(dims) пікс.")"
+            default:      return "1 \(formatName) image\(dims.isEmpty ? "" : "\(dims) px")"
+            }
+        }
+        switch resolvedLanguage {
+        case .zhHans: return "将导出 \(count) 张 \(formatName) 图片到文件夹"
+        case .zhHant: return "將匯出 \(count) 張 \(formatName) 圖片到資料夾"
+        case .ja:     return "\(count) 枚の \(formatName) 画像をフォルダに書き出します"
+        case .ko:     return "\(count)장의 \(formatName) 이미지를 폴더에 저장"
+        case .fr:     return "\(count) images \(formatName) seront enregistrées dans un dossier"
+        case .de:     return "\(count) \(formatName)-Bilder werden in einen Ordner exportiert"
+        case .es:     return "Se guardarán \(count) imágenes \(formatName) en una carpeta"
+        case .it:     return "\(count) immagini \(formatName) verranno salvate in una cartella"
+        case .pt:     return "\(count) imagens \(formatName) serão salvas em uma pasta"
+        case .ru:     return "\(count) изобр. \(formatName) будет сохранено в папку"
+        case .uk:     return "\(count) зобр. \(formatName) буде збережено в теку"
+        default:      return "\(count) \(formatName) images will be saved to a folder"
+        }
+    }
+
+    public static func exportingProgressText(completed: Int, total: Int, formatName: String) -> String {
+        if total > 1 {
+            switch resolvedLanguage {
+            case .zhHans: return "正在导出 \(formatName)（\(completed)/\(total)）…"
+            case .zhHant: return "正在匯出 \(formatName)（\(completed)/\(total)）…"
+            case .ja:     return "\(formatName) を書き出し中（\(completed)/\(total)）…"
+            case .ko:     return "\(formatName) 내보내는 중 (\(completed)/\(total))…"
+            case .fr:     return "Exportation \(formatName) (\(completed)/\(total))…"
+            case .de:     return "\(formatName) exportieren (\(completed)/\(total))…"
+            case .es:     return "Exportando \(formatName) (\(completed)/\(total))…"
+            case .it:     return "Esportazione \(formatName) (\(completed)/\(total))…"
+            case .pt:     return "Exportando \(formatName) (\(completed)/\(total))…"
+            case .ru:     return "Экспорт \(formatName) (\(completed)/\(total))…"
+            case .uk:     return "Експорт \(formatName) (\(completed)/\(total))…"
+            default:      return "Exporting \(formatName) (\(completed)/\(total))…"
+            }
+        }
+        switch resolvedLanguage {
+        case .zhHans: return "正在导出 \(formatName)…"
+        case .zhHant: return "正在匯出 \(formatName)…"
+        case .ja:     return "\(formatName) を書き出し中…"
+        case .ko:     return "\(formatName) 내보내는 중…"
+        case .fr:     return "Exportation \(formatName)…"
+        case .de:     return "\(formatName) exportieren…"
+        case .es:     return "Exportando \(formatName)…"
+        case .it:     return "Esportazione \(formatName)…"
+        case .pt:     return "Exportando \(formatName)…"
+        case .ru:     return "Экспорт \(formatName)…"
+        case .uk:     return "Експорт \(formatName)…"
+        default:      return "Exporting \(formatName)…"
+        }
+    }
+
+    public static func exportCompletedText(pageCount: Int, formatName: String, isFolder: Bool) -> String {
+        if isFolder {
+            switch resolvedLanguage {
+            case .zhHans: return "已导出 \(pageCount) 张 \(formatName) 到文件夹"
+            case .zhHant: return "已匯出 \(pageCount) 張 \(formatName) 到資料夾"
+            case .ja:     return "\(pageCount) 枚の \(formatName) をフォルダに書き出しました"
+            case .ko:     return "\(pageCount)장의 \(formatName) 이미지를 폴더에 저장함"
+            case .fr:     return "\(pageCount) images \(formatName) enregistrées"
+            case .de:     return "\(pageCount) \(formatName)-Bilder exportiert"
+            case .es:     return "\(pageCount) imágenes \(formatName) exportadas"
+            case .it:     return "\(pageCount) immagini \(formatName) esportate"
+            case .pt:     return "\(pageCount) imagens \(formatName) exportadas"
+            case .ru:     return "Экспортировано \(pageCount) \(formatName)"
+            case .uk:     return "Експортовано \(pageCount) \(formatName)"
+            default:      return "Exported \(pageCount) \(formatName) images to folder"
+            }
+        }
+        switch resolvedLanguage {
+        case .zhHans: return "已导出 \(pageCount) 页 \(formatName)"
+        case .zhHant: return "已匯出 \(pageCount) 頁 \(formatName)"
+        case .ja:     return "\(pageCount) ページの \(formatName) を書き出しました"
+        case .ko:     return "\(pageCount)페이지 \(formatName) 내보내기 완료"
+        case .fr:     return pageCount == 1 ? "1 page \(formatName) exportée" : "\(pageCount) pages \(formatName) exportées"
+        case .de:     return pageCount == 1 ? "1 \(formatName)-Seite exportiert" : "\(pageCount) \(formatName)-Seiten exportiert"
+        case .es:     return pageCount == 1 ? "1 página \(formatName) exportada" : "\(pageCount) páginas \(formatName) exportadas"
+        case .it:     return pageCount == 1 ? "1 pagina \(formatName) esportata" : "\(pageCount) pagine \(formatName) esportate"
+        case .pt:     return pageCount == 1 ? "1 página \(formatName) exportada" : "\(pageCount) páginas \(formatName) exportadas"
+        case .ru:     return "Экспортировано стр. (\(formatName)): \(pageCount)"
+        case .uk:     return "Експортовано стор. (\(formatName)): \(pageCount)"
+        default:      return pageCount == 1 ? "Exported 1 \(formatName) page" : "Exported \(pageCount) \(formatName) pages"
+        }
+    }
+
     public static func undoMenuTitle(_ actionName: String) -> String {
         guard !actionName.isEmpty else { return tr("撤销", "Undo") }
         switch resolvedLanguage {
@@ -389,6 +489,14 @@ public enum L10n {
             "全部页面|||All Pages": "全部頁面",
             "当前页|||Current Page": "目前頁面",
             "指定页码|||Page Range": "指定頁碼",
+            "奇数页|||Odd Pages": "奇數頁",
+            "偶数页|||Even Pages": "偶數頁",
+            "清晰度：|||Resolution:": "解析度：",
+            "质量：|||Quality:": "品質：",
+            "144 DPI（标准）|||144 DPI (Standard)": "144 DPI（標準）",
+            "216 DPI（高清）|||216 DPI (High)": "216 DPI（高畫質）",
+            "300 DPI（打印）|||300 DPI (Print)": "300 DPI（列印）",
+            "关闭|||Close": "關閉",
             "请输入有效的页码范围|||Enter a valid page range": "請輸入有效的頁碼範圍",
             "请输入有效页码|||Enter a valid page number": "請輸入有效頁碼",
             "取消选择|||Deselect All": "取消選取",
@@ -633,6 +741,7 @@ public enum L10n {
             "PDF 阅读区域|||PDF Reading Canvas": "PDF 閱讀區域",
             "标签栏|||Tab Bar": "分頁列",
             "在侧边栏显示标签页|||Show Tabs in Sidebar": "在側邊欄顯示分頁",
+            "在顶部显示标签栏|||Show Tabs in Titlebar": "在頂部顯示分頁列",
             "打开的文档|||Open Documents": "開啟的文件",
             "页面导航|||Page Navigation": "頁面導覽",
             "显示导航|||Show Navigation": "顯示導覽",
@@ -658,6 +767,14 @@ public enum L10n {
             "全部页面|||All Pages": "すべてのページ",
             "当前页|||Current Page": "現在のページ",
             "指定页码|||Page Range": "ページ範囲",
+            "奇数页|||Odd Pages": "奇数ページ",
+            "偶数页|||Even Pages": "偶数ページ",
+            "清晰度：|||Resolution:": "解像度：",
+            "质量：|||Quality:": "品質：",
+            "144 DPI（标准）|||144 DPI (Standard)": "144 DPI（標準）",
+            "216 DPI（高清）|||216 DPI (High)": "216 DPI（高画質）",
+            "300 DPI（打印）|||300 DPI (Print)": "300 DPI（印刷）",
+            "关闭|||Close": "閉じる",
             "请输入有效的页码范围|||Enter a valid page range": "有効なページ範囲を入力してください",
             "请输入有效页码|||Enter a valid page number": "有効なページ番号を入力してください",
             "取消选择|||Deselect All": "選択解除",
@@ -902,6 +1019,7 @@ public enum L10n {
             "PDF 阅读区域|||PDF Reading Canvas": "PDF 閲覧領域",
             "标签栏|||Tab Bar": "タブバー",
             "在侧边栏显示标签页|||Show Tabs in Sidebar": "サイドバーにタブを表示",
+            "在顶部显示标签栏|||Show Tabs in Titlebar": "タイトルバーにタブを表示",
             "打开的文档|||Open Documents": "開いている書類",
             "页面导航|||Page Navigation": "ページナビゲーション",
             "显示导航|||Show Navigation": "ナビゲーションを表示",
@@ -927,6 +1045,14 @@ public enum L10n {
             "全部页面|||All Pages": "모든 페이지",
             "当前页|||Current Page": "현재 페이지",
             "指定页码|||Page Range": "페이지 범위",
+            "奇数页|||Odd Pages": "홀수 페이지",
+            "偶数页|||Even Pages": "짝수 페이지",
+            "清晰度：|||Resolution:": "해상도:",
+            "质量：|||Quality:": "품질:",
+            "144 DPI（标准）|||144 DPI (Standard)": "144 DPI(표준)",
+            "216 DPI（高清）|||216 DPI (High)": "216 DPI(고화질)",
+            "300 DPI（打印）|||300 DPI (Print)": "300 DPI(인쇄)",
+            "关闭|||Close": "닫기",
             "请输入有效的页码范围|||Enter a valid page range": "유효한 페이지 범위를 입력하세요",
             "请输入有效页码|||Enter a valid page number": "유효한 페이지 번호를 입력하세요",
             "取消选择|||Deselect All": "선택 해제",
@@ -1171,6 +1297,7 @@ public enum L10n {
             "PDF 阅读区域|||PDF Reading Canvas": "PDF 읽기 영역",
             "标签栏|||Tab Bar": "탭 막대",
             "在侧边栏显示标签页|||Show Tabs in Sidebar": "사이드바에 탭 표시",
+            "在顶部显示标签栏|||Show Tabs in Titlebar": "상단에 탭 막대 표시",
             "打开的文档|||Open Documents": "열린 문서",
             "页面导航|||Page Navigation": "페이지 탐색",
             "显示导航|||Show Navigation": "탐색 표시",
@@ -1196,6 +1323,14 @@ public enum L10n {
             "全部页面|||All Pages": "Toutes les pages",
             "当前页|||Current Page": "Page active",
             "指定页码|||Page Range": "Plage de pages",
+            "奇数页|||Odd Pages": "Pages impaires",
+            "偶数页|||Even Pages": "Pages paires",
+            "清晰度：|||Resolution:": "Résolution :",
+            "质量：|||Quality:": "Qualité :",
+            "144 DPI（标准）|||144 DPI (Standard)": "144 DPI (Standard)",
+            "216 DPI（高清）|||216 DPI (High)": "216 DPI (Élevée)",
+            "300 DPI（打印）|||300 DPI (Print)": "300 DPI (Impression)",
+            "关闭|||Close": "Fermer",
             "请输入有效的页码范围|||Enter a valid page range": "Saisissez une plage de pages valide",
             "请输入有效页码|||Enter a valid page number": "Saisissez un numéro de page valide",
             "取消选择|||Deselect All": "Tout désélectionner",
@@ -1440,6 +1575,7 @@ public enum L10n {
             "PDF 阅读区域|||PDF Reading Canvas": "Zone de lecture PDF",
             "标签栏|||Tab Bar": "Barre d’onglets",
             "在侧边栏显示标签页|||Show Tabs in Sidebar": "Afficher les onglets dans la barre latérale",
+            "在顶部显示标签栏|||Show Tabs in Titlebar": "Afficher les onglets dans la barre de titre",
             "打开的文档|||Open Documents": "Documents ouverts",
             "页面导航|||Page Navigation": "Navigation des pages",
             "显示导航|||Show Navigation": "Afficher la navigation",
@@ -1465,6 +1601,14 @@ public enum L10n {
             "全部页面|||All Pages": "Alle Seiten",
             "当前页|||Current Page": "Aktuelle Seite",
             "指定页码|||Page Range": "Seitenbereich",
+            "奇数页|||Odd Pages": "Ungerade Seiten",
+            "偶数页|||Even Pages": "Gerade Seiten",
+            "清晰度：|||Resolution:": "Auflösung:",
+            "质量：|||Quality:": "Qualität:",
+            "144 DPI（标准）|||144 DPI (Standard)": "144 DPI (Standard)",
+            "216 DPI（高清）|||216 DPI (High)": "216 DPI (Hoch)",
+            "300 DPI（打印）|||300 DPI (Print)": "300 DPI (Druck)",
+            "关闭|||Close": "Schließen",
             "请输入有效的页码范围|||Enter a valid page range": "Gültigen Seitenbereich eingeben",
             "请输入有效页码|||Enter a valid page number": "Gültige Seitenzahl eingeben",
             "取消选择|||Deselect All": "Auswahl aufheben",
@@ -1709,6 +1853,7 @@ public enum L10n {
             "PDF 阅读区域|||PDF Reading Canvas": "PDF-Lesebereich",
             "标签栏|||Tab Bar": "Tableiste",
             "在侧边栏显示标签页|||Show Tabs in Sidebar": "Tabs in der Seitenleiste anzeigen",
+            "在顶部显示标签栏|||Show Tabs in Titlebar": "Tabs in der Titelleiste anzeigen",
             "打开的文档|||Open Documents": "Offene Dokumente",
             "页面导航|||Page Navigation": "Seitennavigation",
             "显示导航|||Show Navigation": "Navigation einblenden",
@@ -1734,6 +1879,14 @@ public enum L10n {
             "全部页面|||All Pages": "Todas las páginas",
             "当前页|||Current Page": "Página actual",
             "指定页码|||Page Range": "Intervalo de páginas",
+            "奇数页|||Odd Pages": "Páginas impares",
+            "偶数页|||Even Pages": "Páginas pares",
+            "清晰度：|||Resolution:": "Resolución:",
+            "质量：|||Quality:": "Calidad:",
+            "144 DPI（标准）|||144 DPI (Standard)": "144 DPI (Estándar)",
+            "216 DPI（高清）|||216 DPI (High)": "216 DPI (Alta)",
+            "300 DPI（打印）|||300 DPI (Print)": "300 DPI (Impresión)",
+            "关闭|||Close": "Cerrar",
             "请输入有效的页码范围|||Enter a valid page range": "Introduce un intervalo de páginas válido",
             "请输入有效页码|||Enter a valid page number": "Introduce un número de página válido",
             "取消选择|||Deselect All": "Deseleccionar todo",
@@ -1978,6 +2131,7 @@ public enum L10n {
             "PDF 阅读区域|||PDF Reading Canvas": "Área de lectura de PDF",
             "标签栏|||Tab Bar": "Barra de pestañas",
             "在侧边栏显示标签页|||Show Tabs in Sidebar": "Mostrar pestañas en la barra lateral",
+            "在顶部显示标签栏|||Show Tabs in Titlebar": "Mostrar pestañas en la barra de título",
             "打开的文档|||Open Documents": "Documentos abiertos",
             "页面导航|||Page Navigation": "Navegación de páginas",
             "显示导航|||Show Navigation": "Mostrar navegación",
@@ -2003,6 +2157,14 @@ public enum L10n {
             "全部页面|||All Pages": "Tutte le pagine",
             "当前页|||Current Page": "Pagina corrente",
             "指定页码|||Page Range": "Intervallo pagine",
+            "奇数页|||Odd Pages": "Pagine dispari",
+            "偶数页|||Even Pages": "Pagine pari",
+            "清晰度：|||Resolution:": "Risoluzione:",
+            "质量：|||Quality:": "Qualità:",
+            "144 DPI（标准）|||144 DPI (Standard)": "144 DPI (Standard)",
+            "216 DPI（高清）|||216 DPI (High)": "216 DPI (Alta)",
+            "300 DPI（打印）|||300 DPI (Print)": "300 DPI (Stampa)",
+            "关闭|||Close": "Chiudi",
             "请输入有效的页码范围|||Enter a valid page range": "Inserisci un intervallo di pagine valido",
             "请输入有效页码|||Enter a valid page number": "Inserisci un numero di pagina valido",
             "取消选择|||Deselect All": "Deseleziona tutto",
@@ -2247,6 +2409,7 @@ public enum L10n {
             "PDF 阅读区域|||PDF Reading Canvas": "Area di lettura PDF",
             "标签栏|||Tab Bar": "Barra dei pannelli",
             "在侧边栏显示标签页|||Show Tabs in Sidebar": "Mostra i pannelli nella barra laterale",
+            "在顶部显示标签栏|||Show Tabs in Titlebar": "Mostra i pannelli nella barra del titolo",
             "打开的文档|||Open Documents": "Documenti aperti",
             "页面导航|||Page Navigation": "Navigazione pagine",
             "显示导航|||Show Navigation": "Mostra navigazione",
@@ -2272,6 +2435,14 @@ public enum L10n {
             "全部页面|||All Pages": "Todas as páginas",
             "当前页|||Current Page": "Página atual",
             "指定页码|||Page Range": "Intervalo de páginas",
+            "奇数页|||Odd Pages": "Páginas ímpares",
+            "偶数页|||Even Pages": "Páginas pares",
+            "清晰度：|||Resolution:": "Resolução:",
+            "质量：|||Quality:": "Qualidade:",
+            "144 DPI（标准）|||144 DPI (Standard)": "144 DPI (Padrão)",
+            "216 DPI（高清）|||216 DPI (High)": "216 DPI (Alta)",
+            "300 DPI（打印）|||300 DPI (Print)": "300 DPI (Impressão)",
+            "关闭|||Close": "Fechar",
             "请输入有效的页码范围|||Enter a valid page range": "Digite um intervalo de páginas válido",
             "请输入有效页码|||Enter a valid page number": "Digite um número de página válido",
             "取消选择|||Deselect All": "Desmarcar tudo",
@@ -2516,6 +2687,7 @@ public enum L10n {
             "PDF 阅读区域|||PDF Reading Canvas": "Área de Leitura de PDF",
             "标签栏|||Tab Bar": "Barra de Abas",
             "在侧边栏显示标签页|||Show Tabs in Sidebar": "Mostrar abas na barra lateral",
+            "在顶部显示标签栏|||Show Tabs in Titlebar": "Mostrar abas na barra de título",
             "打开的文档|||Open Documents": "Documentos abertos",
             "页面导航|||Page Navigation": "Navegação de páginas",
             "显示导航|||Show Navigation": "Mostrar navegação",
@@ -2541,6 +2713,14 @@ public enum L10n {
             "全部页面|||All Pages": "Все страницы",
             "当前页|||Current Page": "Текущая страница",
             "指定页码|||Page Range": "Диапазон страниц",
+            "奇数页|||Odd Pages": "Нечётные страницы",
+            "偶数页|||Even Pages": "Чётные страницы",
+            "清晰度：|||Resolution:": "Разрешение:",
+            "质量：|||Quality:": "Качество:",
+            "144 DPI（标准）|||144 DPI (Standard)": "144 DPI (Обычное)",
+            "216 DPI（高清）|||216 DPI (High)": "216 DPI (Высокое)",
+            "300 DPI（打印）|||300 DPI (Print)": "300 DPI (Для печати)",
+            "关闭|||Close": "Закрыть",
             "请输入有效的页码范围|||Enter a valid page range": "Введите допустимый диапазон страниц",
             "请输入有效页码|||Enter a valid page number": "Введите допустимый номер страницы",
             "取消选择|||Deselect All": "Снять выделение",
@@ -2785,6 +2965,7 @@ public enum L10n {
             "PDF 阅读区域|||PDF Reading Canvas": "Область чтения PDF",
             "标签栏|||Tab Bar": "Панель вкладок",
             "在侧边栏显示标签页|||Show Tabs in Sidebar": "Показывать вкладки в боковой панели",
+            "在顶部显示标签栏|||Show Tabs in Titlebar": "Показывать вкладки в строке заголовка",
             "打开的文档|||Open Documents": "Открытые документы",
             "页面导航|||Page Navigation": "Навигация по страницам",
             "显示导航|||Show Navigation": "Показать навигацию",
@@ -2810,6 +2991,14 @@ public enum L10n {
             "全部页面|||All Pages": "Усі сторінки",
             "当前页|||Current Page": "Поточна сторінка",
             "指定页码|||Page Range": "Діапазон сторінок",
+            "奇数页|||Odd Pages": "Непарні сторінки",
+            "偶数页|||Even Pages": "Парні сторінки",
+            "清晰度：|||Resolution:": "Роздільність:",
+            "质量：|||Quality:": "Якість:",
+            "144 DPI（标准）|||144 DPI (Standard)": "144 DPI (Звичайна)",
+            "216 DPI（高清）|||216 DPI (High)": "216 DPI (Висока)",
+            "300 DPI（打印）|||300 DPI (Print)": "300 DPI (Для друку)",
+            "关闭|||Close": "Закрити",
             "请输入有效的页码范围|||Enter a valid page range": "Введіть коректний діапазон сторінок",
             "请输入有效页码|||Enter a valid page number": "Введіть коректний номер сторінки",
             "取消选择|||Deselect All": "Зняти виділення",
@@ -3054,6 +3243,7 @@ public enum L10n {
             "PDF 阅读区域|||PDF Reading Canvas": "Область читання PDF",
             "标签栏|||Tab Bar": "Панель вкладок",
             "在侧边栏显示标签页|||Show Tabs in Sidebar": "Показувати вкладки на бічній панелі",
+            "在顶部显示标签栏|||Show Tabs in Titlebar": "Показувати вкладки в рядку заголовка",
             "打开的文档|||Open Documents": "Відкриті документи",
             "页面导航|||Page Navigation": "Навігація сторінками",
             "显示导航|||Show Navigation": "Показати навігацію",

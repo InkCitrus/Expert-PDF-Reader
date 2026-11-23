@@ -245,6 +245,22 @@
 "Current Page" = "Aktuelle Seite";
 "指定页码|||Page Range" = "Seitenbereich";
 "Page Range" = "Seitenbereich";
+"奇数页|||Odd Pages" = "Ungerade Seiten";
+"Odd Pages" = "Ungerade Seiten";
+"偶数页|||Even Pages" = "Gerade Seiten";
+"Even Pages" = "Gerade Seiten";
+"清晰度：|||Resolution:" = "Auflösung:";
+"Resolution:" = "Auflösung:";
+"质量：|||Quality:" = "Qualität:";
+"Quality:" = "Qualität:";
+"144 DPI（标准）|||144 DPI (Standard)" = "144 DPI (Standard)";
+"144 DPI (Standard)" = "144 DPI (Standard)";
+"216 DPI（高清）|||216 DPI (High)" = "216 DPI (Hoch)";
+"216 DPI (High)" = "216 DPI (Hoch)";
+"300 DPI（打印）|||300 DPI (Print)" = "300 DPI (Druck)";
+"300 DPI (Print)" = "300 DPI (Druck)";
+"关闭|||Close" = "Schließen";
+"Close" = "Schließen";
 "请输入有效的页码范围|||Enter a valid page range" = "Gültigen Seitenbereich eingeben";
 "Enter a valid page range" = "Gültigen Seitenbereich eingeben";
 "请输入有效页码|||Enter a valid page number" = "Gültige Seitenzahl eingeben";
@@ -539,3 +555,8 @@
 
 "返回之前的页面|||Return to Previous Page" = "Zur vorherigen Seite zurückkehren";
 "Return to Previous Page" = "Zur vorherigen Seite zurückkehren";
+
+"在侧边栏显示标签页|||Show Tabs in Sidebar" = "Tabs in der Seitenleiste anzeigen";
+"Show Tabs in Sidebar" = "Tabs in der Seitenleiste anzeigen";
+"在顶部显示标签栏|||Show Tabs in Titlebar" = "Tabs in der Titelleiste anzeigen";
+"Show Tabs in Titlebar" = "Tabs in der Titelleiste anzeigen";

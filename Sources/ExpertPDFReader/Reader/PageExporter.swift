@@ -189,7 +189,7 @@ enum PageExporter {
             return "\(safeTitle) - \(L10n.pageTitle(safeLabel)).\(format.fileExtension)"
         }
         if !cleanedRange.isEmpty && cleanedRange.count <= 24 {
-            return "\(safeTitle) (\(cleanedRange)).\(format.fileExtension)"
+            return "\(safeTitle) - \(cleanedRange).\(format.fileExtension)"
         }
         return "\(safeTitle) - \(L10n.pageCountText(pageCount)).\(format.fileExtension)"
     }
@@ -310,8 +310,10 @@ private final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate
     private let rangeField = NSTextField(string: "")
     private let pngPageField = NSTextField(string: "")
     private let pagesControlContainer = NSView()
+    private let rangeStack = NSStackView()
     private let statusLabel = NSTextField(labelWithString: "")
-    private var rangeRow: NSGridRow?
+    private var compactBottomConstraint: NSLayoutConstraint?
+    private var expandedBottomConstraint: NSLayoutConstraint?
 
     private var lastAutoFilename = ""
     private var selectedFormat: PageExporter.Format = .pdf
@@ -401,7 +403,12 @@ private final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.lineBreakMode = .byTruncatingTail
 
-        let rangeStack = NSStackView(views: [rangeField, statusLabel])
+        for control in [formatPopUp, pagesModePopUp, pngPageField, rangeField] as [NSView] {
+            control.setContentHuggingPriority(.init(200), for: .horizontal)
+        }
+
+        rangeStack.addArrangedSubview(rangeField)
+        rangeStack.addArrangedSubview(statusLabel)
         rangeStack.translatesAutoresizingMaskIntoConstraints = false
         rangeStack.orientation = .vertical
         rangeStack.alignment = .leading
@@ -411,30 +418,30 @@ private final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate
         formatLabel.font = NSFont.systemFont(ofSize: 13)
         formatLabel.textColor = .secondaryLabelColor
         formatLabel.alignment = .right
+        formatLabel.translatesAutoresizingMaskIntoConstraints = false
+
         let pagesLabel = NSTextField(labelWithString: L10n.tr("页面：", "Pages:"))
         pagesLabel.font = NSFont.systemFont(ofSize: 13)
         pagesLabel.textColor = .secondaryLabelColor
         pagesLabel.alignment = .right
+        pagesLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        let grid = NSGridView(views: [
-            [formatLabel, formatPopUp],
-            [pagesLabel, pagesControlContainer],
-            [NSGridCell.emptyContentView, rangeStack]
-        ])
-        grid.translatesAutoresizingMaskIntoConstraints = false
-        grid.rowSpacing = 10
-        grid.columnSpacing = 9
-        grid.yPlacement = .center
-        grid.row(at: 2).yPlacement = .top
-        grid.column(at: 0).xPlacement = .trailing
-        grid.column(at: 1).xPlacement = .fill
-        rangeRow = grid.row(at: 2)
+        // Match macOS Save Panel's 380pt top form directly: labels right-aligned at x=101.5,
+        // 9pt column gap, and 230pt controls spanning x=110.5..340.5.
+        let labelTrailing: CGFloat = 101.5
+        let controlLeading: CGFloat = 110.5
+        let controlTrailing: CGFloat = 340.5
 
-        // Match macOS Save Panel's 380pt top form: 85pt right-aligned labels end at x=101,
-        // 9pt column gap, and 231pt controls span x=110..341 (right margin 39pt).
         let formContainer = NSView()
         formContainer.translatesAutoresizingMaskIntoConstraints = false
-        formContainer.addSubview(grid)
+        for subview in [formatLabel, formatPopUp, pagesLabel, pagesControlContainer, rangeStack] as [NSView] {
+            formContainer.addSubview(subview)
+        }
+
+        let compactBottom = pagesControlContainer.bottomAnchor.constraint(equalTo: formContainer.bottomAnchor, constant: -14)
+        let expandedBottom = rangeStack.bottomAnchor.constraint(equalTo: formContainer.bottomAnchor, constant: -14)
+        compactBottomConstraint = compactBottom
+        expandedBottomConstraint = expandedBottom
 
         let accessoryContainer = NSView()
         accessoryContainer.translatesAutoresizingMaskIntoConstraints = false
@@ -448,15 +455,27 @@ private final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate
             formContainer.topAnchor.constraint(equalTo: accessoryContainer.topAnchor),
             formContainer.bottomAnchor.constraint(equalTo: accessoryContainer.bottomAnchor),
 
-            formatLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 85),
-            pagesLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 85),
-            rangeField.widthAnchor.constraint(equalTo: rangeStack.widthAnchor),
-            statusLabel.widthAnchor.constraint(equalTo: rangeStack.widthAnchor),
+            formatLabel.leadingAnchor.constraint(greaterThanOrEqualTo: formContainer.leadingAnchor, constant: 12),
+            formatLabel.trailingAnchor.constraint(equalTo: formContainer.leadingAnchor, constant: labelTrailing),
+            formatLabel.centerYAnchor.constraint(equalTo: formatPopUp.centerYAnchor),
 
-            grid.topAnchor.constraint(equalTo: formContainer.topAnchor, constant: 14),
-            grid.bottomAnchor.constraint(equalTo: formContainer.bottomAnchor, constant: -14),
-            grid.leadingAnchor.constraint(equalTo: formContainer.leadingAnchor, constant: 16),
-            grid.trailingAnchor.constraint(equalTo: formContainer.trailingAnchor, constant: -39)
+            formatPopUp.leadingAnchor.constraint(equalTo: formContainer.leadingAnchor, constant: controlLeading),
+            formatPopUp.trailingAnchor.constraint(equalTo: formContainer.leadingAnchor, constant: controlTrailing),
+            formatPopUp.topAnchor.constraint(equalTo: formContainer.topAnchor, constant: 14),
+
+            pagesLabel.leadingAnchor.constraint(greaterThanOrEqualTo: formContainer.leadingAnchor, constant: 12),
+            pagesLabel.trailingAnchor.constraint(equalTo: formContainer.leadingAnchor, constant: labelTrailing),
+            pagesLabel.centerYAnchor.constraint(equalTo: pagesControlContainer.centerYAnchor),
+
+            pagesControlContainer.leadingAnchor.constraint(equalTo: formContainer.leadingAnchor, constant: controlLeading),
+            pagesControlContainer.trailingAnchor.constraint(equalTo: formContainer.leadingAnchor, constant: controlTrailing),
+            pagesControlContainer.topAnchor.constraint(equalTo: formatPopUp.bottomAnchor, constant: 10),
+
+            rangeStack.leadingAnchor.constraint(equalTo: formContainer.leadingAnchor, constant: controlLeading),
+            rangeStack.trailingAnchor.constraint(equalTo: formContainer.leadingAnchor, constant: controlTrailing),
+            rangeStack.topAnchor.constraint(equalTo: pagesControlContainer.bottomAnchor, constant: 10),
+            rangeField.widthAnchor.constraint(equalTo: rangeStack.widthAnchor),
+            statusLabel.widthAnchor.constraint(equalTo: rangeStack.widthAnchor)
         ])
 
         panel.accessoryView = accessoryContainer
@@ -545,22 +564,31 @@ private final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate
         }
     }
 
+    private func applyRow3Visibility(showRow3: Bool, showRangeField: Bool) {
+        rangeField.isHidden = !showRangeField
+        statusLabel.isHidden = !showRow3
+        rangeStack.isHidden = !showRow3
+        if showRow3 {
+            compactBottomConstraint?.isActive = false
+            expandedBottomConstraint?.isActive = true
+        } else {
+            expandedBottomConstraint?.isActive = false
+            compactBottomConstraint?.isActive = true
+        }
+        panel.accessoryView?.layoutSubtreeIfNeeded()
+    }
+
     private func syncControlVisibility() {
         let isPDF = selectedFormat == .pdf
         pagesModePopUp.isHidden = !isPDF
         pngPageField.isHidden = isPDF
         if isPDF {
             let isRange = selectedMode == .range
-            rangeField.isHidden = !isRange
-            statusLabel.isHidden = !isRange
-            rangeRow?.isHidden = !isRange
+            applyRow3Visibility(showRow3: isRange, showRangeField: isRange)
         } else {
             let isInvalidPNG = resolvedPNGPageIndex() == nil && !pngPageField.stringValue.isEmpty
-            rangeField.isHidden = true
-            statusLabel.isHidden = !isInvalidPNG
-            rangeRow?.isHidden = !isInvalidPNG
+            applyRow3Visibility(showRow3: isInvalidPNG, showRangeField: false)
         }
-        panel.accessoryView?.layoutSubtreeIfNeeded()
     }
 
     private func resolvedPDFPageIndices() -> [Int]? {
@@ -659,7 +687,7 @@ private final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate
         case .pdf:
             guard selectedMode == .range else {
                 statusLabel.stringValue = ""
-                syncControlVisibility()
+                applyRow3Visibility(showRow3: false, showRangeField: false)
                 return
             }
             if let indices = resolvedPDFPageIndices(), !indices.isEmpty {
@@ -669,24 +697,19 @@ private final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate
                 statusLabel.textColor = .systemRed
                 statusLabel.stringValue = L10n.tr("请输入有效的页码范围", "Enter a valid page range")
             }
-            syncControlVisibility()
+            applyRow3Visibility(showRow3: true, showRangeField: true)
         case .png:
             if resolvedPNGPageIndex() != nil {
                 statusLabel.stringValue = ""
-                statusLabel.isHidden = true
-                rangeRow?.isHidden = true
+                applyRow3Visibility(showRow3: false, showRangeField: false)
             } else if forceError || !pngPageField.stringValue.isEmpty {
                 statusLabel.textColor = .systemRed
                 statusLabel.stringValue = L10n.tr("请输入有效页码", "Enter a valid page number")
-                rangeField.isHidden = true
-                statusLabel.isHidden = false
-                rangeRow?.isHidden = false
+                applyRow3Visibility(showRow3: true, showRangeField: false)
             } else {
                 statusLabel.stringValue = ""
-                statusLabel.isHidden = true
-                rangeRow?.isHidden = true
+                applyRow3Visibility(showRow3: false, showRangeField: false)
             }
-            panel.accessoryView?.layoutSubtreeIfNeeded()
         }
     }
 

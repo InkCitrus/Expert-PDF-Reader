@@ -1268,9 +1268,12 @@ struct ReaderRegressionTests {
             check(safeName == "CS-101- Notes - Page iv-2.pdf",
                   "exported filename sanitizes slashes and colons")
             let multiRangeName = PageExporter.suggestedFilename(documentTitle: "Notes", rangeText: "1-3, 5", pageCount: 4, isAllPages: false, format: .pdf)
+            let parenRangeName = PageExporter.suggestedFilename(documentTitle: "F17ZB", rangeText: "(1)-6", pageCount: 8, isAllPages: false, format: .pdf)
             let allPagesName = PageExporter.suggestedFilename(documentTitle: "Notes", rangeText: nil, pageCount: 4, isAllPages: true, format: .pdf)
-            check(multiRangeName == "Notes (1-3, 5).pdf" && allPagesName == "Notes.pdf",
-                  "suggestedFilename formats multi-page range and full-document filenames")
+            check(multiRangeName == "Notes - 1-3, 5.pdf"
+                  && parenRangeName == "F17ZB - (1)-6.pdf"
+                  && allPagesName == "Notes.pdf",
+                  "suggestedFilename formats multi-page range and full-document filenames without double parentheses")
 
             // 9. Localization checks across all 10 non-zhHans/en catalog languages + dynamic helpers
             let catalogKeys: [(String, String, Set<String>)] = [

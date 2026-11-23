@@ -1040,6 +1040,124 @@ struct ReaderRegressionTests {
             check(PDFFileDrop.resolvedPDFURL(from: nonPDF) == nil,
                   "PDF drop ignores non-PDF file URLs")
         }
+        do {
+            // Thumbnail context menu actions: arbitrary page rotation, split view open, page export, and localization
+            let store = freshStore()
+            let tab = store.openDocument(at: alpha, interactive: false)!
+            tab.currentPageIndex = 1
+            tab.readingSpot = .init(pageIndex: 1, point: CGPoint(x: 120, y: 640))
+            let initialJump = tab.pageJumpToken
+            let initialLayout = tab.clearMarginsLayoutToken
+
+            // 1. Rotate non-current thumbnail page without jumping away from current page
+            tab.rotatePage(at: 3, in: tab.pdfDocument, clockwise: true)
+            check(tab.pdfDocument.page(at: 3)?.rotation == 90
+                  && tab.pdfDocument.page(at: 1)?.rotation == 0
+                  && tab.currentPageIndex == 1
+                  && tab.pageJumpToken == initialJump
+                  && tab.clearMarginsLayoutToken == initialLayout + 1
+                  && tab.readingSpotBeforeCropChange == tab.readingSpot,
+                  "rotating a non-current thumbnail rotates only that page and keeps the current reading spot")
+
+            // 2. Rotate primary current page via rotatePage & rotateCurrentPage
+            tab.rotatePage(at: 1, in: tab.pdfDocument, clockwise: false)
+            check(tab.pdfDocument.page(at: 1)?.rotation == 270
+                  && tab.pageJumpToken == initialJump + 1
+                  && tab.clearMarginsLayoutToken == initialLayout + 2
+                  && tab.readingSpotBeforeCropChange == nil,
+                  "rotating the primary current page updates rotation and clears stale pre-rotation spot")
+
+            tab.splitMode = .vertical
+            tab.setSecondaryDocument(url: beta)
+            tab.secondaryPageIndex = 2
+            tab.secondaryReadingSpot = .init(pageIndex: 2, point: CGPoint(x: 80, y: 500))
+            tab.activatePane(isSecondary: true)
+            let secJumpBefore = tab.secondaryPageJumpToken
+            let layoutBefore = tab.clearMarginsLayoutToken
+            tab.rotateCurrentPage(clockwise: true)
+            check(tab.secondaryPDFDocument?.page(at: 2)?.rotation == 90
+                  && tab.pdfDocument.page(at: 2)?.rotation == 0
+                  && tab.secondaryPageJumpToken == secJumpBefore + 1
+                  && tab.clearMarginsLayoutToken == layoutBefore + 1
+                  && tab.secondaryReadingSpotBeforeCropChange == nil,
+                  "rotateCurrentPage targets the active secondary pane when focused")
+
+            // 3. Split-view guard and opening specific page in split view
+            let foreignSource = tab.activeThumbnailSource
+            check(!tab.canOpenThumbnailInSplitView(source: foreignSource),
+                  "foreign document active in secondary pane cannot reopen secondary-into-primary split view")
+
+            tab.activatePane(isSecondary: false)
+            tab.splitMode = .disabled
+            tab.syncScrollAndZoom = true
+            tab.isPageOverviewVisible = true
+            let primarySource = tab.activeThumbnailSource
+            check(tab.canOpenThumbnailInSplitView(source: primarySource),
+                  "primary document thumbnail can open in split view")
+            tab.openPageInSplitView(2, from: primarySource)
+            check(tab.splitMode == .vertical
+                  && tab.secondaryPDFDocument === tab.pdfDocument
+                  && tab.secondaryPageIndex == 2
+                  && tab.currentPageIndex == 1
+                  && !tab.syncScrollAndZoom
+                  && !tab.targetsSecondaryPane
+                  && !tab.isPageOverviewVisible,
+                  "opening a thumbnail in split view switches to vertical split on the requested page independently")
+
+            tab.splitMode = .horizontal
+            tab.openPageInSplitView(3, from: primarySource)
+            check(tab.splitMode == .horizontal && tab.secondaryPageIndex == 3,
+                  "opening another thumbnail in split view preserves horizontal split orientation")
+
+            tab.setSecondaryDocument(from: tab) // same-doc active in secondary pane
+            check(tab.targetsSecondaryPane && tab.canOpenThumbnailInSplitView(source: tab.activeThumbnailSource),
+                  "same-document secondary pane stays eligible for opening counterpart pages in primary pane")
+            tab.openPageInSplitView(0, from: tab.activeThumbnailSource)
+            check(tab.currentPageIndex == 0 && tab.splitMode == .horizontal,
+                  "opening a thumbnail in split view while secondary pane owns the same document navigates primary pane")
+
+            // 4. PageExporter single-page PDF and PNG export + filename sanitization
+            let sourcePage = tab.pdfDocument.page(at: 3)!
+            sourcePage.rotation = 90
+            sourcePage.setBounds(CGRect(x: 30, y: 80, width: 500, height: 640), for: .cropBox)
+            let pdfBytes = try PageExporter.pdfData(for: sourcePage)
+            let exportedDoc = PDFDocument(data: pdfBytes)
+            let exportedPage = exportedDoc?.page(at: 0)
+            check(exportedDoc?.pageCount == 1
+                  && exportedPage?.rotation == 90
+                  && exportedPage?.bounds(for: .cropBox) == CGRect(x: 30, y: 80, width: 500, height: 640),
+                  "single-page PDF export creates a 1-page PDF preserving rotation and crop box")
+
+            let pngBytes = try await PageExporter.pngData(for: sourcePage)
+            let exportedPNG = NSBitmapImageRep(data: pngBytes)
+            check(exportedPNG != nil && exportedPNG!.pixelsWide > exportedPNG!.pixelsHigh,
+                  "single-page PNG export renders rotated page dimensions")
+
+            let previousLanguage = L10n.currentLanguage
+            defer { L10n.currentLanguage = previousLanguage }
+            L10n.currentLanguage = .en
+            let safeName = PageExporter.suggestedFilename(documentTitle: "CS/101: Notes ", pageLabel: "iv/2", format: .pdf)
+            check(safeName == "CS-101- Notes - Page iv-2.pdf",
+                  "exported filename sanitizes slashes and colons")
+
+            // 5. All 6 new thumbnail menu strings localized in all 10 non-zhHans/en catalog languages
+            let newKeys: [(String, String, Bool)] = [
+                ("在分屏中查看此页", "Open Page in Split View", true),
+                ("复制此页为图片", "Copy Page as Image", true),
+                ("导出此页", "Export Page", true),
+                ("PDF 文档…", "PDF…", false),
+                ("PNG 图片…", "PNG Image…", true),
+                ("无法导出此页。", "This page could not be exported.", true),
+            ]
+            for lang in AppLanguage.allCases where lang != .system && lang != .zhHans && lang != .en {
+                L10n.currentLanguage = lang
+                for (zh, en, mustDifferFromEnglish) in newKeys {
+                    let translated = L10n.tr(zh, en)
+                    check(!translated.isEmpty && (!mustDifferFromEnglish || translated != en),
+                          "localization '\(en)' present for \(lang.rawValue)")
+                }
+            }
+        }
         if !failures.isEmpty {
             print("\(failures.count) regression checks failed")
             exit(1)

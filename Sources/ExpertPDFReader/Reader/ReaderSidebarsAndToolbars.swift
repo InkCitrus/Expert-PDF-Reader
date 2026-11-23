@@ -909,9 +909,81 @@ struct PageThumbnailCell: View {
         .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : [.isButton])
         .onHover { isHovered = $0 }
         .contextMenu {
+            let documentTitle = source.document === tab.pdfDocument
+                ? tab.title
+                : (tab.secondaryDocumentURL?.deletingPathExtension().lastPathComponent ?? tab.title)
+            let targetWindow = store.allWindowSessions.first(where: { $0.tabs.contains(where: { $0.id == tab.id }) })?.nsWindow
+                ?? store.activeSession.nsWindow
+            let canCopyPage = PageImageClipboard.canCopy(page)
+
+            Button(L10n.jumpToPage(pageLabel), action: action)
+                .disabled(isCurrent && !tab.isPageOverviewVisible)
+
+            if tab.canOpenThumbnailInSplitView(source: source) {
+                Button(L10n.tr("在分屏中查看此页", "Open Page in Split View")) {
+                    tab.openPageInSplitView(pageIndex, from: source)
+                }
+            }
+
+            Divider()
+
             Button(isBookmarked ? L10n.tr("移除书签", "Remove Bookmark") : L10n.tr("添加书签", "Add Bookmark")) {
                 store.toggleBookmark(pageIndex: pageIndex, in: source.documentID)
             }
+
+            Divider()
+
+            Button(L10n.tr("向左旋转", "Rotate Left")) {
+                tab.rotatePage(at: pageIndex, in: source.document, clockwise: false)
+            }
+            .disabled(page == nil)
+
+            Button(L10n.tr("向右旋转", "Rotate Right")) {
+                tab.rotatePage(at: pageIndex, in: source.document, clockwise: true)
+            }
+            .disabled(page == nil)
+
+            Divider()
+
+            Button(L10n.tr("复制此页为图片", "Copy Page as Image")) {
+                guard let page else { return }
+                PageImageClipboard.beginCopy(
+                    page,
+                    in: targetWindow,
+                    title: L10n.tr("复制此页为图片", "Copy Page as Image")
+                )
+            }
+            .disabled(!canCopyPage)
+
+            Menu(L10n.tr("导出此页", "Export Page")) {
+                Button(L10n.tr("PDF 文档…", "PDF…")) {
+                    guard let page else { return }
+                    PageExporter.beginExport(
+                        page,
+                        format: .pdf,
+                        suggestedName: PageExporter.suggestedFilename(
+                            documentTitle: documentTitle,
+                            pageLabel: pageLabel,
+                            format: .pdf
+                        ),
+                        in: targetWindow
+                    )
+                }
+                Button(L10n.tr("PNG 图片…", "PNG Image…")) {
+                    guard let page else { return }
+                    PageExporter.beginExport(
+                        page,
+                        format: .png,
+                        suggestedName: PageExporter.suggestedFilename(
+                            documentTitle: documentTitle,
+                            pageLabel: pageLabel,
+                            format: .png
+                        ),
+                        in: targetWindow
+                    )
+                }
+            }
+            .disabled(!canCopyPage)
         }
     }
 }

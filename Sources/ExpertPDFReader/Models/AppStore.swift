@@ -716,6 +716,39 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         }
     }
 
+    func canOpenThumbnailInSplitView(source: ReaderThumbnailSource) -> Bool {
+        !targetsSecondaryPane || source.document === pdfDocument
+    }
+
+    func openPageInSplitView(_ pageIndex: Int, from source: ReaderThumbnailSource) {
+        guard canOpenThumbnailInSplitView(source: source), source.document.pageCount > 0 else { return }
+        let clamped = max(0, min(source.document.pageCount - 1, pageIndex))
+        syncScrollAndZoom = false
+        if targetsSecondaryPane {
+            withAnimation(AppAnimation.panel) {
+                isPageOverviewVisible = false
+            }
+            navigateToPage(clamped)
+            return
+        }
+        if secondaryPDFDocument !== pdfDocument {
+            setSecondaryDocument(pdfDocument, id: documentID, password: password,
+                                 pageIndex: clamped, activateSecondary: false)
+        } else {
+            showSplitDocumentPicker = false
+            secondaryReadingSpot = nil
+            secondaryPageIndex = clamped
+            secondaryPageJumpToken &+= 1
+        }
+        if splitMode == .disabled {
+            showSplitMode(.vertical)
+        } else if isPageOverviewVisible {
+            withAnimation(AppAnimation.panel) {
+                isPageOverviewVisible = false
+            }
+        }
+    }
+
     // Navigation History (Go Back / Go Forward)
     @Published public private(set) var backStack: [Int] = []
     @Published public private(set) var forwardStack: [Int] = []
@@ -1088,13 +1121,33 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         isSearchVisible = false
     }
 
-    public func rotateCurrentPage(clockwise: Bool) {
-        guard let page = pdfDocument.page(at: currentPageIndex) else { return }
+    public func rotatePage(at pageIndex: Int, in document: PDFDocument? = nil, clockwise: Bool) {
+        let targetDoc = document ?? activeThumbnailSource.document
+        guard (0..<targetDoc.pageCount).contains(pageIndex),
+              let page = targetDoc.page(at: pageIndex) else { return }
         let delta = clockwise ? 90 : -90
         let newRotation = ((page.rotation + delta) % 360 + 360) % 360
         page.rotation = newRotation
-        pageJumpPoint = nil
-        pageJumpToken &+= 1
+        rememberReadingSpots()
+        let affectsPrimaryCurrent = targetDoc === pdfDocument && pageIndex == currentPageIndex
+        let affectsSecondaryCurrent = targetDoc === secondaryPDFDocument && pageIndex == secondaryPageIndex
+        if affectsPrimaryCurrent {
+            readingSpot = nil
+            readingSpotBeforeCropChange = nil
+            pageJumpPoint = nil
+            pageJumpToken &+= 1
+        }
+        if affectsSecondaryCurrent {
+            secondaryReadingSpot = nil
+            secondaryReadingSpotBeforeCropChange = nil
+            secondaryPageJumpToken &+= 1
+        }
+        clearMarginsLayoutToken &+= 1
+    }
+
+    public func rotateCurrentPage(clockwise: Bool) {
+        let source = activeThumbnailSource
+        rotatePage(at: source.pageIndex, in: source.document, clockwise: clockwise)
     }
 
     public func setSecondaryDocument(url: URL) {
@@ -1118,7 +1171,8 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         }
     }
 
-    private func setSecondaryDocument(_ document: PDFDocument, id: DocumentID, password: String?, pageIndex: Int) {
+    private func setSecondaryDocument(_ document: PDFDocument, id: DocumentID, password: String?, pageIndex: Int,
+                                      activateSecondary: Bool = true) {
         secondaryDocumentPassword = password
         secondaryDocumentID = id
         secondaryPageIndex = max(0, min(pageIndex, document.pageCount - 1))
@@ -1127,7 +1181,10 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         secondaryIsAutoScaling = true
         secondaryPDFDocument = document
         showSplitDocumentPicker = false
-        activatePane(isSecondary: true)
+        if activateSecondary {
+            activatePane(isSecondary: true)
+        }
+        secondaryPageJumpToken &+= 1
         secondaryCropper = document === pdfDocument ? nil : makeCropper(for: document, url: id.url, password: password)
         if isClearMarginsEnabled {
             secondaryCropper?.apply(enabled: true, around: secondaryPageIndex)

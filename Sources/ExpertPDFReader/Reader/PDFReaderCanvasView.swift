@@ -253,18 +253,21 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
             }
         }
 
-        // Crop boxes changed after layout: re-lay out without moving away from what is being read
+        // Crop boxes or page rotations changed after layout: re-lay out without moving away from what is being read
         if coordinator.lastLayoutToken != layoutToken {
             coordinator.lastLayoutToken = layoutToken
             // Where the reader was before the boxes changed: the view's own idea of it already mixes the old
             // layout with the new page sizes
-            let destination = readingSpot == nil ? (coordinator.lastDestination ?? pdfView.currentDestination) : nil
+            let hasPendingJump = coordinator.lastPageJumpToken != pageJumpToken
+            let destination = (readingSpot == nil && !hasPendingJump) ? (coordinator.lastDestination ?? pdfView.currentDestination) : nil
             SpreadAlignment.apply(to: pdfDocument, holdsContent: isClearMarginsEnabled, spread: coordinator.spread)
             pdfView.layoutDocumentView()
             if let readingSpot {
                 Coordinator.scroll(pdfView, toTop: readingSpot)
             } else if let destination {
                 pdfView.go(to: destination)
+            } else if hasPendingJump, let targetPage = pdfDocument.page(at: currentPageIndex) {
+                pdfView.go(to: targetPage)
             }
             // Fitting the width settles a moment later and zooms around the middle of the view:
             // return to the spot once the new zoom is in

@@ -360,6 +360,94 @@ struct ReaderRegressionTests {
             } else {
                 check(false, "direct accessibilityHitTest in a panel paragraph gap hits the inner paragraph rather than the panel or page")
             }
+
+            // 4. Multi-step matrix derivation preserves delimiter bounds, protruding operators, and annotations
+            let matrixPDF = makePDF { ctx in
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.black]
+                let delimAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 48), .foregroundColor: NSColor.black]
+                ("We apply row operations to obtain:" as NSString).draw(at: CGPoint(x: 72, y: 700), withAttributes: attrs)
+                ("(" as NSString).draw(at: CGPoint(x: 135, y: 612), withAttributes: delimAttrs)
+                ("1 2" as NSString).draw(at: CGPoint(x: 155, y: 644), withAttributes: attrs)
+                ("3 4" as NSString).draw(at: CGPoint(x: 155, y: 629), withAttributes: attrs)
+                ("5 6" as NSString).draw(at: CGPoint(x: 155, y: 614), withAttributes: attrs)
+                (")" as NSString).draw(at: CGPoint(x: 185, y: 612), withAttributes: delimAttrs)
+                ("~" as NSString).draw(at: CGPoint(x: 205, y: 629), withAttributes: attrs)
+                ("(" as NSString).draw(at: CGPoint(x: 222, y: 612), withAttributes: delimAttrs)
+                ("1 2" as NSString).draw(at: CGPoint(x: 242, y: 644), withAttributes: attrs)
+                ("0 7" as NSString).draw(at: CGPoint(x: 242, y: 629), withAttributes: attrs)
+                ("0 8" as NSString).draw(at: CGPoint(x: 242, y: 614), withAttributes: attrs)
+                (")" as NSString).draw(at: CGPoint(x: 272, y: 612), withAttributes: delimAttrs)
+                ("R2 = row2" as NSString).draw(at: CGPoint(x: 345, y: 629), withAttributes: attrs)
+                ("R3 = row3" as NSString).draw(at: CGPoint(x: 345, y: 614), withAttributes: attrs)
+
+                ("~" as NSString).draw(at: CGPoint(x: 205, y: 579), withAttributes: attrs)
+                ("(" as NSString).draw(at: CGPoint(x: 222, y: 562), withAttributes: delimAttrs)
+                ("1 2" as NSString).draw(at: CGPoint(x: 242, y: 594), withAttributes: attrs)
+                ("0 7" as NSString).draw(at: CGPoint(x: 242, y: 579), withAttributes: attrs)
+                ("0 1" as NSString).draw(at: CGPoint(x: 242, y: 564), withAttributes: attrs)
+                (")" as NSString).draw(at: CGPoint(x: 272, y: 562), withAttributes: delimAttrs)
+                ("R3 = diff" as NSString).draw(at: CGPoint(x: 345, y: 564), withAttributes: attrs)
+                ("Translating back yields the solution." as NSString).draw(at: CGPoint(x: 72, y: 515), withAttributes: attrs)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            let (win4, root4) = buildAccessibilityRoot(for: matrixPDF)
+            defer { win4.orderOut(nil) }
+            let derivation = root4?.allChildren.first {
+                $0.accessibilityRole() == .group && $0.allChildren.count == 2
+            }
+            let step1 = derivation?.allChildren.first
+            let step2 = derivation?.allChildren.dropFirst().first
+            let step2Matrix = step2?.allChildren.first { $0.accessibilityRole() == .group }
+            let step1Text = step1?.accessibilityValue() as? String ?? ""
+            let step2Text = step2?.accessibilityValue() as? String ?? ""
+            let step2MatrixRect = step2Matrix?.pageRect ?? .zero
+            let enclosesFullMatrixDelimiters = step2MatrixRect.minX <= 228 && step2MatrixRect.maxX >= 278
+                && step2MatrixRect.minY <= 566 && step2MatrixRect.maxY >= 604
+            check(derivation != nil
+                  && step1Text.contains("R2 = row2") && step1Text.contains("R3 = row3")
+                  && step2Text.contains("R3 = diff") && step2Text.contains("0 1") && step2Text.contains("1 2")
+                  && (step2Matrix?.allChildren.count == 3)
+                  && enclosesFullMatrixDelimiters,
+                  "multi-step matrix derivation binds delimiters, protruding operators, and right annotations into complete nested groups")
+            if let root4, let step1, let step2, let step2Matrix {
+                let dFrame = step2Matrix.accessibilityFrame()
+                let delimPoint = CGPoint(x: dFrame.minX + 2, y: dFrame.midY)
+                let interStepPoint = CGPoint(x: step2.accessibilityFrame().midX,
+                                             y: (step1.accessibilityFrame().minY + step2.accessibilityFrame().maxY) / 2)
+                check((root4.accessibilityHitTest(delimPoint) as AnyObject?) === step2Matrix
+                      && (root4.accessibilityHitTest(interStepPoint) as AnyObject?) === derivation,
+                      "accessibilityHitTest hits matrix group on its delimiter and derivation group between steps")
+            } else {
+                check(false, "accessibilityHitTest hits matrix group on its delimiter and derivation group between steps")
+            }
+
+            // 5. Matrix in column 1 does not absorb column 2 prose across a vertical column gutter
+            let colMatrixPDF = makePDF { ctx in
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.black]
+                let delimAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 32), .foregroundColor: NSColor.black]
+                ("(" as NSString).draw(at: CGPoint(x: 90, y: 558), withAttributes: delimAttrs)
+                ("1 0" as NSString).draw(at: CGPoint(x: 108, y: 582), withAttributes: attrs)
+                ("0 1" as NSString).draw(at: CGPoint(x: 108, y: 564), withAttributes: attrs)
+                (")" as NSString).draw(at: CGPoint(x: 135, y: 558), withAttributes: delimAttrs)
+
+                ("Right column opening line." as NSString).draw(at: CGPoint(x: 320, y: 616), withAttributes: attrs)
+                ("Right column beside matrix one." as NSString).draw(at: CGPoint(x: 320, y: 598), withAttributes: attrs)
+                ("Right column beside matrix two." as NSString).draw(at: CGPoint(x: 320, y: 580), withAttributes: attrs)
+                ("Right column closing line." as NSString).draw(at: CGPoint(x: 320, y: 562), withAttributes: attrs)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            let (win5, root5) = buildAccessibilityRoot(for: colMatrixPDF)
+            defer { win5.orderOut(nil) }
+            let colGroups = root5?.allChildren.filter { $0.accessibilityRole() == .group } ?? []
+            let rightCol = colGroups.first { ($0.accessibilityValue() as? String)?.contains("Right column") == true }
+            let leftMatrix = colGroups.first { ($0.accessibilityValue() as? String)?.contains("1 0") == true }
+            check(colGroups.count == 2 && rightCol?.allChildren.count == 4 && leftMatrix?.allChildren.count == 2
+                  && !((leftMatrix?.pageRect ?? .zero).intersects(rightCol?.pageRect ?? .zero)),
+                  "two-column matrix does not absorb adjacent column prose")
         }
         do {
             // Two columns: a high left line and a low right line. A drag whose higher point sits in the

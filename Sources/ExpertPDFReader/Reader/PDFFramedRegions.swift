@@ -15,12 +15,23 @@ enum PDFFramedRegions {
         let kind: Kind
     }
 
+    struct PageLayout {
+        let regions: [Region]
+        let freeVerticalRules: [CGRect]
+    }
+
     static func bounds(on page: PDFPage, geometry: NativePDFPageGeometry) -> [CGRect] {
         regions(on: page, geometry: geometry).map(\.bounds)
     }
 
     static func regions(on page: PDFPage, geometry: NativePDFPageGeometry) -> [Region] {
-        guard let source = page.pageRef, !geometry.rows.isEmpty else { return [] }
+        layout(on: page, geometry: geometry).regions
+    }
+
+    static func layout(on page: PDFPage, geometry: NativePDFPageGeometry) -> PageLayout {
+        guard let source = page.pageRef, !geometry.rows.isEmpty else {
+            return PageLayout(regions: [], freeVerticalRules: [])
+        }
         let crop = geometry.cropBox
         let heights = geometry.rows.map { $0.bounds.height }.sorted()
         let inkHeight = heights[heights.count / 2]
@@ -297,7 +308,26 @@ enum PDFFramedRegions {
             regions.append(Region(bounds: expandedBox, kind: .figure))
         }
 
-        return regions
+        let panelRegions = regions.filter { $0.kind == .panel }
+        let nonPanelContainers = regions.filter { $0.kind != .panel }
+        let remainingVerticalRules = vRules.indices.compactMap { j -> CGRect? in
+            guard !usedVerticalIndices.contains(j), !usedVerticalTableRules.contains(j) else { return nil }
+            let rule = vRules[j]
+            let onPanelEdge = panelRegions.contains { panel in
+                let vOverlap = min(rule.maxY, panel.bounds.maxY) - max(rule.minY, panel.bounds.minY)
+                guard vOverlap >= rule.height * 0.7 else { return false }
+                let edgeTol = max(4, rule.width)
+                return abs(rule.minX - panel.bounds.minX) <= edgeTol || abs(rule.maxX - panel.bounds.maxX) <= edgeTol
+            }
+            guard !onPanelEdge else { return nil }
+            let insideTableOrFigure = nonPanelContainers.contains { region in
+                let inter = region.bounds.insetBy(dx: -1, dy: -1).intersection(rule)
+                return !inter.isNull && rule.area > 0 && inter.area >= rule.area * 0.75
+            }
+            return insideTableOrFigure ? nil : rule
+        }
+
+        return PageLayout(regions: regions, freeVerticalRules: remainingVerticalRules)
     }
 }
 

@@ -8,6 +8,7 @@ final class NativePDFPageGeometry {
     struct Glyph {
         let bounds: CGRect
         let ranges: [NSRange]
+        let isWhitespace: Bool
     }
     struct Row {
         var bounds: CGRect
@@ -16,6 +17,7 @@ final class NativePDFPageGeometry {
     private static let cache = NSMapTable<PDFPage, NativePDFPageGeometry>(keyOptions: .weakMemory, valueOptions: .strongMemory)
     let cropBox: CGRect
     let rows: [Row]
+    let verticalSpans: [CGRect]
     let excludedIndices: IndexSet
     let needsDirectSelection: Bool
 
@@ -83,15 +85,35 @@ final class NativePDFPageGeometry {
         }
 
         var candidates: [Candidate] = []
+        var rawStructuralPieces: [CGRect] = []
+        var unmappedPieces: [CGRect] = []
+        var tallRejectedPieces: [CGRect] = []
         if textLength > 0 {
             for index in 0..<page.numberOfCharacters {
-                let box = page.characterBounds(at: index)
-                guard !box.isNull, !box.isInfinite, box.width > 0, box.height > 0,
-                      box.intersects(cropBox),
-                      let selection = page.selection(from: CGPoint(x: box.minX, y: box.midY),
-                                                     to: CGPoint(x: box.maxX, y: box.midY)) else { continue }
+                let box = page.characterBounds(at: index).standardized
+                guard !box.isNull, !box.isInfinite, box.height > 0, box.intersects(cropBox) else { continue }
+                if box.width <= 0.4 {
+                    if box.height >= 2.0 && box.height < cropBox.height * 0.55 {
+                        rawStructuralPieces.append(CGRect(x: box.minX, y: box.minY,
+                                                          width: max(box.width, 0.5), height: box.height))
+                    }
+                    if box.width <= 0 { continue }
+                }
+                guard let selection = page.selection(from: CGPoint(x: box.minX, y: box.midY),
+                                                     to: CGPoint(x: box.maxX, y: box.midY)) else {
+                    if box.height < cropBox.height * 0.55 && box.width <= cropBox.width * 0.15 {
+                        unmappedPieces.append(box)
+                    }
+                    continue
+                }
                 let rawRanges = (0..<selection.numberOfTextRanges(on: page)).map { selection.range(at: $0, on: page) }
                     .filter { $0.location != NSNotFound && $0.length > 0 }
+                if rawRanges.isEmpty {
+                    if box.height < cropBox.height * 0.55 && box.width <= cropBox.width * 0.15 {
+                        unmappedPieces.append(box)
+                    }
+                    continue
+                }
                 var keptSet = IndexSet()
                 var validatedBases: [(Int, CharInfo)] = []
                 for range in rawRanges {
@@ -122,7 +144,19 @@ final class NativePDFPageGeometry {
                         }
                     }
                 }
-                guard !keptSet.isEmpty else { continue }
+                guard !keptSet.isEmpty else {
+                    let hasNonWhitespaceRaw = rawRanges.contains { range in
+                        let lo = max(0, range.location), hi = min(textLength, NSMaxRange(range))
+                        return lo < hi && (lo..<hi).contains { loc in
+                            let cInfo = info(at: loc)
+                            return !cInfo.isNewline && !cInfo.isWhitespace
+                        }
+                    }
+                    if hasNonWhitespaceRaw && box.height < cropBox.height * 0.55 {
+                        tallRejectedPieces.append(box)
+                    }
+                    continue
+                }
                 let coalesced = keptSet.rangeView.map { NSRange(location: $0.lowerBound, length: $0.count) }
                 let nonWS = keptSet.filter { !info(at: $0).isWhitespace }
                 let singleBounds = nonWS.count == 1 ? info(at: nonWS[0]).bounds : nil
@@ -166,12 +200,41 @@ final class NativePDFPageGeometry {
             }
         }
 
+        // Also drop tall mis-attributed delimiter glyphs (e.g. a matrix right parenthesis that picked up
+        // trailing punctuation or a phrase word already claimed by normal-height glyphs).
+        var coveredByNormal = IndexSet()
+        for (idx, candidate) in candidates.enumerated()
+        where !droppedDuplicates.contains(idx) && !candidate.isPureWhitespace
+           && !candidate.isExtensibleMath && !candidate.isBracketDelim
+           && candidate.bounds.height <= typicalHeight * 2.0 {
+            for loc in candidate.nonWhitespaceLocs { coveredByNormal.insert(loc) }
+        }
+        for (idx, candidate) in candidates.enumerated()
+        where !droppedDuplicates.contains(idx) && !candidate.isPureWhitespace
+           && !candidate.isExtensibleMath && !candidate.isBracketDelim
+           && !candidate.nonWhitespaceLocs.isEmpty
+           && candidate.bounds.height > typicalHeight * 2.5
+           && candidate.nonWhitespaceLocs.allSatisfy({ coveredByNormal.contains($0) }) {
+            droppedDuplicates.insert(idx)
+        }
+
         var excluded = IndexSet()
         var glyphs: [Glyph] = []
-        for (idx, candidate) in candidates.enumerated() where !droppedDuplicates.contains(idx) {
+        for (idx, candidate) in candidates.enumerated() {
             let box = candidate.bounds
+            if droppedDuplicates.contains(idx) {
+                if !candidate.isPureWhitespace
+                    && (candidate.isExtensibleMath || box.height > typicalHeight * 2.5)
+                    && box.height < cropBox.height * 0.55 {
+                    rawStructuralPieces.append(box)
+                }
+                continue
+            }
             var isTallIsolatedDelimiter = false
-            if candidate.isBracketDelim && box.height > typicalHeight * 2.5 && box.width < box.height * 0.65 {
+            let narrowBracket = box.width < box.height * 0.65
+                || (candidate.nonWhitespaceLocs.count == 1
+                    && (candidate.singleNonWhitespaceBounds?.width ?? box.width) < box.height * 0.65)
+            if candidate.isBracketDelim && box.height > typicalHeight * 2.5 && narrowBracket {
                 let hasLargeNeighbor = candidates.indices.contains { otherIdx in
                     guard !droppedDuplicates.contains(otherIdx) else { return false }
                     let other = candidates[otherIdx]
@@ -185,6 +248,9 @@ final class NativePDFPageGeometry {
                 isTallIsolatedDelimiter = !hasLargeNeighbor
             }
             if candidate.isExtensibleMath || isTallIsolatedDelimiter {
+                if box.height < cropBox.height * 0.55 {
+                    rawStructuralPieces.append(box)
+                }
                 if candidate.nonWhitespaceLocs.isEmpty {
                     for range in candidate.ranges { excluded.insert(integersIn: range.location..<NSMaxRange(range)) }
                 } else {
@@ -192,7 +258,7 @@ final class NativePDFPageGeometry {
                 }
                 continue
             }
-            glyphs.append(Glyph(bounds: box, ranges: candidate.ranges))
+            glyphs.append(Glyph(bounds: box, ranges: candidate.ranges, isWhitespace: candidate.isPureWhitespace))
         }
 
         var rows: [Row] = []
@@ -230,10 +296,61 @@ final class NativePDFPageGeometry {
                 let anchorRight = rightGap < typicalHeight * 2.5 && leftGap > rightGap * 2
                 let clampedX = anchorRight ? (g.bounds.maxX - clampedWidth) : g.bounds.minX
                 sorted[i] = Glyph(bounds: CGRect(x: clampedX, y: g.bounds.minY, width: clampedWidth, height: g.bounds.height),
-                                  ranges: g.ranges)
+                                  ranges: g.ranges, isWhitespace: g.isWhitespace)
             }
             let bounds = sorted.dropFirst().reduce(sorted[0].bounds) { $0.union($1.bounds) }
             return Row(bounds: bounds, glyphs: sorted)
+        }
+
+        let pageCropWidth = cropBox.width
+        let substantiveRowHeights = clampedRows.filter { $0.bounds.width >= pageCropWidth * 0.15 }.map { $0.bounds.height }.sorted()
+        let fallbackRowHeights = clampedRows.map { $0.bounds.height }.sorted()
+        let rowHeightBasis = substantiveRowHeights.isEmpty ? fallbackRowHeights : substantiveRowHeights
+        let rowHeight = rowHeightBasis.isEmpty ? max(1, typicalHeight * 1.5) : max(1, rowHeightBasis[rowHeightBasis.count / 2])
+
+        for piece in unmappedPieces where piece.width <= rowHeight * 1.5 {
+            rawStructuralPieces.append(piece)
+        }
+        for piece in tallRejectedPieces where piece.height >= rowHeight * 1.55 && piece.height < cropBox.height * 0.55 {
+            rawStructuralPieces.append(piece)
+        }
+
+        // Clamp horizontally stretched tall delimiter boxes toward whichever neighbor glyph holds their visible edge.
+        let nonWhitespaceGlyphs = clampedRows.flatMap { row in
+            row.glyphs.filter { g in
+                g.ranges.contains { r in
+                    (r.location..<min(textLength, NSMaxRange(r))).contains { !info(at: $0).isWhitespace }
+                }
+            }
+        }
+        var clampedPieces: [CGRect] = []
+        for piece in rawStructuralPieces {
+            guard piece.width > max(rowHeight * 1.5, piece.height * 0.45) && piece.height >= rowHeight * 1.55 else {
+                clampedPieces.append(piece)
+                continue
+            }
+            let overlapping = nonWhitespaceGlyphs.filter {
+                min($0.bounds.maxY, piece.maxY) > max($0.bounds.minY, piece.minY)
+            }
+            let clampedW = min(piece.width, rowHeight * 0.85)
+            let inside = overlapping.filter {
+                max($0.bounds.minX, piece.minX) < min($0.bounds.maxX, piece.maxX)
+            }
+            let anchorRight: Bool
+            if !inside.isEmpty {
+                let leftMargin = (inside.map(\.bounds.minX).min() ?? piece.minX) - piece.minX
+                let rightMargin = piece.maxX - (inside.map(\.bounds.maxX).max() ?? piece.maxX)
+                anchorRight = rightMargin < leftMargin
+            } else {
+                let leftMaxX = overlapping.filter { $0.bounds.maxX <= piece.minX + 1 }.map(\.bounds.maxX).max()
+                let rightMinX = overlapping.filter { $0.bounds.minX >= piece.maxX - 1 }.map(\.bounds.minX).min()
+                let leftGap = leftMaxX.map { piece.minX - $0 } ?? .infinity
+                let rightGap = rightMinX.map { $0 - piece.maxX } ?? .infinity
+                guard min(leftGap, rightGap) <= rowHeight * 4 else { continue }
+                anchorRight = rightGap < leftGap
+            }
+            let clampedX = anchorRight ? (piece.maxX - clampedW) : piece.minX
+            clampedPieces.append(CGRect(x: clampedX, y: piece.minY, width: clampedW, height: piece.height))
         }
 
         let nativeLines = page.selection(for: cropBox)?.selectionsByLine() ?? []
@@ -245,6 +362,69 @@ final class NativePDFPageGeometry {
         self.excludedIndices = excluded
         self.needsDirectSelection = oversized || interleaved || !excluded.isEmpty
         self.rows = clampedRows
+        self.verticalSpans = Self.coalesceVerticalSpans(clampedPieces, rowHeight: rowHeight, cropBox: cropBox, rows: clampedRows)
+    }
+
+    /// Coalesce vertically stacked delimiter or rule fragments into continuous vertical spans.
+    static func coalesceVerticalSpans(
+        _ pieces: [CGRect],
+        rowHeight: CGFloat,
+        cropBox: CGRect,
+        rows: [Row]
+    ) -> [CGRect] {
+        guard !pieces.isEmpty else { return [] }
+        func canMerge(_ a: CGRect, _ b: CGRect) -> Bool {
+            let vGap = max(0, max(a.minY - b.maxY, b.minY - a.maxY))
+            guard vGap <= rowHeight * 0.45 else { return false }
+            let hGap = max(0, max(a.minX - b.maxX, b.minX - a.maxX))
+            guard hGap <= rowHeight * 0.35 else { return false }
+            let vOverlap = min(a.maxY, b.maxY) - max(a.minY, b.minY)
+            let sideBySide = (b.minX >= a.maxX - 0.5 || a.minX >= b.maxX - 0.5)
+                && vOverlap >= min(a.height, b.height) * 0.5
+            let u = a.union(b)
+            return !sideBySide
+                && abs(a.midX - b.midX) <= rowHeight * 0.75
+                && u.width <= max(rowHeight * 1.5, u.height * 0.45)
+        }
+        var spans = pieces
+        var merged = true
+        while merged {
+            merged = false
+            spans.sort { a, b in
+                if a.maxY != b.maxY { return a.maxY > b.maxY }
+                return a.minX < b.minX
+            }
+            var next: [CGRect] = []
+            var used = Array(repeating: false, count: spans.count)
+            for i in spans.indices where !used[i] {
+                var current = spans[i]
+                used[i] = true
+                var grew = true
+                while grew {
+                    grew = false
+                    for j in spans.indices where !used[j] && canMerge(current, spans[j]) {
+                        current = current.union(spans[j])
+                        used[j] = true
+                        grew = true
+                        merged = true
+                    }
+                }
+                next.append(current)
+            }
+            spans = next
+        }
+        return spans.filter { span in
+            guard span.height >= rowHeight * 1.55,
+                  span.height < cropBox.height * 0.55,
+                  span.width <= max(rowHeight * 1.5, span.height * 0.45) else { return false }
+            let vLo = span.minY - rowHeight * 0.25, vHi = span.maxY + rowHeight * 0.25
+            return rows.contains { row in
+                row.glyphs.contains { g in
+                    g.bounds.maxY >= vLo && g.bounds.minY <= vHi
+                        && max(0, max(g.bounds.minX - span.maxX, span.minX - g.bounds.maxX)) <= rowHeight * 4
+                }
+            }
+        }
     }
 
     func nearestRow(to point: CGPoint) -> Int? {

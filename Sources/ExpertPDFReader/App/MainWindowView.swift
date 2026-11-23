@@ -1511,10 +1511,6 @@ struct DocumentTabItemView: View {
         !isCollapsed && (isSelected || isHovered)
     }
 
-    private var groupColor: TabGroupColor? {
-        session.displayedTabGroup(containing: state.id)?.color
-    }
-
     private var labelColor: Color {
         isSelected ? AppPalette.labelPrimary(isDark) : AppPalette.labelSecondary(isDark)
     }
@@ -1523,17 +1519,13 @@ struct DocumentTabItemView: View {
         AppPalette.documentTabHighlight(isSelected: isSelected, isSidebar: isSidebar, isDark: isDark)
     }
 
-    private var sidebarAccentTint: Color {
-        groupColor.map { AppPalette.tabOutline($0, isDark) } ?? accent
-    }
-
     var body: some View {
         HStack(spacing: isSidebar ? 4 : 5) {
             if isSidebar {
                 // This slot stays in the same place when the row reveals its title.
                 Image(systemName: isSelected ? "doc.text.fill" : "doc.text")
                     .font(.system(size: 16.5, weight: isSelected ? .medium : .regular))
-                    .foregroundStyle(isSelected ? sidebarAccentTint : labelColor)
+                    .foregroundStyle(isSelected ? accent : labelColor)
                     .frame(width: SidebarTabMetrics.iconSlotWidth)
                     .accessibilityHidden(true)
             }
@@ -1553,7 +1545,7 @@ struct DocumentTabItemView: View {
                     if isSidebar && state.splitMode != .disabled {
                         Image(systemName: state.splitMode.iconName)
                             .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(isSelected ? sidebarAccentTint : AppPalette.labelTertiary(isDark))
+                            .foregroundColor(isSelected ? accent : AppPalette.labelTertiary(isDark))
                     }
 
                     if let disambiguatedFolder {

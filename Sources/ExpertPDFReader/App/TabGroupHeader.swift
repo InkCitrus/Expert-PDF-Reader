@@ -185,12 +185,15 @@ private struct TabGroupNameEditor: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             guard let window else { return }
+            let isDark = window.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let accentSelection = AppPalette.accent.selectionNSColor(isDark: isDark)
             DispatchQueue.main.async { [weak self, weak window] in
                 guard let self, let window, self.window === window else { return }
                 // Start editing after the native context menu has finished tracking.
                 selectText(nil)
+                let fill = selectionFill == NSColor.selectedTextBackgroundColor ? accentSelection : selectionFill
                 if let editor = currentEditor() as? NSTextView, let ink = textColor {
-                    (delegate as? Coordinator)?.style(editor, ink: ink, fill: selectionFill)
+                    (delegate as? Coordinator)?.style(editor, ink: ink, fill: fill)
                 }
             }
         }

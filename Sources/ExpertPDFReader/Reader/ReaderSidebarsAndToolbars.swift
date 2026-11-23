@@ -58,7 +58,10 @@ public struct ReaderToolbarView: View {
                 : (tab.splitMode == .disabled ? tab.layoutMode.iconName : tab.splitMode.iconName)
             toolbarMenuButton("layout", density, icon: layoutIcon,
                               tooltip: L10n.tr("页面布局", "Page Layout"),
-                              title: L10n.tr("布局", "Layout"), items: layoutMenuItems)
+                              title: L10n.tr("布局", "Layout"),
+                              isActive: tab.isPageOverviewVisible || tab.splitMode != .disabled,
+                              activeTint: accent,
+                              items: layoutMenuItems)
 
             Spacer(minLength: density == .minimal ? 6 : 16)
 
@@ -83,6 +86,7 @@ public struct ReaderToolbarView: View {
                     icon: "crop",
                     tooltip: tab.isClearMarginsEnabled ? L10n.tr("恢复页面空白边 (⇧⌘M)", "Restore Page Margins (⇧⌘M)") : L10n.tr("清除空白边 (⇧⌘M)", "Clear Margins (⇧⌘M)"),
                     isActive: tab.isClearMarginsEnabled,
+                    activeTint: accent,
                     iconWidth: density.iconWidth,
                     isDark: isDark
                 ) {
@@ -127,7 +131,7 @@ public struct ReaderToolbarView: View {
                 icon: isBookmarked ? "bookmark.fill" : "bookmark",
                 tooltip: isBookmarked ? L10n.tr("移除当前页书签 (⌘D)", "Remove Bookmark for Current Page (⌘D)") : L10n.tr("为当前页添加书签 (⌘D)", "Add Bookmark for Current Page (⌘D)"),
                 isActive: isBookmarked,
-                activeTint: AppPalette.systemRed,
+                activeTint: accent,
                 iconWidth: density.iconWidth,
                 isDark: isDark
             ) {
@@ -143,11 +147,13 @@ public struct ReaderToolbarView: View {
 
     private func toolbarMenuButton(
         _ name: String, _ density: Density, icon: String, tooltip: String, title: String? = nil,
+        isActive: Bool = false, activeTint: Color? = nil,
         items: @escaping () -> [NativeMenuItem]
     ) -> some View {
         let anchor = anchors.anchor(name, density)
         return ToolbarIconButton(icon: icon, tooltip: tooltip, title: density == .minimal ? nil : title,
-                                 showsMenuIndicator: true, iconWidth: density.iconWidth, isDark: isDark) {
+                                 showsMenuIndicator: true, isActive: isActive, activeTint: activeTint,
+                                 iconWidth: density.iconWidth, isDark: isDark) {
             NativeMenu.popUp(items(), below: anchor.view)
         }
         .background(ViewAnchorRepresentable(anchor: anchor).allowsHitTesting(false))
@@ -362,18 +368,20 @@ struct ToolbarIconButton: View {
             HStack(spacing: 5) {
                 Image(systemName: icon)
                     .font(.system(size: 14.5, weight: .regular))
+                    .foregroundColor(iconForegroundColor)
                 if let title {
                     Text(title)
                         .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(labelForegroundColor)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
                 }
                 if showsMenuIndicator {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(labelForegroundColor)
                 }
             }
-                .foregroundColor(foregroundColor)
                 .padding(.horizontal, fillsRow ? 14 : (title == nil ? 0 : 8))
                 .frame(width: title == nil ? iconWidth + (showsMenuIndicator ? 6 : 0) : nil, height: fillsRow ? 40 : 28)
                 .frame(maxWidth: fillsRow ? .infinity : nil, alignment: .leading)
@@ -393,7 +401,7 @@ struct ToolbarIconButton: View {
         .onHover { isHovered = $0 }
     }
 
-    private var foregroundColor: Color {
+    private var iconForegroundColor: Color {
         if isDisabled {
             return AppPalette.labelQuaternary(isDark)
         }
@@ -401,6 +409,10 @@ struct ToolbarIconButton: View {
             return tint
         }
         return AppPalette.toolbarIcon(isDark)
+    }
+
+    private var labelForegroundColor: Color {
+        isDisabled ? AppPalette.labelQuaternary(isDark) : AppPalette.toolbarIcon(isDark)
     }
 
     private var backgroundColor: Color {
@@ -660,6 +672,7 @@ struct PanelSegmentedControl<Item: Identifiable & Hashable, SegmentLabel: View>:
     let isDark: Bool
     @ViewBuilder let label: (Item, Bool) -> SegmentLabel
 
+    @Environment(\.appAccentColor) private var accent
     @Namespace private var thumbNamespace
 
     var body: some View {
@@ -672,7 +685,7 @@ struct PanelSegmentedControl<Item: Identifiable & Hashable, SegmentLabel: View>:
                     }
                 } label: {
                     label(item, isSelected)
-                        .foregroundColor(isSelected ? AppPalette.labelPrimary(isDark) : AppPalette.labelSecondary(isDark))
+                        .foregroundColor(isSelected ? accent : AppPalette.labelSecondary(isDark))
                         .frame(maxWidth: .infinity)
                         .frame(height: 24)
                         .background {
@@ -863,7 +876,7 @@ struct PageThumbnailCell: View {
                             if isBookmarked {
                                 Image(systemName: "bookmark.fill")
                                     .font(.system(size: 13))
-                                    .foregroundColor(AppPalette.systemRed)
+                                    .foregroundColor(accent)
                                     .shadow(color: Color.black.opacity(0.2), radius: 1, x: 0, y: 0.5)
                                     .padding(.trailing, 8)
                                     .offset(y: -2)
@@ -1209,7 +1222,7 @@ struct BookmarkRowView: View {
         HStack(spacing: 8) {
             Image(systemName: "bookmark.fill")
                 .font(.system(size: 11))
-                .foregroundColor(AppPalette.systemRed)
+                .foregroundColor(accent)
 
             Text(bookmark.title)
                 .font(.system(size: 12.5, weight: isCurrent ? .medium : .regular))

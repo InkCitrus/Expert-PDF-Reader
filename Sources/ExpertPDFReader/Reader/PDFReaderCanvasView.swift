@@ -22,6 +22,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
     public let isClearMarginsEnabled: Bool
     public let pdfTheme: PDFViewTheme
     public let isDarkUI: Bool
+    public let accentColor: AppAccentColor
     public let searchMatches: [SearchMatchItem]
     public let selectedMatchIndex: Int
     public let pageJumpToken: Int
@@ -57,6 +58,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         isClearMarginsEnabled: Bool,
         pdfTheme: PDFViewTheme,
         isDarkUI: Bool,
+        accentColor: AppAccentColor = .blue,
         searchMatches: [SearchMatchItem] = [],
         selectedMatchIndex: Int = 0,
         pageJumpToken: Int = 0,
@@ -84,6 +86,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         self.isClearMarginsEnabled = isClearMarginsEnabled
         self.pdfTheme = pdfTheme
         self.isDarkUI = isDarkUI
+        self.accentColor = accentColor
         self.searchMatches = searchMatches
         self.selectedMatchIndex = selectedMatchIndex
         self.pageJumpToken = pageJumpToken
@@ -285,7 +288,9 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
             themed.readsRightToLeft = readsRightToLeft
             themed.currentTheme = pdfTheme
             themed.isDarkUI = isDarkUI
+            themed.currentAccentColor = accentColor
             themed.applyThemeLayers()
+            themed.applySelectionAccent()
         }
 
         // 3. Page Navigation Jump
@@ -506,6 +511,11 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
 
             observers.append(contentsOf: [pageObs, scaleObs])
 
+            let selectionObs = nc.addObserver(forName: .PDFViewSelectionChanged, object: pdfView, queue: .main) { [weak pdfView] _ in
+                (pdfView as? ThemedPDFView)?.applySelectionAccentToNativeSelection()
+            }
+            observers.append(selectionObs)
+
             if let themed = pdfView as? ThemedPDFView {
                 themed.onAutoScalesDidChange = { [weak self, weak pdfView] autoScales in
                     guard let self, let pdfView, Self.isLive(pdfView) else { return }
@@ -700,6 +710,7 @@ final class ThemedPDFView: PDFView {
 
     var currentTheme: PDFViewTheme = .day
     var isDarkUI: Bool = false
+    var currentAccentColor: AppAccentColor = .blue
     var onStepPage: ((Int) -> Void)?
     var onPaneActivation: (() -> Void)?
     var handlesUnfocusedArrowKeys = true
@@ -1060,6 +1071,22 @@ final class ThemedPDFView: PDFView {
         appliedTheme = currentTheme
         appliedDarkUI = isDarkUI
         appliedBackingScale = scale
+    }
+
+    func applySelectionAccent() {
+        ocrSelectionOverlay.needsDisplay = true
+        nativeSelectionTracker.repaintHighlights()
+        applySelectionAccentToNativeSelection()
+    }
+
+    func applySelectionAccentToNativeSelection() {
+        guard !nativeSelectionTracker.isRepairingOrCustomHighlight,
+              let selection = currentSelection else { return }
+        let desired = currentAccentColor.pdfSelectionNSColor(for: currentTheme)
+        if selection.color != desired {
+            selection.color = desired
+            needsDisplay = true
+        }
     }
 
 }

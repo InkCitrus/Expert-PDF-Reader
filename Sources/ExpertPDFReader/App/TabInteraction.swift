@@ -188,8 +188,10 @@ final class ComparisonDropView: NSView {
 
     func highlight(_ highlighted: Bool) {
         if highlighted { wantsLayer = true }
-        layer?.backgroundColor = highlighted ? NSColor.controlAccentColor.withAlphaComponent(0.10).cgColor : nil
-        layer?.borderColor = NSColor.controlAccentColor.cgColor
+        let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let tint = AppPalette.accent.nsColor(isDark: isDark)
+        layer?.backgroundColor = highlighted ? tint.withAlphaComponent(0.10).cgColor : nil
+        layer?.borderColor = tint.cgColor
         layer?.borderWidth = highlighted ? 2 : 0
     }
 }
@@ -232,7 +234,8 @@ private final class TabStripAnchorView: NSView {
         } else {
             caret = NSRect(x: insertionPosition - 1.5, y: 4, width: 3, height: bounds.height - 8)
         }
-        NSColor.controlAccentColor.setFill()
+        let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        AppPalette.accent.nsColor(isDark: isDark).setFill()
         NSBezierPath(roundedRect: caret, xRadius: 1.5, yRadius: 1.5).fill()
     }
 }

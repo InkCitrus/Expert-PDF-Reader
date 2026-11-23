@@ -344,6 +344,7 @@ struct HomeTabSidebarView: View {
     @ObservedObject var store: AppStore
     @ObservedObject var session: ReaderWindowSession
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appAccentColor) private var accent
     @Namespace private var sidebarNamespace
     private var isDark: Bool { colorScheme == .dark }
 
@@ -358,7 +359,7 @@ struct HomeTabSidebarView: View {
                 } label: {
                     HomeSidebarRowLabel(
                         icon: "\(page.iconName).fill",
-                        iconColor: page == .home ? AppPalette.systemRed : AppPalette.labelPrimary(isDark),
+                        iconColor: session.homeCurrentPage == page ? accent : AppPalette.labelSecondary(isDark),
                         title: page.title,
                         badge: badge(for: page),
                         isSelected: session.homeCurrentPage == page,

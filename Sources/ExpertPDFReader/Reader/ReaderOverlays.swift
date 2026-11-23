@@ -300,6 +300,7 @@ struct PageIndicatorOverlay: View {
     var isSecondaryPane = false
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appAccentColor) private var accent
     @State private var isVisible = true
     @State private var isHovered = false
     @State private var isInRevealZone = false
@@ -393,11 +394,13 @@ struct PageIndicatorOverlay: View {
                             .font(.system(size: 12))
                         TextField(goToPagePlaceholder, text: $goToPageInput)
                             .textFieldStyle(.roundedBorder)
+                            .tint(accent)
                             .frame(width: 84)
                             .accessibilityLabel(Text(L10n.tr("页码", "Page")))
                             .onSubmit(commitGoToPage)
                         Button(L10n.tr("前往", "Go"), action: commitGoToPage)
                             .keyboardShortcut(.defaultAction)
+                            .tint(accent)
                             .controlSize(.small)
                     }
                     if usesBookNumbers && !tab.pageIndicesByLabel.isEmpty {

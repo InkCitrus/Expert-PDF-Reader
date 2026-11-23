@@ -128,6 +128,7 @@ public struct PDFReaderView: View {
             isClearMarginsEnabled: tab.isClearMarginsEnabled,
             pdfTheme: store.resolvedPDFTheme(isDark: isDark),
             isDarkUI: isDark,
+            accentColor: store.accentColor,
             searchMatches: tab.searchMatches,
             selectedMatchIndex: tab.selectedMatchIndex,
             pageJumpToken: tab.pageJumpToken,
@@ -197,6 +198,7 @@ public struct PDFReaderView: View {
                     isClearMarginsEnabled: tab.isClearMarginsEnabled,
                     pdfTheme: store.resolvedPDFTheme(isDark: isDark),
                     isDarkUI: isDark,
+                    accentColor: store.accentColor,
                     pageJumpToken: tab.secondaryPageJumpToken,
                     zoomCommandToken: tab.secondaryZoomCommandToken,
                     pendingZoomAction: tab.pendingSecondaryZoomAction,
@@ -261,6 +263,7 @@ public struct PDFReaderView: View {
                 icon: tab.showSplitDocumentPicker ? "doc.text" : "folder",
                 tooltip: tab.showSplitDocumentPicker ? L10n.tr("返回对比文档", "Back to Document") : L10n.tr("选择对比文档", "Select Document"),
                 isActive: tab.showSplitDocumentPicker,
+                activeTint: accent,
                 iconWidth: 26,
                 isDark: isDark
             ) {

@@ -175,8 +175,8 @@
 "No Matches Found" = "Nenhum resultado encontrado";
 "Light" = "Claro";
 "浅色外观|||Light" = "Aparência clara";
-"浅色时使用纸质替代日间|||Use Sepia Instead of Day in Light Mode" = "Usar Sépia em vez de Dia no modo claro";
-"Use Sepia Instead of Day in Light Mode" = "Usar Sépia em vez de Dia no modo claro";
+"浅色模式改用纸质|||Use Sepia in Light Mode" = "Usar Sépia no modo claro";
+"Use Sepia in Light Mode" = "Usar Sépia no modo claro";
 "Dark" = "Escuro";
 "深色外观|||Dark" = "Aparência escura";
 "添加书签|||Add Bookmark" = "Adicionar marcador";
@@ -199,8 +199,8 @@
 "App Appearance" = "Aparência do app";
 "界面外观|||Appearance" = "Aparência";
 "Appearance" = "Aparência";
-"界面外观决定标签栏、工具栏与面板的配色；阅读主题通过 GPU 着色器作用于 PDF 页面本身。当阅读主题设为“跟随系统”时，浅色模式默认使用日间主题（或开启上方选项后使用纸质主题），深色模式自动切换为夜间主题。|||App Appearance controls the tab bar, toolbar, and sidebar colors; Reading Theme applies GPU shaders to the PDF page itself. When Reading Theme is set to Follow System, Light mode uses Day (or Sepia when enabled above) and Dark mode automatically switches to Night." = "A aparência controla as cores da barra de abas, barra de ferramentas e painéis; o tema de leitura aplica shaders de GPU à página PDF. Em «Seguir o sistema», o modo claro usa Dia (ou Sépia se ativado acima) e o modo escuro muda automaticamente para Noite.";
-"App Appearance controls the tab bar, toolbar, and sidebar colors; Reading Theme applies GPU shaders to the PDF page itself. When Reading Theme is set to Follow System, Light mode uses Day (or Sepia when enabled above) and Dark mode automatically switches to Night." = "A aparência controla as cores da barra de abas, barra de ferramentas e painéis; o tema de leitura aplica shaders de GPU à página PDF. Em «Seguir o sistema», o modo claro usa Dia (ou Sépia se ativado acima) e o modo escuro muda automaticamente para Noite.";
+"外观控制窗口配色，主题控制页面配色。|||Appearance styles the window; theme styles PDF pages." = "A aparência ajusta a janela; o tema, as páginas PDF.";
+"Appearance styles the window; theme styles PDF pages." = "A aparência ajusta a janela; o tema, as páginas PDF.";
 "禁用分屏视图|||Disable Split View" = "Desativar visualização dividida";
 "Disable Split View" = "Desativar visualização dividida";
 "移除书签|||Remove Bookmark" = "Remover marcador";
@@ -291,8 +291,8 @@
 "Clear Menu" = "Limpar menu";
 "立即重新启动|||Restart Now" = "Reiniciar agora";
 "Restart Now" = "Reiniciar agora";
-"重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。|||Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "Os menus fornecidos pelo macOS (Arquivo, Editar, Janela…) mudam para este idioma após reiniciar.";
-"Menus provided by macOS (File, Edit, Window…) switch to this language after a restart." = "Os menus fornecidos pelo macOS (Arquivo, Editar, Janela…) mudam para este idioma após reiniciar.";
+"重启后生效于菜单栏。|||Restart to update the menu bar." = "Reinicie para atualizar a barra de menus.";
+"Restart to update the menu bar." = "Reinicie para atualizar a barra de menus.";
 "恢复标签页|||Restore Tabs" = "Restaurar abas";
 "Restore Tabs" = "Restaurar abas";
 "启动时恢复上次退出前打开的标签页。|||Reopen the tabs from your previous session when the app starts." = "Reabrir as abas da sessão anterior ao iniciar o app.";

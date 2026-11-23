@@ -331,7 +331,9 @@ final class OCRTextSelectionOverlay: NSView, NSMenuItemValidation {
 
     override func draw(_ dirtyRect: NSRect) {
         guard selectsText, let pdfView else { return }
-        NSColor.selectedTextBackgroundColor.withAlphaComponent(0.32).setFill()
+        let isDark = (pdfView as? ThemedPDFView)?.currentTheme == .night
+            || effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        AppPalette.accent.selectionNSColor(isDark: isDark).setFill()
         for page in selectedPages {
             let rects: [CGRect]
             if let text = self.text(for: page), let (start, end) = selectedRange(in: text, on: page) {

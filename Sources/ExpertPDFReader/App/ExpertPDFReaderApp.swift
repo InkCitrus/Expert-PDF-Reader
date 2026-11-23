@@ -324,6 +324,14 @@ struct ReaderMenuCommands: Commands {
 
         // Replaces File › Close / Close All, whose ⌘W clashed with Close Tab
         CommandGroup(replacing: .saveItem) {
+            Button(L10n.tr("导出…", "Export…")) {
+                store.activeDocumentTab?.beginExportPanel(in: store.activeSession.nsWindow)
+            }
+            .keyboardShortcut("e", modifiers: [.command, .shift])
+            .disabled(!PageImageClipboard.canCopy(store.activeDocumentTab?.currentPageForCopying))
+
+            Divider()
+
             Button(L10n.tr("关闭标签", "Close Tab")) {
                 closeTabOrWindow()
             }
@@ -333,6 +341,44 @@ struct ReaderMenuCommands: Commands {
                 (NSApp.keyWindow ?? NSApp.mainWindow)?.performClose(nil)
             }
             .keyboardShortcut("w", modifiers: [.command, .shift])
+        }
+
+        CommandGroup(replacing: .undoRedo) {
+            let _ = store.undoMenuToken
+            let textUndo = (NSApp.keyWindow?.firstResponder as? NSTextView).flatMap { $0.isEditable ? $0.undoManager : nil }
+            if let textUndo {
+                Button(textUndo.undoMenuItemTitle) {
+                    textUndo.undo()
+                }
+                .keyboardShortcut("z", modifiers: [.command])
+                .disabled(!textUndo.canUndo)
+
+                Button(textUndo.redoMenuItemTitle) {
+                    textUndo.redo()
+                }
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+                .disabled(!textUndo.canRedo)
+            } else if let tabUndo = store.activeDocumentTab?.undoManager {
+                Button(tabUndo.canUndo ? L10n.undoMenuTitle(tabUndo.undoActionName) : L10n.tr("撤销", "Undo")) {
+                    tabUndo.undo()
+                }
+                .keyboardShortcut("z", modifiers: [.command])
+                .disabled(!tabUndo.canUndo)
+
+                Button(tabUndo.canRedo ? L10n.redoMenuTitle(tabUndo.redoActionName) : L10n.tr("重做", "Redo")) {
+                    tabUndo.redo()
+                }
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+                .disabled(!tabUndo.canRedo)
+            } else {
+                Button(L10n.tr("撤销", "Undo")) {}
+                    .keyboardShortcut("z", modifiers: [.command])
+                    .disabled(true)
+
+                Button(L10n.tr("重做", "Redo")) {}
+                    .keyboardShortcut("z", modifiers: [.command, .shift])
+                    .disabled(true)
+            }
         }
 
         CommandGroup(after: .pasteboard) {

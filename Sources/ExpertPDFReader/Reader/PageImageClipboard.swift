@@ -10,21 +10,28 @@ enum PageImageClipboard {
         }
     }
 
-    private struct ImageData: Sendable {
+    struct ImageData: Sendable {
         let png: Data
         let tiff: Data
+    }
+
+    struct PageSnapshot: Sendable {
+        let data: Data
+        let cropBox: CGRect
+        let rotation: Int
     }
 
     private actor Renderer {
         static let shared = Renderer()
 
-        func render(_ data: Data, cropBox: CGRect) throws -> ImageData {
+        func render(_ data: Data, cropBox: CGRect, rotation: Int) throws -> ImageData {
             try Task.checkCancellation()
             return try autoreleasepool {
                 guard let document = PDFDocument(data: data), let page = document.page(at: 0),
                       cropBox.width.isFinite, cropBox.height.isFinite,
                       cropBox.width > 0, cropBox.height > 0 else { throw CopyError.unavailable }
                 defer { withExtendedLifetime(document) {} }
+                page.rotation = rotation
                 page.setBounds(cropBox, for: .cropBox)
                 let rotated = page.rotation % 180 != 0
                 let size = rotated ? CGSize(width: cropBox.height, height: cropBox.width) : cropBox.size
@@ -56,16 +63,25 @@ enum PageImageClipboard {
         return page.document.map { !$0.isLocked && $0.allowsCopying } ?? true
     }
 
-    /// Snapshot only the requested page on the main thread; PDFKit renders a private copy off-thread.
-    /// A later copy, even in another application, takes precedence over this asynchronous operation.
-    @MainActor @discardableResult
-    static func copy(_ page: PDFPage, to pasteboard: NSPasteboard = .general) async throws -> Bool {
+    @MainActor static func snapshot(of page: PDFPage) throws -> PageSnapshot {
         guard canCopy(page), let data = page.dataRepresentation else { throw CopyError.unavailable }
         let cropBox = page.document.map {
             SpreadAlignment.unalignedCropBox(for: page, at: $0.index(for: page), in: $0)
         } ?? page.bounds(for: .cropBox)
+        return PageSnapshot(data: data, cropBox: cropBox, rotation: page.rotation)
+    }
+
+    static func renderImageData(for snapshot: PageSnapshot) async throws -> ImageData {
+        try await Renderer.shared.render(snapshot.data, cropBox: snapshot.cropBox, rotation: snapshot.rotation)
+    }
+
+    /// Snapshot only the requested page on the main thread; PDFKit renders a private copy off-thread.
+    /// A later copy, even in another application, takes precedence over this asynchronous operation.
+    @MainActor @discardableResult
+    static func copy(_ page: PDFPage, to pasteboard: NSPasteboard = .general) async throws -> Bool {
+        let snapshot = try snapshot(of: page)
         let changeCount = pasteboard.changeCount
-        let image = try await Renderer.shared.render(data, cropBox: cropBox)
+        let image = try await renderImageData(for: snapshot)
         try Task.checkCancellation()
         guard pasteboard.changeCount == changeCount else { return false }
         let item = NSPasteboardItem()
@@ -75,7 +91,11 @@ enum PageImageClipboard {
         return pasteboard.writeObjects([item])
     }
 
-    @MainActor static func beginCopy(_ page: PDFPage, in window: NSWindow?) {
+    @MainActor static func beginCopy(
+        _ page: PDFPage,
+        in window: NSWindow?,
+        title: String = L10n.tr("复制当前页为图片", "Copy Current Page as Image")
+    ) {
         pendingCopy?.cancel()
         pendingCopy = Task(priority: .userInitiated) { [weak window] in
             do {
@@ -87,7 +107,7 @@ enum PageImageClipboard {
             } catch {
                 guard !Task.isCancelled, let window else { return }
                 let alert = NSAlert()
-                alert.messageText = L10n.tr("复制当前页为图片", "Copy Current Page as Image")
+                alert.messageText = title
                 alert.informativeText = error.localizedDescription
                 alert.beginSheetModal(for: window, completionHandler: nil)
             }

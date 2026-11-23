@@ -33,8 +33,10 @@ public struct ReaderToolbarView: View {
             toolbarContent(.compact)
             toolbarContent(.minimal)
         }
+        .frame(maxWidth: .infinity)
         .frame(height: Self.height)
         .background(AppPalette.toolbarBackground(isDark), ignoresSafeAreaEdges: [])
+        .background(PanelCursorRect())
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(AppPalette.chromeHairline(isDark))
@@ -56,7 +58,10 @@ public struct ReaderToolbarView: View {
                 : (tab.splitMode == .disabled ? tab.layoutMode.iconName : tab.splitMode.iconName)
             toolbarMenuButton("layout", density, icon: layoutIcon,
                               tooltip: L10n.tr("页面布局", "Page Layout"),
-                              title: L10n.tr("布局", "Layout"), items: layoutMenuItems)
+                              title: L10n.tr("布局", "Layout"),
+                              isActive: tab.isPageOverviewVisible || tab.splitMode != .disabled,
+                              activeTint: accent,
+                              items: layoutMenuItems)
 
             Spacer(minLength: density == .minimal ? 6 : 16)
 
@@ -81,6 +86,7 @@ public struct ReaderToolbarView: View {
                     icon: "crop",
                     tooltip: tab.isClearMarginsEnabled ? L10n.tr("恢复页面空白边 (⇧⌘M)", "Restore Page Margins (⇧⌘M)") : L10n.tr("清除空白边 (⇧⌘M)", "Clear Margins (⇧⌘M)"),
                     isActive: tab.isClearMarginsEnabled,
+                    activeTint: accent,
                     iconWidth: density.iconWidth,
                     isDark: isDark
                 ) {
@@ -125,7 +131,7 @@ public struct ReaderToolbarView: View {
                 icon: isBookmarked ? "bookmark.fill" : "bookmark",
                 tooltip: isBookmarked ? L10n.tr("移除当前页书签 (⌘D)", "Remove Bookmark for Current Page (⌘D)") : L10n.tr("为当前页添加书签 (⌘D)", "Add Bookmark for Current Page (⌘D)"),
                 isActive: isBookmarked,
-                activeTint: AppPalette.systemRed,
+                activeTint: accent,
                 iconWidth: density.iconWidth,
                 isDark: isDark
             ) {
@@ -141,11 +147,13 @@ public struct ReaderToolbarView: View {
 
     private func toolbarMenuButton(
         _ name: String, _ density: Density, icon: String, tooltip: String, title: String? = nil,
+        isActive: Bool = false, activeTint: Color? = nil,
         items: @escaping () -> [NativeMenuItem]
     ) -> some View {
         let anchor = anchors.anchor(name, density)
         return ToolbarIconButton(icon: icon, tooltip: tooltip, title: density == .minimal ? nil : title,
-                                 showsMenuIndicator: true, iconWidth: density.iconWidth, isDark: isDark) {
+                                 showsMenuIndicator: true, isActive: isActive, activeTint: activeTint,
+                                 iconWidth: density.iconWidth, isDark: isDark) {
             NativeMenu.popUp(items(), below: anchor.view)
         }
         .background(ViewAnchorRepresentable(anchor: anchor).allowsHitTesting(false))
@@ -360,18 +368,20 @@ struct ToolbarIconButton: View {
             HStack(spacing: 5) {
                 Image(systemName: icon)
                     .font(.system(size: 14.5, weight: .regular))
+                    .foregroundColor(iconForegroundColor)
                 if let title {
                     Text(title)
                         .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(labelForegroundColor)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
                 }
                 if showsMenuIndicator {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(labelForegroundColor)
                 }
             }
-                .foregroundColor(foregroundColor)
                 .padding(.horizontal, fillsRow ? 14 : (title == nil ? 0 : 8))
                 .frame(width: title == nil ? iconWidth + (showsMenuIndicator ? 6 : 0) : nil, height: fillsRow ? 40 : 28)
                 .frame(maxWidth: fillsRow ? .infinity : nil, alignment: .leading)
@@ -391,7 +401,7 @@ struct ToolbarIconButton: View {
         .onHover { isHovered = $0 }
     }
 
-    private var foregroundColor: Color {
+    private var iconForegroundColor: Color {
         if isDisabled {
             return AppPalette.labelQuaternary(isDark)
         }
@@ -399,6 +409,10 @@ struct ToolbarIconButton: View {
             return tint
         }
         return AppPalette.toolbarIcon(isDark)
+    }
+
+    private var labelForegroundColor: Color {
+        isDisabled ? AppPalette.labelQuaternary(isDark) : AppPalette.toolbarIcon(isDark)
     }
 
     private var backgroundColor: Color {
@@ -639,22 +653,15 @@ public struct ReaderLeftSidebarView: View {
     private var headerAccessory: some View {
         switch tab.activeSidebarTab {
         case .thumbnails:
-            Text(L10n.pageCountText(tab.activeThumbnailSource.document.pageCount))
+            let selectedCount = tab.selectedThumbnailPages(in: tab.activeThumbnailSource).count
+            Text(selectedCount > 0
+                 ? L10n.selectedPagesCount(selectedCount)
+                 : L10n.pageCountText(tab.activeThumbnailSource.document.pageCount))
                 .font(.system(size: 11))
                 .monospacedDigit()
                 .foregroundColor(AppPalette.labelTertiary(isDark))
-        case .outline:
+        case .outline, .bookmarks:
             EmptyView()
-        case .bookmarks:
-            let isCurrentBookmarked = store.isPageBookmarked(pageIndex: tab.currentPageIndex, in: tab.documentID)
-            PanelHeaderIconButton(
-                icon: "plus",
-                tooltip: L10n.tr("为当前页添加书签 (⌘D)", "Add Bookmark for Current Page (⌘D)"),
-                isDisabled: isCurrentBookmarked,
-                isDark: isDark
-            ) {
-                store.toggleBookmark(pageIndex: tab.currentPageIndex, in: tab.documentID)
-            }
         }
     }
 }
@@ -668,6 +675,7 @@ struct PanelSegmentedControl<Item: Identifiable & Hashable, SegmentLabel: View>:
     let isDark: Bool
     @ViewBuilder let label: (Item, Bool) -> SegmentLabel
 
+    @Environment(\.appAccentColor) private var accent
     @Namespace private var thumbNamespace
 
     var body: some View {
@@ -680,7 +688,7 @@ struct PanelSegmentedControl<Item: Identifiable & Hashable, SegmentLabel: View>:
                     }
                 } label: {
                     label(item, isSelected)
-                        .foregroundColor(isSelected ? AppPalette.labelPrimary(isDark) : AppPalette.labelSecondary(isDark))
+                        .foregroundColor(isSelected ? accent : AppPalette.labelSecondary(isDark))
                         .frame(maxWidth: .infinity)
                         .frame(height: 24)
                         .background {
@@ -770,6 +778,7 @@ struct PDFPageThumbnailsPanel: View {
 
     var body: some View {
         let source = tab.activeThumbnailSource
+        let selectedPages = tab.selectedThumbnailPages(in: source)
         let scale = panelWidth / ReaderLeftSidebarView.width
         // Reuse nearby resolutions during a drag instead of rendering on every point of movement.
         let renderScale = (scale * 4).rounded(.up) / 4
@@ -804,6 +813,11 @@ struct PDFPageThumbnailsPanel: View {
             }
         }
         .id(ObjectIdentifier(source.document))
+        .onExitCommand {
+            if !selectedPages.isEmpty {
+                tab.clearThumbnailSelection()
+            }
+        }
     }
 }
 
@@ -830,11 +844,25 @@ struct PageThumbnailCell: View {
 
     var body: some View {
         let isCurrent = source.pageIndex == pageIndex
+        let selectedPages = tab.selectedThumbnailPages(in: source)
+        let isSelected = selectedPages.contains(pageIndex)
+        let hasMultiSelection = !selectedPages.isEmpty
+        let isEmphasized = hasMultiSelection ? isSelected : isCurrent
         let isBookmarked = store.isPageBookmarked(pageIndex: pageIndex, in: source.documentID)
         let page = source.document.page(at: pageIndex)
         let pageLabel = tab.thumbnailPageNumber(at: pageIndex, in: source.document)
 
-        Button(action: action) {
+        Button {
+            let flags = NSApp.currentEvent?.modifierFlags.intersection(.deviceIndependentFlagsMask) ?? []
+            if flags.contains(.shift) {
+                tab.selectThumbnailRange(to: pageIndex, in: source, extending: flags.contains(.command))
+            } else if flags.contains(.command) {
+                tab.toggleThumbnailSelection(pageIndex, in: source)
+            } else {
+                tab.clearThumbnailSelection(anchor: pageIndex, in: source)
+                action()
+            }
+        } label: {
             VStack(spacing: 7) {
                 if let page {
                     let request = PDFThumbnailCache.ThumbnailRequest(
@@ -871,7 +899,7 @@ struct PageThumbnailCell: View {
                             if isBookmarked {
                                 Image(systemName: "bookmark.fill")
                                     .font(.system(size: 13))
-                                    .foregroundColor(AppPalette.systemRed)
+                                    .foregroundColor(accent)
                                     .shadow(color: Color.black.opacity(0.2), radius: 1, x: 0, y: 0.5)
                                     .padding(.trailing, 8)
                                     .offset(y: -2)
@@ -879,26 +907,36 @@ struct PageThumbnailCell: View {
                         }
                         .shadow(color: Color.black.opacity(isDark ? 0.45 : 0.10), radius: 2.5, x: 0, y: 1)
                         .padding(4)
+                        .background(
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .fill(isSelected ? accent.opacity(isDark ? 0.14 : 0.08) : Color.clear)
+                        )
                         .overlay(
                             RoundedRectangle(cornerRadius: 5, style: .continuous)
                                 .stroke(
-                                    isCurrent
+                                    isEmphasized
                                         ? accent
-                                        : (isHovered ? accent.opacity(0.35) : Color.clear),
-                                    lineWidth: 2
+                                        : (hasMultiSelection && isCurrent
+                                            ? AppPalette.labelQuaternary(isDark)
+                                            : (isHovered ? accent.opacity(0.35) : Color.clear)),
+                                    lineWidth: isEmphasized ? 2 : (hasMultiSelection && isCurrent ? 1.5 : 2)
                                 )
                         )
                 }
 
                 Text(pageLabel)
-                    .font(.system(size: 11, weight: isCurrent ? .semibold : .regular))
+                    .font(.system(size: 11, weight: isEmphasized ? .semibold : .regular))
                     .monospacedDigit()
-                    .foregroundColor(isCurrent ? .white : AppPalette.labelSecondary(isDark))
+                    .foregroundColor(
+                        isEmphasized
+                            ? .white
+                            : (hasMultiSelection && isCurrent ? AppPalette.labelPrimary(isDark) : AppPalette.labelSecondary(isDark))
+                    )
                     .padding(.horizontal, 7)
                     .padding(.vertical, 2)
                     .background(
                         RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .fill(isCurrent ? accent : Color.clear)
+                            .fill(isEmphasized ? accent : (hasMultiSelection && isCurrent ? AppPalette.rowHover(isDark) : Color.clear))
                     )
             }
             .contentShape(Rectangle())
@@ -906,11 +944,96 @@ struct PageThumbnailCell: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(L10n.pageTitle(pageLabel)))
-        .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : [.isButton])
+        .accessibilityAddTraits((isCurrent || isSelected) ? [.isButton, .isSelected] : [.isButton])
         .onHover { isHovered = $0 }
         .contextMenu {
-            Button(isBookmarked ? L10n.tr("移除书签", "Remove Bookmark") : L10n.tr("添加书签", "Add Bookmark")) {
-                store.toggleBookmark(pageIndex: pageIndex, in: source.documentID)
+            let selectedPages = tab.selectedThumbnailPages(in: source)
+            let actsOnSelection = selectedPages.count > 1 && selectedPages.contains(pageIndex)
+            let targetWindow = store.window(forTabID: tab.id)
+            let canCopyPage = PageImageClipboard.canCopy(page)
+
+            if actsOnSelection {
+                let orderedSelection = selectedPages.sorted()
+                let allBookmarked = orderedSelection.allSatisfy {
+                    store.isPageBookmarked(pageIndex: $0, in: source.documentID)
+                }
+
+                Button(L10n.exportSelectedPages(orderedSelection.count)) {
+                    tab.beginExportPanel(in: targetWindow, initialPages: orderedSelection, source: source)
+                }
+                .disabled(!canCopyPage)
+
+                Divider()
+
+                Button(allBookmarked ? L10n.tr("移除书签", "Remove Bookmark") : L10n.tr("添加书签", "Add Bookmark")) {
+                    store.setBookmarks(
+                        pageIndices: orderedSelection,
+                        bookmarked: !allBookmarked,
+                        in: source.documentID,
+                        undoManager: tab.undoManager
+                    )
+                }
+
+                Divider()
+
+                Button(L10n.tr("向左旋转", "Rotate Left")) {
+                    tab.rotatePages(orderedSelection, in: source.document, clockwise: false)
+                }
+
+                Button(L10n.tr("向右旋转", "Rotate Right")) {
+                    tab.rotatePages(orderedSelection, in: source.document, clockwise: true)
+                }
+
+                Divider()
+
+                Button(L10n.tr("取消选择", "Deselect All")) {
+                    tab.clearThumbnailSelection()
+                }
+            } else {
+                if tab.canOpenThumbnailInSplitView(source: source) {
+                    Button(L10n.tr("在分屏中查看此页", "Open Page in Split View")) {
+                        tab.openPageInSplitView(pageIndex, from: source)
+                    }
+
+                    Divider()
+                }
+
+                Button(isBookmarked ? L10n.tr("移除书签", "Remove Bookmark") : L10n.tr("添加书签", "Add Bookmark")) {
+                    store.toggleBookmark(
+                        pageIndex: pageIndex,
+                        in: source.documentID,
+                        undoManager: tab.undoManager
+                    )
+                }
+
+                Divider()
+
+                Button(L10n.tr("向左旋转", "Rotate Left")) {
+                    tab.rotatePage(at: pageIndex, in: source.document, clockwise: false)
+                }
+                .disabled(page == nil)
+
+                Button(L10n.tr("向右旋转", "Rotate Right")) {
+                    tab.rotatePage(at: pageIndex, in: source.document, clockwise: true)
+                }
+                .disabled(page == nil)
+
+                Divider()
+
+                Button(L10n.tr("复制此页为图片", "Copy Page as Image")) {
+                    guard let page else { return }
+                    PageImageClipboard.beginCopy(
+                        page,
+                        in: targetWindow,
+                        title: L10n.tr("复制此页为图片", "Copy Page as Image")
+                    )
+                }
+                .disabled(!canCopyPage)
+
+                Button(L10n.tr("导出…", "Export…")) {
+                    tab.beginExportPanel(in: targetWindow, initialPages: [pageIndex], source: source)
+                }
+                .disabled(!canCopyPage)
             }
         }
     }
@@ -1179,7 +1302,7 @@ struct PDFBookmarksPanel: View {
             PanelEmptyState(
                 icon: "bookmark",
                 title: L10n.tr("暂无页面书签", "No Page Bookmarks"),
-                subtitle: L10n.tr("按 ⌘D 或点击右上角的 + 标记当前页", "Press ⌘D or click + in the top right to bookmark this page"),
+                subtitle: L10n.tr("按 ⌘D 或点击工具栏中的书签图标标记当前页", "Press ⌘D or click the bookmark button in the toolbar to bookmark this page"),
                 isDark: isDark
             )
         } else {
@@ -1217,7 +1340,7 @@ struct BookmarkRowView: View {
         HStack(spacing: 8) {
             Image(systemName: "bookmark.fill")
                 .font(.system(size: 11))
-                .foregroundColor(AppPalette.systemRed)
+                .foregroundColor(accent)
 
             Text(bookmark.title)
                 .font(.system(size: 12.5, weight: isCurrent ? .medium : .regular))

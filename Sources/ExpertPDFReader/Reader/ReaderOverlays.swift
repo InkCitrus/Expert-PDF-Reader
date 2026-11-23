@@ -300,6 +300,7 @@ struct PageIndicatorOverlay: View {
     var isSecondaryPane = false
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appAccentColor) private var accent
     @State private var isVisible = true
     @State private var isHovered = false
     @State private var isInRevealZone = false
@@ -393,11 +394,13 @@ struct PageIndicatorOverlay: View {
                             .font(.system(size: 12))
                         TextField(goToPagePlaceholder, text: $goToPageInput)
                             .textFieldStyle(.roundedBorder)
+                            .tint(accent)
                             .frame(width: 84)
                             .accessibilityLabel(Text(L10n.tr("页码", "Page")))
                             .onSubmit(commitGoToPage)
                         Button(L10n.tr("前往", "Go"), action: commitGoToPage)
                             .keyboardShortcut(.defaultAction)
+                            .tint(accent)
                             .controlSize(.small)
                     }
                     if usesBookNumbers && !tab.pageIndicesByLabel.isEmpty {
@@ -496,6 +499,8 @@ struct PageOverviewGridView: View {
 
     var body: some View {
         let source = tab.activeThumbnailSource
+        let pdfTheme = store.resolvedPDFTheme(isDark: isDark)
+        let selectedPages = tab.selectedThumbnailPages(in: source)
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVGrid(
@@ -519,7 +524,9 @@ struct PageOverviewGridView: View {
                         .id(pageIdx)
                     }
                 }
-                .padding(28)
+                .padding(.top, 28)
+                .padding(.horizontal, 28)
+                .padding(.bottom, selectedPages.isEmpty ? 28 : 80)
             }
             .task {
                 // Scrolling from onAppear runs before the lazy grid has a layout and is lost
@@ -529,7 +536,98 @@ struct PageOverviewGridView: View {
             }
         }
         .id(ObjectIdentifier(source.document))
-        .background(store.resolvedPDFTheme(isDark: isDark).documentBackgroundColor(isDarkUI: isDark))
+        .background(pdfTheme.documentBackgroundColor(isDarkUI: isDark))
+        .overlay(alignment: .bottom) {
+            if !selectedPages.isEmpty {
+                let ordered = selectedPages.sorted()
+                let canExport = PageImageClipboard.canCopy(source.document.page(at: ordered[0]))
+                let targetWindow = store.window(forTabID: tab.id)
+                let foreground = AppPalette.pageIndicatorForeground(pdfTheme: pdfTheme, isDarkUI: isDark)
+                HStack(spacing: 10) {
+                    Text(L10n.selectedPagesCount(ordered.count))
+                        .font(.system(size: 12, weight: .medium))
+                        .monospacedDigit()
+                        .foregroundColor(foreground)
+
+                    Rectangle()
+                        .fill(foreground.opacity(0.22))
+                        .frame(width: 1, height: 14)
+
+                    Button {
+                        tab.rotatePages(ordered, in: source.document, clockwise: false)
+                    } label: {
+                        Image(systemName: "rotate.left")
+                            .font(.system(size: 12, weight: .medium))
+                            .frame(width: 22, height: 22)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(foreground.opacity(0.88))
+                    .help(L10n.tr("向左旋转", "Rotate Left"))
+                    .accessibilityLabel(Text(L10n.tr("向左旋转", "Rotate Left")))
+
+                    Button {
+                        tab.rotatePages(ordered, in: source.document, clockwise: true)
+                    } label: {
+                        Image(systemName: "rotate.right")
+                            .font(.system(size: 12, weight: .medium))
+                            .frame(width: 22, height: 22)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(foreground.opacity(0.88))
+                    .help(L10n.tr("向右旋转", "Rotate Right"))
+                    .accessibilityLabel(Text(L10n.tr("向右旋转", "Rotate Right")))
+
+                    Rectangle()
+                        .fill(foreground.opacity(0.22))
+                        .frame(width: 1, height: 14)
+
+                    Button(L10n.tr("导出…", "Export…")) {
+                        tab.beginExportPanel(in: targetWindow, initialPages: ordered, source: source)
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(canExport ? foreground : foreground.opacity(0.38))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color.white.opacity(0.14))
+                    )
+                    .disabled(!canExport)
+
+                    Button {
+                        tab.clearThumbnailSelection()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundColor(foreground.opacity(0.75))
+                            .frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(.plain)
+                    .help(L10n.tr("取消选择", "Deselect All"))
+                    .accessibilityLabel(Text(L10n.tr("取消选择", "Deselect All")))
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(AppPalette.pageIndicatorBackground(pdfTheme: pdfTheme, isDarkUI: isDark, isHovered: false))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                .strokeBorder(AppPalette.pageIndicatorBorder(pdfTheme: pdfTheme, isDarkUI: isDark, isHovered: false), lineWidth: 1)
+                        )
+                        .shadow(color: Color.black.opacity(pdfTheme == .night || isDark ? 0.45 : 0.18), radius: 6, x: 0, y: 2)
+                )
+                .padding(.bottom, 22)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(AppAnimation.snappy, value: selectedPages.isEmpty)
+        .onExitCommand {
+            if !selectedPages.isEmpty {
+                tab.clearThumbnailSelection()
+            }
+        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Text(L10n.tr("页面概览", "Page Overview")))
     }

@@ -287,10 +287,113 @@ public enum L10n {
         "\(tr("关闭标签", "Close Tab")) \(title)"
     }
 
+    public static func selectedPagesCount(_ count: Int) -> String {
+        switch resolvedLanguage {
+        case .zhHans: return "已选 \(count) 页"
+        case .zhHant: return "已選 \(count) 頁"
+        case .ja:     return "\(count) ページ選択中"
+        case .ko:     return "\(count)페이지 선택됨"
+        case .fr:     return count == 1 ? "1 page sélectionnée" : "\(count) pages sélectionnées"
+        case .de:     return count == 1 ? "1 Seite ausgewählt" : "\(count) Seiten ausgewählt"
+        case .es:     return count == 1 ? "1 página seleccionada" : "\(count) páginas seleccionadas"
+        case .it:     return count == 1 ? "1 pagina selezionata" : "\(count) pagine selezionate"
+        case .pt:     return count == 1 ? "1 página selecionada" : "\(count) páginas selecionadas"
+        case .ru:     return "Выбрано стр.: \(count)"
+        case .uk:     return "Вибрано стор.: \(count)"
+        default:      return count == 1 ? "1 page selected" : "\(count) pages selected"
+        }
+    }
+
+    public static func exportSelectedPages(_ count: Int) -> String {
+        switch resolvedLanguage {
+        case .zhHans: return "导出所选 \(count) 页…"
+        case .zhHant: return "匯出所選 \(count) 頁…"
+        case .ja:     return "選択した \(count) ページを書き出す…"
+        case .ko:     return "선택한 \(count)페이지 내보내기…"
+        case .fr:     return count == 1 ? "Exporter la page sélectionnée…" : "Exporter les \(count) pages sélectionnées…"
+        case .de:     return count == 1 ? "Ausgewählte Seite exportieren…" : "\(count) ausgewählte Seiten exportieren…"
+        case .es:     return count == 1 ? "Exportar 1 página seleccionada…" : "Exportar \(count) páginas seleccionadas…"
+        case .it:     return count == 1 ? "Esporta 1 pagina selezionata…" : "Esporta \(count) pagine selezionate…"
+        case .pt:     return count == 1 ? "Exportar 1 página selecionada…" : "Exportar \(count) páginas selecionadas…"
+        case .ru:     return "Экспортировать выбранные (\(count))…"
+        case .uk:     return "Експортувати вибрані (\(count))…"
+        default:      return count == 1 ? "Export 1 Selected Page…" : "Export \(count) Selected Pages…"
+        }
+    }
+
+    public static func exportPageCountSummary(_ count: Int) -> String {
+        switch resolvedLanguage {
+        case .zhHans: return "将导出 \(count) 页"
+        case .zhHant: return "將匯出 \(count) 頁"
+        case .ja:     return "\(count) ページを書き出します"
+        case .ko:     return "\(count)페이지 내보내기"
+        case .fr:     return count == 1 ? "1 page sera exportée" : "\(count) pages seront exportées"
+        case .de:     return count == 1 ? "1 Seite wird exportiert" : "\(count) Seiten werden exportiert"
+        case .es:     return count == 1 ? "Se exportará 1 página" : "Se exportarán \(count) páginas"
+        case .it:     return count == 1 ? "Verrà esportata 1 pagina" : "Verranno esportate \(count) pagine"
+        case .pt:     return count == 1 ? "1 página será exportada" : "\(count) páginas serão exportadas"
+        case .ru:     return "Будет экспортировано стр.: \(count)"
+        case .uk:     return "Буде експортовано стор.: \(count)"
+        default:      return count == 1 ? "1 page will be exported" : "\(count) pages will be exported"
+        }
+    }
+
+    public static func undoMenuTitle(_ actionName: String) -> String {
+        guard !actionName.isEmpty else { return tr("撤销", "Undo") }
+        switch resolvedLanguage {
+        case .zhHans: return "撤销\(actionName)"
+        case .zhHant: return "還原\(actionName)"
+        case .ja:     return "取り消す：\(actionName)"
+        case .ko:     return "\(actionName) 실행 취소"
+        case .fr:     return "Annuler \(actionName)"
+        case .de:     return "\(actionName) widerrufen"
+        case .es:     return "Deshacer \(actionName)"
+        case .it:     return "Annulla \(actionName)"
+        case .pt:     return "Desfazer \(actionName)"
+        case .ru:     return "Отменить «\(actionName)»"
+        case .uk:     return "Скасувати «\(actionName)»"
+        default:      return "Undo \(actionName)"
+        }
+    }
+
+    public static func redoMenuTitle(_ actionName: String) -> String {
+        guard !actionName.isEmpty else { return tr("重做", "Redo") }
+        switch resolvedLanguage {
+        case .zhHans: return "重做\(actionName)"
+        case .zhHant: return "重做\(actionName)"
+        case .ja:     return "やり直す：\(actionName)"
+        case .ko:     return "\(actionName) 다시 실행"
+        case .fr:     return "Rétablir \(actionName)"
+        case .de:     return "\(actionName) wiederholen"
+        case .es:     return "Rehacer \(actionName)"
+        case .it:     return "Ripristina \(actionName)"
+        case .pt:     return "Refazer \(actionName)"
+        case .ru:     return "Повторить «\(actionName)»"
+        case .uk:     return "Повторити «\(actionName)»"
+        default:      return "Redo \(actionName)"
+        }
+    }
+
     private static let catalog: [String: [String: String]] = [
         "zh-Hant": [
             "复制当前页为图片|||Copy Current Page as Image": "複製目前頁面為圖片",
             "无法将此页复制为图片。|||This page could not be copied as an image.": "無法將此頁複製為圖片。",
+            "在分屏中查看此页|||Open Page in Split View": "在分割視圖中檢視此頁",
+            "复制此页为图片|||Copy Page as Image": "複製此頁為圖片",
+            "无法导出此页。|||This page could not be exported.": "無法匯出此頁。",
+            "导出…|||Export…": "匯出…",
+            "导出|||Export": "匯出",
+            "导出为：|||Export As:": "匯出為：",
+            "格式：|||Format:": "格式：",
+            "页面：|||Pages:": "頁面：",
+            "全部页面|||All Pages": "全部頁面",
+            "当前页|||Current Page": "目前頁面",
+            "指定页码|||Page Range": "指定頁碼",
+            "请输入有效的页码范围|||Enter a valid page range": "請輸入有效的頁碼範圍",
+            "请输入有效页码|||Enter a valid page number": "請輸入有效頁碼",
+            "取消选择|||Deselect All": "取消選取",
+            "撤销|||Undo": "還原",
+            "重做|||Redo": "重做",
             "颜色|||Color": "顏色",
             "蓝色|||Blue": "藍色",
             "紫色|||Purple": "紫色",
@@ -335,7 +438,7 @@ public enum L10n {
             "打开最近使用|||Open Recent": "打開最近使用的檔案",
             "清除菜单|||Clear Menu": "清除選單",
             "立即重新启动|||Restart Now": "立即重新啟動",
-            "重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。|||Menus provided by macOS (File, Edit, Window…) switch to this language after a restart.": "重新啟動後，由 macOS 提供的選單（檔案、編輯、視窗等）也會切換為所選語言。",
+            "重启后生效于菜单栏。|||Restart to update the menu bar.": "重啟後生效於選單列。",
             "上下|||Horizontal": "上下",
             "不分屏|||Off": "不分屏",
             "为当前页添加/移除书签|||Toggle Bookmark for Current Page": "為目前頁面加入/移除書籤",
@@ -399,7 +502,7 @@ public enum L10n {
             "打开文件…|||Open File…": "打開檔案…",
             "打开过的 PDF 会显示在这里，方便随时继续阅读。|||Recently opened PDFs will appear here so you can pick up where you left off.": "打開過的 PDF 會顯示在這裡，方便隨時繼續閱讀。",
             "打开过的文件会自动显示在这里，方便随时继续阅读。|||Opened files will appear here automatically so you can continue reading anytime.": "打開過的檔案會自動顯示在這裡，方便隨時繼續閱讀。",
-            "按 ⌘D 或点击右上角的 + 标记当前页|||Press ⌘D or click + in the top right to bookmark this page": "按 ⌘D 或點按右上角的 + 標記目前頁面",
+            "按 ⌘D 或点击工具栏中的书签图标标记当前页|||Press ⌘D or click the bookmark button in the toolbar to bookmark this page": "按 ⌘D 或點按工具列中的書籤圖示標記目前頁面",
             "搜索|||Search": "搜尋",
             "搜索结果|||Search Results": "搜尋結果",
             "收藏夹|||Favorites": "收藏夾",
@@ -429,7 +532,7 @@ public enum L10n {
             "水平分屏（上下）|||Horizontal Split (Top/Bottom)": "水平分割（上下）",
             "没有匹配结果|||No Matches Found": "沒有符合結果",
             "浅色外观|||Light": "淺色外觀",
-            "浅色时使用纸质替代日间|||Use Sepia Instead of Day in Light Mode": "淺色時使用紙質替代日間",
+            "浅色模式改用纸质|||Use Sepia in Light Mode": "淺色模式改用紙質",
             "深色外观|||Dark": "深色外觀",
             "添加书签|||Add Bookmark": "加入書籤",
             "添加到收藏|||Add to Favorites": "加入收藏",
@@ -445,7 +548,7 @@ public enum L10n {
             "点击任一文档，或将 PDF 拖放到下方，在分屏中打开|||Click any document or drag a PDF below to open in split view": "點按任一文件，或將 PDF 拖放到下方，在分割視圖中打開",
             "界面外观|||App Appearance": "介面外觀",
             "界面外观|||Appearance": "介面外觀",
-            "界面外观决定标签栏、工具栏与面板的配色；阅读主题通过 GPU 着色器作用于 PDF 页面本身。当阅读主题设为“跟随系统”时，浅色模式默认使用日间主题（或开启上方选项后使用纸质主题），深色模式自动切换为夜间主题。|||App Appearance controls the tab bar, toolbar, and sidebar colors; Reading Theme applies GPU shaders to the PDF page itself. When Reading Theme is set to Follow System, Light mode uses Day (or Sepia when enabled above) and Dark mode automatically switches to Night.": "介面外觀決定分頁列、工具列與面板的配色；閱讀主題透過 GPU 著色器作用於 PDF 頁面本身。當閱讀主題設為「跟隨系統」時，淺色模式預設使用日間主題（或開啟上方選項後使用紙質主題），深色模式自動切換為夜間主題。",
+            "外观控制窗口配色，主题控制页面配色。|||Appearance styles the window; theme styles PDF pages.": "外觀控制視窗配色，主題控制頁面配色。",
             "禁用分屏视图|||Disable Split View": "停用分割視圖",
             "移除书签|||Remove Bookmark": "移除書籤",
             "移除当前页书签 (⌘D)|||Remove Bookmark for Current Page (⌘D)": "移除目前頁面書籤 (⌘D)",
@@ -465,6 +568,7 @@ public enum L10n {
             "请尝试其他关键词|||Try another keyword": "請嘗試其他關鍵字",
             "跟随系统|||Follow System": "跟隨系統",
             "返回|||Back": "返回",
+            "返回之前的页面|||Return to Previous Page": "返回先前的頁面",
             "返回主页|||Back to Home": "返回首頁",
             "返回对比文档|||Back to Document": "返回對比文件",
             "选择对比文档|||Select Document": "選擇對比文件",
@@ -543,6 +647,22 @@ public enum L10n {
         "ja": [
             "复制当前页为图片|||Copy Current Page as Image": "現在のページを画像としてコピー",
             "无法将此页复制为图片。|||This page could not be copied as an image.": "このページを画像としてコピーできませんでした。",
+            "在分屏中查看此页|||Open Page in Split View": "分割表示でこのページを開く",
+            "复制此页为图片|||Copy Page as Image": "このページを画像としてコピー",
+            "无法导出此页。|||This page could not be exported.": "このページを書き出せませんでした。",
+            "导出…|||Export…": "書き出す…",
+            "导出|||Export": "書き出す",
+            "导出为：|||Export As:": "書き出し名：",
+            "格式：|||Format:": "フォーマット：",
+            "页面：|||Pages:": "ページ：",
+            "全部页面|||All Pages": "すべてのページ",
+            "当前页|||Current Page": "現在のページ",
+            "指定页码|||Page Range": "ページ範囲",
+            "请输入有效的页码范围|||Enter a valid page range": "有効なページ範囲を入力してください",
+            "请输入有效页码|||Enter a valid page number": "有効なページ番号を入力してください",
+            "取消选择|||Deselect All": "選択解除",
+            "撤销|||Undo": "取り消す",
+            "重做|||Redo": "やり直す",
             "颜色|||Color": "カラー",
             "蓝色|||Blue": "ブルー",
             "紫色|||Purple": "パープル",
@@ -587,7 +707,7 @@ public enum L10n {
             "打开最近使用|||Open Recent": "最近使った項目を開く",
             "清除菜单|||Clear Menu": "メニューを消去",
             "立即重新启动|||Restart Now": "今すぐ再起動",
-            "重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。|||Menus provided by macOS (File, Edit, Window…) switch to this language after a restart.": "再起動すると、macOS が提供するメニュー（ファイル、編集、ウインドウなど）も選択した言語に切り替わります。",
+            "重启后生效于菜单栏。|||Restart to update the menu bar.": "メニューバーの反映には再起動が必要です。",
             "上下|||Horizontal": "上下",
             "不分屏|||Off": "オフ",
             "为当前页添加/移除书签|||Toggle Bookmark for Current Page": "現在のページのブックマークを切り替え",
@@ -651,7 +771,7 @@ public enum L10n {
             "打开文件…|||Open File…": "ファイルを開く…",
             "打开过的 PDF 会显示在这里，方便随时继续阅读。|||Recently opened PDFs will appear here so you can pick up where you left off.": "最近開いた PDF がここに表示され、すぐに続きを読むことができます。",
             "打开过的文件会自动显示在这里，方便随时继续阅读。|||Opened files will appear here automatically so you can continue reading anytime.": "開いたファイルが自動的にここに表示され、いつでも続きを読むことができます。",
-            "按 ⌘D 或点击右上角的 + 标记当前页|||Press ⌘D or click + in the top right to bookmark this page": "⌘D を押すか右上の + をクリックして現在のページをブックマーク",
+            "按 ⌘D 或点击工具栏中的书签图标标记当前页|||Press ⌘D or click the bookmark button in the toolbar to bookmark this page": "⌘D を押すかツールバーのブックマークボタンをクリックして現在のページをブックマーク",
             "搜索|||Search": "検索",
             "搜索结果|||Search Results": "検索結果",
             "收藏夹|||Favorites": "お気に入り",
@@ -681,7 +801,7 @@ public enum L10n {
             "水平分屏（上下）|||Horizontal Split (Top/Bottom)": "上下に分割",
             "没有匹配结果|||No Matches Found": "一致する結果がありません",
             "浅色外观|||Light": "ライト外観",
-            "浅色时使用纸质替代日间|||Use Sepia Instead of Day in Light Mode": "ライトモード時に昼の代わりにセピアを使用",
+            "浅色模式改用纸质|||Use Sepia in Light Mode": "ライトモード時はセピアを使用",
             "深色外观|||Dark": "ダーク外観",
             "添加书签|||Add Bookmark": "ブックマークを追加",
             "添加到收藏|||Add to Favorites": "お気に入りに追加",
@@ -697,7 +817,7 @@ public enum L10n {
             "点击任一文档，或将 PDF 拖放到下方，在分屏中打开|||Click any document or drag a PDF below to open in split view": "書類をクリックするか下に PDF をドラッグして分割表示で開きます",
             "界面外观|||App Appearance": "外観モード",
             "界面外观|||Appearance": "外観モード",
-            "界面外观决定标签栏、工具栏与面板的配色；阅读主题通过 GPU 着色器作用于 PDF 页面本身。当阅读主题设为“跟随系统”时，浅色模式默认使用日间主题（或开启上方选项后使用纸质主题），深色模式自动切换为夜间主题。|||App Appearance controls the tab bar, toolbar, and sidebar colors; Reading Theme applies GPU shaders to the PDF page itself. When Reading Theme is set to Follow System, Light mode uses Day (or Sepia when enabled above) and Dark mode automatically switches to Night.": "外観モードはタブバー・ツールバー・サイドバーの配色を制御し、読書テーマは GPU シェーダーで PDF ページ自体に適用されます。「システムに合わせる」を選択すると、ライト時は昼（または上の設定オン時はセピア）、ダーク時は夜に自動切り替えされます。",
+            "外观控制窗口配色，主题控制页面配色。|||Appearance styles the window; theme styles PDF pages.": "外観はウインドウ、テーマは PDF ページの配色を変更します。",
             "禁用分屏视图|||Disable Split View": "分割表示をオフ",
             "移除书签|||Remove Bookmark": "ブックマークを削除",
             "移除当前页书签 (⌘D)|||Remove Bookmark for Current Page (⌘D)": "現在のページのブックマークを削除 (⌘D)",
@@ -717,6 +837,7 @@ public enum L10n {
             "请尝试其他关键词|||Try another keyword": "別のキーワードをお試しください",
             "跟随系统|||Follow System": "システムに合わせる",
             "返回|||Back": "戻る",
+            "返回之前的页面|||Return to Previous Page": "前のページに戻る",
             "返回主页|||Back to Home": "ホームに戻る",
             "返回对比文档|||Back to Document": "比較書類に戻る",
             "选择对比文档|||Select Document": "比較する書類を選択",
@@ -795,6 +916,22 @@ public enum L10n {
         "ko": [
             "复制当前页为图片|||Copy Current Page as Image": "현재 페이지를 이미지로 복사",
             "无法将此页复制为图片。|||This page could not be copied as an image.": "이 페이지를 이미지로 복사할 수 없습니다.",
+            "在分屏中查看此页|||Open Page in Split View": "분할 보기에서 이 페이지 열기",
+            "复制此页为图片|||Copy Page as Image": "이 페이지를 이미지로 복사",
+            "无法导出此页。|||This page could not be exported.": "이 페이지를 내보낼 수 없습니다.",
+            "导出…|||Export…": "내보내기…",
+            "导出|||Export": "내보내기",
+            "导出为：|||Export As:": "별도 이름으로 내보내기:",
+            "格式：|||Format:": "포맷:",
+            "页面：|||Pages:": "페이지:",
+            "全部页面|||All Pages": "모든 페이지",
+            "当前页|||Current Page": "현재 페이지",
+            "指定页码|||Page Range": "페이지 범위",
+            "请输入有效的页码范围|||Enter a valid page range": "유효한 페이지 범위를 입력하세요",
+            "请输入有效页码|||Enter a valid page number": "유효한 페이지 번호를 입력하세요",
+            "取消选择|||Deselect All": "선택 해제",
+            "撤销|||Undo": "실행 취소",
+            "重做|||Redo": "다시 실행",
             "颜色|||Color": "색상",
             "蓝色|||Blue": "파란색",
             "紫色|||Purple": "보라색",
@@ -839,7 +976,7 @@ public enum L10n {
             "打开最近使用|||Open Recent": "최근 사용 항목 열기",
             "清除菜单|||Clear Menu": "메뉴 지우기",
             "立即重新启动|||Restart Now": "지금 재시동",
-            "重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。|||Menus provided by macOS (File, Edit, Window…) switch to this language after a restart.": "재시동하면 macOS가 제공하는 메뉴(파일, 편집, 윈도우 등)도 선택한 언어로 바뀝니다.",
+            "重启后生效于菜单栏。|||Restart to update the menu bar.": "메뉴 막대에 적용하려면 재시동하세요.",
             "上下|||Horizontal": "상하",
             "不分屏|||Off": "끄기",
             "为当前页添加/移除书签|||Toggle Bookmark for Current Page": "현재 페이지 책갈피 전환",
@@ -903,7 +1040,7 @@ public enum L10n {
             "打开文件…|||Open File…": "파일 열기…",
             "打开过的 PDF 会显示在这里，方便随时继续阅读。|||Recently opened PDFs will appear here so you can pick up where you left off.": "최근에 연 PDF가 여기에 표시되어 언제든지 이어서 읽을 수 있습니다.",
             "打开过的文件会自动显示在这里，方便随时继续阅读。|||Opened files will appear here automatically so you can continue reading anytime.": "열었던 파일이 자동으로 여기에 표시되어 언제든지 이어서 읽을 수 있습니다.",
-            "按 ⌘D 或点击右上角的 + 标记当前页|||Press ⌘D or click + in the top right to bookmark this page": "⌘D를 누르거나 오른쪽 상단의 +를 클릭하여 현재 페이지를 책갈피에 추가하세요",
+            "按 ⌘D 或点击工具栏中的书签图标标记当前页|||Press ⌘D or click the bookmark button in the toolbar to bookmark this page": "⌘D를 누르거나 도구 막대의 책갈피 버튼을 클릭하여 현재 페이지를 책갈피에 추가하세요",
             "搜索|||Search": "검색",
             "搜索结果|||Search Results": "검색 결과",
             "收藏夹|||Favorites": "즐겨찾기",
@@ -933,7 +1070,7 @@ public enum L10n {
             "水平分屏（上下）|||Horizontal Split (Top/Bottom)": "수평 분할(상/하)",
             "没有匹配结果|||No Matches Found": "일치하는 결과 없음",
             "浅色外观|||Light": "라이트 모드",
-            "浅色时使用纸质替代日间|||Use Sepia Instead of Day in Light Mode": "라이트 모드에서 주간 대신 세피아 사용",
+            "浅色模式改用纸质|||Use Sepia in Light Mode": "라이트 모드에서 세피아 사용",
             "深色外观|||Dark": "다크 모드",
             "添加书签|||Add Bookmark": "책갈피 추가",
             "添加到收藏|||Add to Favorites": "즐겨찾기에 추가",
@@ -949,7 +1086,7 @@ public enum L10n {
             "点击任一文档，或将 PDF 拖放到下方，在分屏中打开|||Click any document or drag a PDF below to open in split view": "문서를 클릭하거나 아래로 PDF를 드래그하여 분할 보기에서 여세요",
             "界面外观|||App Appearance": "앱 화면 모드",
             "界面外观|||Appearance": "화면 모드",
-            "界面外观决定标签栏、工具栏与面板的配色；阅读主题通过 GPU 着色器作用于 PDF 页面本身。当阅读主题设为“跟随系统”时，浅色模式默认使用日间主题（或开启上方选项后使用纸质主题），深色模式自动切换为夜间主题。|||App Appearance controls the tab bar, toolbar, and sidebar colors; Reading Theme applies GPU shaders to the PDF page itself. When Reading Theme is set to Follow System, Light mode uses Day (or Sepia when enabled above) and Dark mode automatically switches to Night.": "앱 화면 모드는 탭 막대, 도구 모음 및 사이드바 색상을 제어하며, 읽기 테마는 GPU 셰이더를 통해 PDF 페이지 자체에 적용됩니다. 읽기 테마가 '시스템 설정 따르기'일 때 라이트 모드는 주간(또는 위 옵션 활성화 시 세피아), 다크 모드는 야간 테마로 자동 전환됩니다.",
+            "外观控制窗口配色，主题控制页面配色。|||Appearance styles the window; theme styles PDF pages.": "화면 모드는 창 색상을, 테마는 PDF 페이지 색상을 바꿉니다.",
             "禁用分屏视图|||Disable Split View": "분할 보기 끄기",
             "移除书签|||Remove Bookmark": "책갈피 제거",
             "移除当前页书签 (⌘D)|||Remove Bookmark for Current Page (⌘D)": "현재 페이지 책갈피 제거 (⌘D)",
@@ -969,6 +1106,7 @@ public enum L10n {
             "请尝试其他关键词|||Try another keyword": "다른 키워드로 검색해 보세요",
             "跟随系统|||Follow System": "시스템 설정 따르기",
             "返回|||Back": "뒤로",
+            "返回之前的页面|||Return to Previous Page": "이전 페이지로 돌아가기",
             "返回主页|||Back to Home": "홈으로 돌아가기",
             "返回对比文档|||Back to Document": "비교 문서로 돌아가기",
             "选择对比文档|||Select Document": "비교할 문서 선택",
@@ -1047,6 +1185,22 @@ public enum L10n {
         "fr": [
             "复制当前页为图片|||Copy Current Page as Image": "Copier la page actuelle en image",
             "无法将此页复制为图片。|||This page could not be copied as an image.": "Impossible de copier cette page en image.",
+            "在分屏中查看此页|||Open Page in Split View": "Ouvrir la page en vue scindée",
+            "复制此页为图片|||Copy Page as Image": "Copier la page en image",
+            "无法导出此页。|||This page could not be exported.": "Impossible d’exporter cette page.",
+            "导出…|||Export…": "Exporter…",
+            "导出|||Export": "Exporter",
+            "导出为：|||Export As:": "Exporter sous :",
+            "格式：|||Format:": "Format :",
+            "页面：|||Pages:": "Pages :",
+            "全部页面|||All Pages": "Toutes les pages",
+            "当前页|||Current Page": "Page active",
+            "指定页码|||Page Range": "Plage de pages",
+            "请输入有效的页码范围|||Enter a valid page range": "Saisissez une plage de pages valide",
+            "请输入有效页码|||Enter a valid page number": "Saisissez un numéro de page valide",
+            "取消选择|||Deselect All": "Tout désélectionner",
+            "撤销|||Undo": "Annuler",
+            "重做|||Redo": "Rétablir",
             "颜色|||Color": "Couleur",
             "蓝色|||Blue": "Bleu",
             "紫色|||Purple": "Violet",
@@ -1091,7 +1245,7 @@ public enum L10n {
             "打开最近使用|||Open Recent": "Ouvrir l’élément récent",
             "清除菜单|||Clear Menu": "Effacer le menu",
             "立即重新启动|||Restart Now": "Redémarrer maintenant",
-            "重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。|||Menus provided by macOS (File, Edit, Window…) switch to this language after a restart.": "Les menus fournis par macOS (Fichier, Édition, Fenêtre…) passent à cette langue après un redémarrage.",
+            "重启后生效于菜单栏。|||Restart to update the menu bar.": "Redémarrez pour mettre à jour la barre des menus.",
             "上下|||Horizontal": "Horizontal",
             "不分屏|||Off": "Désactivé",
             "为当前页添加/移除书签|||Toggle Bookmark for Current Page": "Basculer le signet pour la page actuelle",
@@ -1155,7 +1309,7 @@ public enum L10n {
             "打开文件…|||Open File…": "Ouvrir un fichier…",
             "打开过的 PDF 会显示在这里，方便随时继续阅读。|||Recently opened PDFs will appear here so you can pick up where you left off.": "Les PDF récemment ouverts apparaîtront ici pour reprendre votre lecture.",
             "打开过的文件会自动显示在这里，方便随时继续阅读。|||Opened files will appear here automatically so you can continue reading anytime.": "Les fichiers ouverts s’afficheront automatiquement ici pour continuer votre lecture.",
-            "按 ⌘D 或点击右上角的 + 标记当前页|||Press ⌘D or click + in the top right to bookmark this page": "Appuyez sur ⌘D ou cliquez sur + en haut à droite pour marquer cette page",
+            "按 ⌘D 或点击工具栏中的书签图标标记当前页|||Press ⌘D or click the bookmark button in the toolbar to bookmark this page": "Appuyez sur ⌘D ou cliquez sur le bouton signet dans la barre d’outils pour marquer cette page",
             "搜索|||Search": "Rechercher",
             "搜索结果|||Search Results": "Résultats de recherche",
             "收藏夹|||Favorites": "Favoris",
@@ -1185,7 +1339,7 @@ public enum L10n {
             "水平分屏（上下）|||Horizontal Split (Top/Bottom)": "Fractionnement horizontal (haut/bas)",
             "没有匹配结果|||No Matches Found": "Aucun résultat trouvé",
             "浅色外观|||Light": "Apparence claire",
-            "浅色时使用纸质替代日间|||Use Sepia Instead of Day in Light Mode": "Utiliser Sépia au lieu de Jour en mode clair",
+            "浅色模式改用纸质|||Use Sepia in Light Mode": "Utiliser Sépia en mode clair",
             "深色外观|||Dark": "Apparence sombre",
             "添加书签|||Add Bookmark": "Ajouter un signet",
             "添加到收藏|||Add to Favorites": "Ajouter aux favoris",
@@ -1201,7 +1355,7 @@ public enum L10n {
             "点击任一文档，或将 PDF 拖放到下方，在分屏中打开|||Click any document or drag a PDF below to open in split view": "Cliquez sur un document ou glissez un PDF ci-dessous pour l’ouvrir en vue fractionnée",
             "界面外观|||App Appearance": "Apparence de l’app",
             "界面外观|||Appearance": "Apparence",
-            "界面外观决定标签栏、工具栏与面板的配色；阅读主题通过 GPU 着色器作用于 PDF 页面本身。当阅读主题设为“跟随系统”时，浅色模式默认使用日间主题（或开启上方选项后使用纸质主题），深色模式自动切换为夜间主题。|||App Appearance controls the tab bar, toolbar, and sidebar colors; Reading Theme applies GPU shaders to the PDF page itself. When Reading Theme is set to Follow System, Light mode uses Day (or Sepia when enabled above) and Dark mode automatically switches to Night.": "L’apparence contrôle les couleurs des barres d’onglets, d’outils et des panneaux ; le thème de lecture applique des shaders GPU aux pages PDF. En mode « Suivre le système », le mode clair utilise Jour (ou Sépia si activé ci-dessus) et le mode sombre bascule sur Nuit.",
+            "外观控制窗口配色，主题控制页面配色。|||Appearance styles the window; theme styles PDF pages.": "L’apparence règle la fenêtre ; le thème règle les pages PDF.",
             "禁用分屏视图|||Disable Split View": "Désactiver la vue fractionnée",
             "移除书签|||Remove Bookmark": "Supprimer le signet",
             "移除当前页书签 (⌘D)|||Remove Bookmark for Current Page (⌘D)": "Supprimer le signet de la page actuelle (⌘D)",
@@ -1221,6 +1375,7 @@ public enum L10n {
             "请尝试其他关键词|||Try another keyword": "Essayez un autre mot-clé",
             "跟随系统|||Follow System": "Suivre le système",
             "返回|||Back": "Précédent",
+            "返回之前的页面|||Return to Previous Page": "Revenir à la page précédente",
             "返回主页|||Back to Home": "Retour à l’accueil",
             "返回对比文档|||Back to Document": "Retour au document",
             "选择对比文档|||Select Document": "Choisir un document",
@@ -1299,6 +1454,22 @@ public enum L10n {
         "de": [
             "复制当前页为图片|||Copy Current Page as Image": "Aktuelle Seite als Bild kopieren",
             "无法将此页复制为图片。|||This page could not be copied as an image.": "Diese Seite konnte nicht als Bild kopiert werden.",
+            "在分屏中查看此页|||Open Page in Split View": "Seite in geteilter Ansicht öffnen",
+            "复制此页为图片|||Copy Page as Image": "Seite als Bild kopieren",
+            "无法导出此页。|||This page could not be exported.": "Diese Seite konnte nicht exportiert werden.",
+            "导出…|||Export…": "Exportieren…",
+            "导出|||Export": "Exportieren",
+            "导出为：|||Export As:": "Exportieren als:",
+            "格式：|||Format:": "Format:",
+            "页面：|||Pages:": "Seiten:",
+            "全部页面|||All Pages": "Alle Seiten",
+            "当前页|||Current Page": "Aktuelle Seite",
+            "指定页码|||Page Range": "Seitenbereich",
+            "请输入有效的页码范围|||Enter a valid page range": "Gültigen Seitenbereich eingeben",
+            "请输入有效页码|||Enter a valid page number": "Gültige Seitenzahl eingeben",
+            "取消选择|||Deselect All": "Auswahl aufheben",
+            "撤销|||Undo": "Widerrufen",
+            "重做|||Redo": "Wiederholen",
             "颜色|||Color": "Farbe",
             "蓝色|||Blue": "Blau",
             "紫色|||Purple": "Violett",
@@ -1343,7 +1514,7 @@ public enum L10n {
             "打开最近使用|||Open Recent": "Benutzte Dokumente",
             "清除菜单|||Clear Menu": "Einträge löschen",
             "立即重新启动|||Restart Now": "Jetzt neu starten",
-            "重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。|||Menus provided by macOS (File, Edit, Window…) switch to this language after a restart.": "Von macOS bereitgestellte Menüs (Ablage, Bearbeiten, Fenster …) wechseln nach einem Neustart in diese Sprache.",
+            "重启后生效于菜单栏。|||Restart to update the menu bar.": "Für die Menüleiste neu starten.",
             "上下|||Horizontal": "Horizontal",
             "不分屏|||Off": "Aus",
             "为当前页添加/移除书签|||Toggle Bookmark for Current Page": "Lesezeichen für aktuelle Seite umschalten",
@@ -1407,7 +1578,7 @@ public enum L10n {
             "打开文件…|||Open File…": "Datei öffnen…",
             "打开过的 PDF 会显示在这里，方便随时继续阅读。|||Recently opened PDFs will appear here so you can pick up where you left off.": "Kürzlich geöffnete PDFs werden hier angezeigt, damit Sie jederzeit weiterlesen können.",
             "打开过的文件会自动显示在这里，方便随时继续阅读。|||Opened files will appear here automatically so you can continue reading anytime.": "Geöffnete Dateien werden automatisch hier angezeigt, damit Sie jederzeit weiterlesen können.",
-            "按 ⌘D 或点击右上角的 + 标记当前页|||Press ⌘D or click + in the top right to bookmark this page": "Drücken Sie ⌘D oder klicken Sie oben rechts auf +, um diese Seite mit einem Lesezeichen zu versehen",
+            "按 ⌘D 或点击工具栏中的书签图标标记当前页|||Press ⌘D or click the bookmark button in the toolbar to bookmark this page": "Drücken Sie ⌘D oder klicken Sie auf die Lesezeichen-Taste in der Symbolleiste, um diese Seite zu markieren",
             "搜索|||Search": "Suchen",
             "搜索结果|||Search Results": "Suchergebnisse",
             "收藏夹|||Favorites": "Favoriten",
@@ -1437,7 +1608,7 @@ public enum L10n {
             "水平分屏（上下）|||Horizontal Split (Top/Bottom)": "Horizontal teilen (Oben/Unten)",
             "没有匹配结果|||No Matches Found": "Keine Treffer gefunden",
             "浅色外观|||Light": "Helles Erscheinungsbild",
-            "浅色时使用纸质替代日间|||Use Sepia Instead of Day in Light Mode": "Im hellen Modus Sepia statt Tag verwenden",
+            "浅色模式改用纸质|||Use Sepia in Light Mode": "Im hellen Modus Sepia verwenden",
             "深色外观|||Dark": "Dunkles Erscheinungsbild",
             "添加书签|||Add Bookmark": "Lesezeichen hinzufügen",
             "添加到收藏|||Add to Favorites": "Zu Favoriten hinzufügen",
@@ -1453,7 +1624,7 @@ public enum L10n {
             "点击任一文档，或将 PDF 拖放到下方，在分屏中打开|||Click any document or drag a PDF below to open in split view": "Klicken Sie auf ein Dokument oder ziehen Sie ein PDF nach unten, um es in der geteilten Ansicht zu öffnen",
             "界面外观|||App Appearance": "Erscheinungsbild",
             "界面外观|||Appearance": "Erscheinungsbild",
-            "界面外观决定标签栏、工具栏与面板的配色；阅读主题通过 GPU 着色器作用于 PDF 页面本身。当阅读主题设为“跟随系统”时，浅色模式默认使用日间主题（或开启上方选项后使用纸质主题），深色模式自动切换为夜间主题。|||App Appearance controls the tab bar, toolbar, and sidebar colors; Reading Theme applies GPU shaders to the PDF page itself. When Reading Theme is set to Follow System, Light mode uses Day (or Sepia when enabled above) and Dark mode automatically switches to Night.": "Das Erscheinungsbild steuert die Farben von Tableiste, Symbolleiste und Seitenleisten; das Lesethema wendet GPU-Shader auf die PDF-Seite an. Bei „System folgen“ nutzt der helle Modus Tag (oder Sepia, falls oben aktiviert) und der dunkle Modus automatisch Nacht.",
+            "外观控制窗口配色，主题控制页面配色。|||Appearance styles the window; theme styles PDF pages.": "Erscheinungsbild für das Fenster, Thema für PDF-Seiten.",
             "禁用分屏视图|||Disable Split View": "Geteilte Ansicht deaktivieren",
             "移除书签|||Remove Bookmark": "Lesezeichen entfernen",
             "移除当前页书签 (⌘D)|||Remove Bookmark for Current Page (⌘D)": "Lesezeichen der aktuellen Seite entfernen (⌘D)",
@@ -1473,6 +1644,7 @@ public enum L10n {
             "请尝试其他关键词|||Try another keyword": "Versuchen Sie einen anderen Suchbegriff",
             "跟随系统|||Follow System": "System folgen",
             "返回|||Back": "Zurück",
+            "返回之前的页面|||Return to Previous Page": "Zur vorherigen Seite zurückkehren",
             "返回主页|||Back to Home": "Zurück zum Start",
             "返回对比文档|||Back to Document": "Zurück zum Dokument",
             "选择对比文档|||Select Document": "Dokument auswählen",
@@ -1551,6 +1723,22 @@ public enum L10n {
         "es": [
             "复制当前页为图片|||Copy Current Page as Image": "Copiar página actual como imagen",
             "无法将此页复制为图片。|||This page could not be copied as an image.": "No se pudo copiar esta página como imagen.",
+            "在分屏中查看此页|||Open Page in Split View": "Abrir página en vista dividida",
+            "复制此页为图片|||Copy Page as Image": "Copiar página como imagen",
+            "无法导出此页。|||This page could not be exported.": "No se pudo exportar esta página.",
+            "导出…|||Export…": "Exportar…",
+            "导出|||Export": "Exportar",
+            "导出为：|||Export As:": "Exportar como:",
+            "格式：|||Format:": "Formato:",
+            "页面：|||Pages:": "Páginas:",
+            "全部页面|||All Pages": "Todas las páginas",
+            "当前页|||Current Page": "Página actual",
+            "指定页码|||Page Range": "Intervalo de páginas",
+            "请输入有效的页码范围|||Enter a valid page range": "Introduce un intervalo de páginas válido",
+            "请输入有效页码|||Enter a valid page number": "Introduce un número de página válido",
+            "取消选择|||Deselect All": "Deseleccionar todo",
+            "撤销|||Undo": "Deshacer",
+            "重做|||Redo": "Rehacer",
             "颜色|||Color": "Color",
             "蓝色|||Blue": "Azul",
             "紫色|||Purple": "Morado",
@@ -1595,7 +1783,7 @@ public enum L10n {
             "打开最近使用|||Open Recent": "Abrir recientes",
             "清除菜单|||Clear Menu": "Borrar menú",
             "立即重新启动|||Restart Now": "Reiniciar ahora",
-            "重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。|||Menus provided by macOS (File, Edit, Window…) switch to this language after a restart.": "Los menús que proporciona macOS (Archivo, Edición, Ventana…) cambian a este idioma tras reiniciar.",
+            "重启后生效于菜单栏。|||Restart to update the menu bar.": "Reinicia para actualizar la barra de menús.",
             "上下|||Horizontal": "Horizontal",
             "不分屏|||Off": "Desactivado",
             "为当前页添加/移除书签|||Toggle Bookmark for Current Page": "Alternar marcador en la página actual",
@@ -1659,7 +1847,7 @@ public enum L10n {
             "打开文件…|||Open File…": "Abrir archivo…",
             "打开过的 PDF 会显示在这里，方便随时继续阅读。|||Recently opened PDFs will appear here so you can pick up where you left off.": "Los PDF abiertos recientemente aparecerán aquí para que pueda continuar leyendo.",
             "打开过的文件会自动显示在这里，方便随时继续阅读。|||Opened files will appear here automatically so you can continue reading anytime.": "Los archivos abiertos aparecerán aquí automáticamente para continuar leyendo en cualquier momento.",
-            "按 ⌘D 或点击右上角的 + 标记当前页|||Press ⌘D or click + in the top right to bookmark this page": "Pulse ⌘D o haga clic en + arriba a la derecha para marcar esta página",
+            "按 ⌘D 或点击工具栏中的书签图标标记当前页|||Press ⌘D or click the bookmark button in the toolbar to bookmark this page": "Pulse ⌘D o haga clic en el botón de marcador de la barra de herramientas para marcar esta página",
             "搜索|||Search": "Buscar",
             "搜索结果|||Search Results": "Resultados de búsqueda",
             "收藏夹|||Favorites": "Favoritos",
@@ -1689,7 +1877,7 @@ public enum L10n {
             "水平分屏（上下）|||Horizontal Split (Top/Bottom)": "División horizontal (arriba/abajo)",
             "没有匹配结果|||No Matches Found": "No se encontraron coincidencias",
             "浅色外观|||Light": "Apariencia clara",
-            "浅色时使用纸质替代日间|||Use Sepia Instead of Day in Light Mode": "Usar Sepia en lugar de Día en modo claro",
+            "浅色模式改用纸质|||Use Sepia in Light Mode": "Usar Sepia en modo claro",
             "深色外观|||Dark": "Apariencia oscura",
             "添加书签|||Add Bookmark": "Añadir marcador",
             "添加到收藏|||Add to Favorites": "Añadir a favoritos",
@@ -1705,7 +1893,7 @@ public enum L10n {
             "点击任一文档，或将 PDF 拖放到下方，在分屏中打开|||Click any document or drag a PDF below to open in split view": "Haga clic en cualquier documento o arrastre un PDF abajo para abrirlo en vista dividida",
             "界面外观|||App Appearance": "Apariencia de la app",
             "界面外观|||Appearance": "Apariencia",
-            "界面外观决定标签栏、工具栏与面板的配色；阅读主题通过 GPU 着色器作用于 PDF 页面本身。当阅读主题设为“跟随系统”时，浅色模式默认使用日间主题（或开启上方选项后使用纸质主题），深色模式自动切换为夜间主题。|||App Appearance controls the tab bar, toolbar, and sidebar colors; Reading Theme applies GPU shaders to the PDF page itself. When Reading Theme is set to Follow System, Light mode uses Day (or Sepia when enabled above) and Dark mode automatically switches to Night.": "La apariencia controla los colores de las barras y paneles; el tema de lectura aplica sombreadores GPU a la página PDF. Al elegir «Seguir al sistema», el modo claro usa Día (o Sepia si se activa arriba) y el modo oscuro cambia automáticamente a Noche.",
+            "外观控制窗口配色，主题控制页面配色。|||Appearance styles the window; theme styles PDF pages.": "La apariencia ajusta la ventana; el tema, las páginas PDF.",
             "禁用分屏视图|||Disable Split View": "Desactivar vista dividida",
             "移除书签|||Remove Bookmark": "Eliminar marcador",
             "移除当前页书签 (⌘D)|||Remove Bookmark for Current Page (⌘D)": "Eliminar marcador de la página actual (⌘D)",
@@ -1725,6 +1913,7 @@ public enum L10n {
             "请尝试其他关键词|||Try another keyword": "Pruebe con otra palabra clave",
             "跟随系统|||Follow System": "Seguir al sistema",
             "返回|||Back": "Atrás",
+            "返回之前的页面|||Return to Previous Page": "Volver a la página anterior",
             "返回主页|||Back to Home": "Volver al inicio",
             "返回对比文档|||Back to Document": "Volver al documento",
             "选择对比文档|||Select Document": "Seleccionar documento",
@@ -1803,6 +1992,22 @@ public enum L10n {
         "it": [
             "复制当前页为图片|||Copy Current Page as Image": "Copia pagina corrente come immagine",
             "无法将此页复制为图片。|||This page could not be copied as an image.": "Impossibile copiare questa pagina come immagine.",
+            "在分屏中查看此页|||Open Page in Split View": "Apri pagina in vista divisa",
+            "复制此页为图片|||Copy Page as Image": "Copia pagina come immagine",
+            "无法导出此页。|||This page could not be exported.": "Impossibile esportare questa pagina.",
+            "导出…|||Export…": "Esporta…",
+            "导出|||Export": "Esporta",
+            "导出为：|||Export As:": "Esporta col nome:",
+            "格式：|||Format:": "Formato:",
+            "页面：|||Pages:": "Pagine:",
+            "全部页面|||All Pages": "Tutte le pagine",
+            "当前页|||Current Page": "Pagina corrente",
+            "指定页码|||Page Range": "Intervallo pagine",
+            "请输入有效的页码范围|||Enter a valid page range": "Inserisci un intervallo di pagine valido",
+            "请输入有效页码|||Enter a valid page number": "Inserisci un numero di pagina valido",
+            "取消选择|||Deselect All": "Deseleziona tutto",
+            "撤销|||Undo": "Annulla",
+            "重做|||Redo": "Ripristina",
             "颜色|||Color": "Colore",
             "蓝色|||Blue": "Blu",
             "紫色|||Purple": "Viola",
@@ -1847,7 +2052,7 @@ public enum L10n {
             "打开最近使用|||Open Recent": "Apri recenti",
             "清除菜单|||Clear Menu": "Cancella menu",
             "立即重新启动|||Restart Now": "Riavvia ora",
-            "重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。|||Menus provided by macOS (File, Edit, Window…) switch to this language after a restart.": "I menu forniti da macOS (File, Modifica, Finestra…) passano a questa lingua dopo un riavvio.",
+            "重启后生效于菜单栏。|||Restart to update the menu bar.": "Riavvia per aggiornare la barra dei menu.",
             "上下|||Horizontal": "Orizzontale",
             "不分屏|||Off": "Disattivato",
             "为当前页添加/移除书签|||Toggle Bookmark for Current Page": "Attiva/disattiva segnalibro per la pagina corrente",
@@ -1911,7 +2116,7 @@ public enum L10n {
             "打开文件…|||Open File…": "Apri file…",
             "打开过的 PDF 会显示在这里，方便随时继续阅读。|||Recently opened PDFs will appear here so you can pick up where you left off.": "I PDF aperti di recente appariranno qui per riprendere la lettura in qualsiasi momento.",
             "打开过的文件会自动显示在这里，方便随时继续阅读。|||Opened files will appear here automatically so you can continue reading anytime.": "I file aperti verranno mostrati automaticamente qui per continuare a leggere in qualsiasi momento.",
-            "按 ⌘D 或点击右上角的 + 标记当前页|||Press ⌘D or click + in the top right to bookmark this page": "Premi ⌘D o fai clic su + in alto a destra per aggiungere un segnalibro",
+            "按 ⌘D 或点击工具栏中的书签图标标记当前页|||Press ⌘D or click the bookmark button in the toolbar to bookmark this page": "Premi ⌘D o fai clic sul pulsante segnalibro nella barra degli strumenti per aggiungere un segnalibro",
             "搜索|||Search": "Cerca",
             "搜索结果|||Search Results": "Risultati di ricerca",
             "收藏夹|||Favorites": "Preferiti",
@@ -1941,7 +2146,7 @@ public enum L10n {
             "水平分屏（上下）|||Horizontal Split (Top/Bottom)": "Divisione orizzontale (alto/basso)",
             "没有匹配结果|||No Matches Found": "Nessun risultato trovato",
             "浅色外观|||Light": "Aspetto chiaro",
-            "浅色时使用纸质替代日间|||Use Sepia Instead of Day in Light Mode": "Usa Seppia invece di Giorno in modalità chiara",
+            "浅色模式改用纸质|||Use Sepia in Light Mode": "Usa Seppia in modalità chiara",
             "深色外观|||Dark": "Aspetto scuro",
             "添加书签|||Add Bookmark": "Aggiungi segnalibro",
             "添加到收藏|||Add to Favorites": "Aggiungi ai preferiti",
@@ -1957,7 +2162,7 @@ public enum L10n {
             "点击任一文档，或将 PDF 拖放到下方，在分屏中打开|||Click any document or drag a PDF below to open in split view": "Fai clic su un documento o trascina un PDF qui sotto per aprirlo in vista divisa",
             "界面外观|||App Appearance": "Aspetto dell’app",
             "界面外观|||Appearance": "Aspetto",
-            "界面外观决定标签栏、工具栏与面板的配色；阅读主题通过 GPU 着色器作用于 PDF 页面本身。当阅读主题设为“跟随系统”时，浅色模式默认使用日间主题（或开启上方选项后使用纸质主题），深色模式自动切换为夜间主题。|||App Appearance controls the tab bar, toolbar, and sidebar colors; Reading Theme applies GPU shaders to the PDF page itself. When Reading Theme is set to Follow System, Light mode uses Day (or Sepia when enabled above) and Dark mode automatically switches to Night.": "L’aspetto controlla i colori di barra delle schede, barra degli strumenti e pannelli; il tema di lettura applica shader GPU alla pagina PDF. Con «Segui il sistema», la modalità chiara usa Giorno (o Seppia se attivato sopra) e quella scura passa automaticamente a Notte.",
+            "外观控制窗口配色，主题控制页面配色。|||Appearance styles the window; theme styles PDF pages.": "L’aspetto regola la finestra; il tema le pagine PDF.",
             "禁用分屏视图|||Disable Split View": "Disattiva vista divisa",
             "移除书签|||Remove Bookmark": "Rimuovi segnalibro",
             "移除当前页书签 (⌘D)|||Remove Bookmark for Current Page (⌘D)": "Rimuovi segnalibro dalla pagina corrente (⌘D)",
@@ -1977,6 +2182,7 @@ public enum L10n {
             "请尝试其他关键词|||Try another keyword": "Prova con un’altra parola chiave",
             "跟随系统|||Follow System": "Segui il sistema",
             "返回|||Back": "Indietro",
+            "返回之前的页面|||Return to Previous Page": "Torna alla pagina precedente",
             "返回主页|||Back to Home": "Torna alla Home",
             "返回对比文档|||Back to Document": "Torna al documento",
             "选择对比文档|||Select Document": "Seleziona documento",
@@ -2055,6 +2261,22 @@ public enum L10n {
         "pt": [
             "复制当前页为图片|||Copy Current Page as Image": "Copiar página atual como imagem",
             "无法将此页复制为图片。|||This page could not be copied as an image.": "Não foi possível copiar esta página como imagem.",
+            "在分屏中查看此页|||Open Page in Split View": "Abrir página em tela dividida",
+            "复制此页为图片|||Copy Page as Image": "Copiar página como imagem",
+            "无法导出此页。|||This page could not be exported.": "Não foi possível exportar esta página.",
+            "导出…|||Export…": "Exportar…",
+            "导出|||Export": "Exportar",
+            "导出为：|||Export As:": "Exportar como:",
+            "格式：|||Format:": "Formato:",
+            "页面：|||Pages:": "Páginas:",
+            "全部页面|||All Pages": "Todas as páginas",
+            "当前页|||Current Page": "Página atual",
+            "指定页码|||Page Range": "Intervalo de páginas",
+            "请输入有效的页码范围|||Enter a valid page range": "Digite um intervalo de páginas válido",
+            "请输入有效页码|||Enter a valid page number": "Digite um número de página válido",
+            "取消选择|||Deselect All": "Desmarcar tudo",
+            "撤销|||Undo": "Desfazer",
+            "重做|||Redo": "Refazer",
             "颜色|||Color": "Cor",
             "蓝色|||Blue": "Azul",
             "紫色|||Purple": "Roxo",
@@ -2099,7 +2321,7 @@ public enum L10n {
             "打开最近使用|||Open Recent": "Abrir Recente",
             "清除菜单|||Clear Menu": "Limpar menu",
             "立即重新启动|||Restart Now": "Reiniciar agora",
-            "重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。|||Menus provided by macOS (File, Edit, Window…) switch to this language after a restart.": "Os menus fornecidos pelo macOS (Arquivo, Editar, Janela…) mudam para este idioma após reiniciar.",
+            "重启后生效于菜单栏。|||Restart to update the menu bar.": "Reinicie para atualizar a barra de menus.",
             "上下|||Horizontal": "Horizontal",
             "不分屏|||Off": "Desativado",
             "为当前页添加/移除书签|||Toggle Bookmark for Current Page": "Alternar marcador na página atual",
@@ -2163,7 +2385,7 @@ public enum L10n {
             "打开文件…|||Open File…": "Abrir arquivo…",
             "打开过的 PDF 会显示在这里，方便随时继续阅读。|||Recently opened PDFs will appear here so you can pick up where you left off.": "Os PDFs abertos recentemente aparecerão aqui para você continuar lendo.",
             "打开过的文件会自动显示在这里，方便随时继续阅读。|||Opened files will appear here automatically so you can continue reading anytime.": "Os arquivos abertos aparecerão aqui automaticamente para continuar lendo a qualquer momento.",
-            "按 ⌘D 或点击右上角的 + 标记当前页|||Press ⌘D or click + in the top right to bookmark this page": "Pressione ⌘D ou clique em + no canto superior direito para marcar esta página",
+            "按 ⌘D 或点击工具栏中的书签图标标记当前页|||Press ⌘D or click the bookmark button in the toolbar to bookmark this page": "Pressione ⌘D ou clique no botão de marcador na barra de ferramentas para marcar esta página",
             "搜索|||Search": "Pesquisar",
             "搜索结果|||Search Results": "Resultados da pesquisa",
             "收藏夹|||Favorites": "Favoritos",
@@ -2193,7 +2415,7 @@ public enum L10n {
             "水平分屏（上下）|||Horizontal Split (Top/Bottom)": "Divisão horizontal (superior/inferior)",
             "没有匹配结果|||No Matches Found": "Nenhum resultado encontrado",
             "浅色外观|||Light": "Aparência clara",
-            "浅色时使用纸质替代日间|||Use Sepia Instead of Day in Light Mode": "Usar Sépia em vez de Dia no modo claro",
+            "浅色模式改用纸质|||Use Sepia in Light Mode": "Usar Sépia no modo claro",
             "深色外观|||Dark": "Aparência escura",
             "添加书签|||Add Bookmark": "Adicionar marcador",
             "添加到收藏|||Add to Favorites": "Adicionar aos favoritos",
@@ -2209,7 +2431,7 @@ public enum L10n {
             "点击任一文档，或将 PDF 拖放到下方，在分屏中打开|||Click any document or drag a PDF below to open in split view": "Clique em qualquer documento ou arraste um PDF abaixo para abrir na visualização dividida",
             "界面外观|||App Appearance": "Aparência do app",
             "界面外观|||Appearance": "Aparência",
-            "界面外观决定标签栏、工具栏与面板的配色；阅读主题通过 GPU 着色器作用于 PDF 页面本身。当阅读主题设为“跟随系统”时，浅色模式默认使用日间主题（或开启上方选项后使用纸质主题），深色模式自动切换为夜间主题。|||App Appearance controls the tab bar, toolbar, and sidebar colors; Reading Theme applies GPU shaders to the PDF page itself. When Reading Theme is set to Follow System, Light mode uses Day (or Sepia when enabled above) and Dark mode automatically switches to Night.": "A aparência controla as cores da barra de abas, barra de ferramentas e painéis; o tema de leitura aplica shaders de GPU à página PDF. Em «Seguir o sistema», o modo claro usa Dia (ou Sépia se ativado acima) e o modo escuro muda automaticamente para Noite.",
+            "外观控制窗口配色，主题控制页面配色。|||Appearance styles the window; theme styles PDF pages.": "A aparência ajusta a janela; o tema, as páginas PDF.",
             "禁用分屏视图|||Disable Split View": "Desativar visualização dividida",
             "移除书签|||Remove Bookmark": "Remover marcador",
             "移除当前页书签 (⌘D)|||Remove Bookmark for Current Page (⌘D)": "Remover marcador da página atual (⌘D)",
@@ -2229,6 +2451,7 @@ public enum L10n {
             "请尝试其他关键词|||Try another keyword": "Tente outra palavra-chave",
             "跟随系统|||Follow System": "Seguir o sistema",
             "返回|||Back": "Voltar",
+            "返回之前的页面|||Return to Previous Page": "Voltar para a página anterior",
             "返回主页|||Back to Home": "Voltar ao Início",
             "返回对比文档|||Back to Document": "Voltar ao documento",
             "选择对比文档|||Select Document": "Selecionar documento",
@@ -2307,6 +2530,22 @@ public enum L10n {
         "ru": [
             "复制当前页为图片|||Copy Current Page as Image": "Скопировать текущую страницу как изображение",
             "无法将此页复制为图片。|||This page could not be copied as an image.": "Не удалось скопировать эту страницу как изображение.",
+            "在分屏中查看此页|||Open Page in Split View": "Открыть страницу в разделённом виде",
+            "复制此页为图片|||Copy Page as Image": "Скопировать страницу как изображение",
+            "无法导出此页。|||This page could not be exported.": "Не удалось экспортировать эту страницу.",
+            "导出…|||Export…": "Экспортировать…",
+            "导出|||Export": "Экспорт",
+            "导出为：|||Export As:": "Экспортировать как:",
+            "格式：|||Format:": "Формат:",
+            "页面：|||Pages:": "Страницы:",
+            "全部页面|||All Pages": "Все страницы",
+            "当前页|||Current Page": "Текущая страница",
+            "指定页码|||Page Range": "Диапазон страниц",
+            "请输入有效的页码范围|||Enter a valid page range": "Введите допустимый диапазон страниц",
+            "请输入有效页码|||Enter a valid page number": "Введите допустимый номер страницы",
+            "取消选择|||Deselect All": "Снять выделение",
+            "撤销|||Undo": "Отменить",
+            "重做|||Redo": "Повторить",
             "颜色|||Color": "Цвет",
             "蓝色|||Blue": "Синий",
             "紫色|||Purple": "Фиолетовый",
@@ -2351,7 +2590,7 @@ public enum L10n {
             "打开最近使用|||Open Recent": "Открыть недавние",
             "清除菜单|||Clear Menu": "Очистить меню",
             "立即重新启动|||Restart Now": "Перезапустить",
-            "重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。|||Menus provided by macOS (File, Edit, Window…) switch to this language after a restart.": "Меню macOS («Файл», «Правка», «Окно» и т. д.) переключатся на этот язык после перезапуска.",
+            "重启后生效于菜单栏。|||Restart to update the menu bar.": "Перезапустите, чтобы обновить строку меню.",
             "上下|||Horizontal": "Горизонт.",
             "不分屏|||Off": "Выкл.",
             "为当前页添加/移除书签|||Toggle Bookmark for Current Page": "Переключить закладку для текущей страницы",
@@ -2415,7 +2654,7 @@ public enum L10n {
             "打开文件…|||Open File…": "Открыть файл…",
             "打开过的 PDF 会显示在这里，方便随时继续阅读。|||Recently opened PDFs will appear here so you can pick up where you left off.": "Недавно открытые PDF-файлы появятся здесь, чтобы вы могли продолжить чтение.",
             "打开过的文件会自动显示在这里，方便随时继续阅读。|||Opened files will appear here automatically so you can continue reading anytime.": "Открытые файлы будут автоматически отображаться здесь для удобного продолжения чтения.",
-            "按 ⌘D 或点击右上角的 + 标记当前页|||Press ⌘D or click + in the top right to bookmark this page": "Нажмите ⌘D или кнопку + в правом верхнем углу, чтобы добавить страницу в закладки",
+            "按 ⌘D 或点击工具栏中的书签图标标记当前页|||Press ⌘D or click the bookmark button in the toolbar to bookmark this page": "Нажмите ⌘D или кнопку закладки на панели инструментов, чтобы добавить страницу в закладки",
             "搜索|||Search": "Поиск",
             "搜索结果|||Search Results": "Результаты поиска",
             "收藏夹|||Favorites": "Избранное",
@@ -2445,7 +2684,7 @@ public enum L10n {
             "水平分屏（上下）|||Horizontal Split (Top/Bottom)": "Горизонтальное разделение (сверху/снизу)",
             "没有匹配结果|||No Matches Found": "Совпадений не найдено",
             "浅色外观|||Light": "Светлое оформление",
-            "浅色时使用纸质替代日间|||Use Sepia Instead of Day in Light Mode": "Использовать «Сепия» вместо «День» в светлой теме",
+            "浅色模式改用纸质|||Use Sepia in Light Mode": "Использовать сепию в светлом режиме",
             "深色外观|||Dark": "Темное оформление",
             "添加书签|||Add Bookmark": "Добавить закладку",
             "添加到收藏|||Add to Favorites": "Добавить в избранное",
@@ -2461,7 +2700,7 @@ public enum L10n {
             "点击任一文档，或将 PDF 拖放到下方，在分屏中打开|||Click any document or drag a PDF below to open in split view": "Нажмите на любой документ или перетащите PDF ниже, чтобы открыть в разделенном виде",
             "界面外观|||App Appearance": "Оформление приложения",
             "界面外观|||Appearance": "Оформление",
-            "界面外观决定标签栏、工具栏与面板的配色；阅读主题通过 GPU 着色器作用于 PDF 页面本身。当阅读主题设为“跟随系统”时，浅色模式默认使用日间主题（或开启上方选项后使用纸质主题），深色模式自动切换为夜间主题。|||App Appearance controls the tab bar, toolbar, and sidebar colors; Reading Theme applies GPU shaders to the PDF page itself. When Reading Theme is set to Follow System, Light mode uses Day (or Sepia when enabled above) and Dark mode automatically switches to Night.": "Оформление определяет цвета панели вкладок, панели инструментов и боковых панелей; тема чтения применяет GPU-шейдеры к самим страницам PDF. В режиме «Как в системе» светлая тема использует «День» (или «Сепия», если включено выше), а темная — «Ночь».",
+            "外观控制窗口配色，主题控制页面配色。|||Appearance styles the window; theme styles PDF pages.": "Оформление меняет окно, тема — страницы PDF.",
             "禁用分屏视图|||Disable Split View": "Отключить разделенный вид",
             "移除书签|||Remove Bookmark": "Удалить закладку",
             "移除当前页书签 (⌘D)|||Remove Bookmark for Current Page (⌘D)": "Удалить закладку текущей страницы (⌘D)",
@@ -2481,6 +2720,7 @@ public enum L10n {
             "请尝试其他关键词|||Try another keyword": "Попробуйте другое ключевое слово",
             "跟随系统|||Follow System": "Как в системе",
             "返回|||Back": "Назад",
+            "返回之前的页面|||Return to Previous Page": "Вернуться к предыдущей странице",
             "返回主页|||Back to Home": "Вернуться на главную",
             "返回对比文档|||Back to Document": "Вернуться к документу",
             "选择对比文档|||Select Document": "Выбрать документ",
@@ -2559,6 +2799,22 @@ public enum L10n {
         "uk": [
             "复制当前页为图片|||Copy Current Page as Image": "Скопіювати поточну сторінку як зображення",
             "无法将此页复制为图片。|||This page could not be copied as an image.": "Не вдалося скопіювати цю сторінку як зображення.",
+            "在分屏中查看此页|||Open Page in Split View": "Відкрити сторінку в розділеному вигляді",
+            "复制此页为图片|||Copy Page as Image": "Скопіювати сторінку як зображення",
+            "无法导出此页。|||This page could not be exported.": "Не вдалося експортувати цю сторінку.",
+            "导出…|||Export…": "Експортувати…",
+            "导出|||Export": "Експорт",
+            "导出为：|||Export As:": "Експортувати як:",
+            "格式：|||Format:": "Формат:",
+            "页面：|||Pages:": "Сторінки:",
+            "全部页面|||All Pages": "Усі сторінки",
+            "当前页|||Current Page": "Поточна сторінка",
+            "指定页码|||Page Range": "Діапазон сторінок",
+            "请输入有效的页码范围|||Enter a valid page range": "Введіть коректний діапазон сторінок",
+            "请输入有效页码|||Enter a valid page number": "Введіть коректний номер сторінки",
+            "取消选择|||Deselect All": "Зняти виділення",
+            "撤销|||Undo": "Скасувати",
+            "重做|||Redo": "Повторити",
             "颜色|||Color": "Колір",
             "蓝色|||Blue": "Синій",
             "紫色|||Purple": "Фіолетовий",
@@ -2603,7 +2859,7 @@ public enum L10n {
             "打开最近使用|||Open Recent": "Відкрити недавні",
             "清除菜单|||Clear Menu": "Очистити меню",
             "立即重新启动|||Restart Now": "Перезапустити зараз",
-            "重新启动后，由 macOS 提供的菜单（文件、编辑、窗口等）也会切换到所选语言。|||Menus provided by macOS (File, Edit, Window…) switch to this language after a restart.": "Меню macOS («Файл», «Редагувати», «Вікно» тощо) перейдуть на цю мову після перезапуску.",
+            "重启后生效于菜单栏。|||Restart to update the menu bar.": "Перезапустіть, щоб оновити рядок меню.",
             "上下|||Horizontal": "Горизонт.",
             "不分屏|||Off": "Вимк.",
             "为当前页添加/移除书签|||Toggle Bookmark for Current Page": "Перемкнути закладку для поточної сторінки",
@@ -2667,7 +2923,7 @@ public enum L10n {
             "打开文件…|||Open File…": "Відкрити файл…",
             "打开过的 PDF 会显示在这里，方便随时继续阅读。|||Recently opened PDFs will appear here so you can pick up where you left off.": "Нещодавно відкриті PDF-файли з’являться тут, щоб ви могли продовжити читання.",
             "打开过的文件会自动显示在这里，方便随时继续阅读。|||Opened files will appear here automatically so you can continue reading anytime.": "Відкриті файли автоматично відображатимуться тут для зручного продовження читання.",
-            "按 ⌘D 或点击右上角的 + 标记当前页|||Press ⌘D or click + in the top right to bookmark this page": "Натисніть ⌘D або кнопку + у правому верхньому куті, щоб додати сторінку в закладки",
+            "按 ⌘D 或点击工具栏中的书签图标标记当前页|||Press ⌘D or click the bookmark button in the toolbar to bookmark this page": "Натисніть ⌘D або кнопку закладки на панелі інструментів, щоб додати сторінку в закладки",
             "搜索|||Search": "Пошук",
             "搜索结果|||Search Results": "Результати пошуку",
             "收藏夹|||Favorites": "Обране",
@@ -2697,7 +2953,7 @@ public enum L10n {
             "水平分屏（上下）|||Horizontal Split (Top/Bottom)": "Горизонтальне розділення (зверху/знизу)",
             "没有匹配结果|||No Matches Found": "Збігів не знайдено",
             "浅色外观|||Light": "Світле оформлення",
-            "浅色时使用纸质替代日间|||Use Sepia Instead of Day in Light Mode": "Використовувати «Сепія» замість «День» у світлій темі",
+            "浅色模式改用纸质|||Use Sepia in Light Mode": "Використовувати сепію у світлому режимі",
             "深色外观|||Dark": "Темне оформлення",
             "添加书签|||Add Bookmark": "Додати закладку",
             "添加到收藏|||Add to Favorites": "Додати до обраного",
@@ -2713,7 +2969,7 @@ public enum L10n {
             "点击任一文档，或将 PDF 拖放到下方，在分屏中打开|||Click any document or drag a PDF below to open in split view": "Натисніть будь-який документ або перетягніть PDF нижче, щоб відкрити в розділеному вигляді",
             "界面外观|||App Appearance": "Оформлення програми",
             "界面外观|||Appearance": "Оформлення",
-            "界面外观决定标签栏、工具栏与面板的配色；阅读主题通过 GPU 着色器作用于 PDF 页面本身。当阅读主题设为“跟随系统”时，浅色模式默认使用日间主题（或开启上方选项后使用纸质主题），深色模式自动切换为夜间主题。|||App Appearance controls the tab bar, toolbar, and sidebar colors; Reading Theme applies GPU shaders to the PDF page itself. When Reading Theme is set to Follow System, Light mode uses Day (or Sepia when enabled above) and Dark mode automatically switches to Night.": "Оформлення визначає кольори панелі вкладок, панелі інструментів і бічних панелей; тема читання застосовує GPU-шейдери до самих сторінок PDF. У режимі «Як у системі» світла тема використовує «День» (або «Сепія», якщо увімкнено вище), а темна — «Ніч».",
+            "外观控制窗口配色，主题控制页面配色。|||Appearance styles the window; theme styles PDF pages.": "Вигляд змінює вікно, тема — сторінки PDF.",
             "禁用分屏视图|||Disable Split View": "Вимкнути розділений вигляд",
             "移除书签|||Remove Bookmark": "Видалити закладку",
             "移除当前页书签 (⌘D)|||Remove Bookmark for Current Page (⌘D)": "Видалити закладку поточної сторінки (⌘D)",
@@ -2733,6 +2989,7 @@ public enum L10n {
             "请尝试其他关键词|||Try another keyword": "Спробуйте інше ключове слово",
             "跟随系统|||Follow System": "Як у системі",
             "返回|||Back": "Назад",
+            "返回之前的页面|||Return to Previous Page": "Повернутися до попередньої сторінки",
             "返回主页|||Back to Home": "Повернутися на головну",
             "返回对比文档|||Back to Document": "Повернутися до документа",
             "选择对比文档|||Select Document": "Вибрати документ",

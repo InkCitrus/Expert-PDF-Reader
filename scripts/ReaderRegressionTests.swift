@@ -129,6 +129,450 @@ struct ReaderRegressionTests {
             } == true, "a stroked frame crops to its drawn extent after applying the PDF transform")
         }
         do {
+            // Paired vertical sidebars enclosing solution rows form a single panel region.
+            let data = NSMutableData()
+            var media = CGRect(x: 0, y: 0, width: 612, height: 792)
+            let context = CGContext(consumer: CGDataConsumer(data: data)!, mediaBox: &media, nil)!
+            context.beginPDFPage(nil)
+            context.setFillColor(gray: 1, alpha: 1)
+            context.fill(media)
+            context.setStrokeColor(red: 0, green: 0, blue: 0.6, alpha: 1)
+            context.setLineWidth(2.8)
+            context.move(to: CGPoint(x: 72, y: 180)); context.addLine(to: CGPoint(x: 72, y: 380)); context.strokePath()
+            context.move(to: CGPoint(x: 540, y: 180)); context.addLine(to: CGPoint(x: 540, y: 380)); context.strokePath()
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.black]
+            ("Outside header line." as NSString).draw(at: CGPoint(x: 85, y: 420), withAttributes: attrs)
+            ("Solution: First solution step." as NSString).draw(at: CGPoint(x: 90, y: 350), withAttributes: attrs)
+            ("Second solution step." as NSString).draw(at: CGPoint(x: 90, y: 325), withAttributes: attrs)
+            ("Final answer." as NSString).draw(at: CGPoint(x: 90, y: 300), withAttributes: attrs)
+            NSGraphicsContext.restoreGraphicsState()
+            context.endPDFPage()
+            context.closePDF()
+            let document = PDFDocument(data: data as Data)!
+            let page = document.page(at: 0)!
+            let regions = PDFFramedRegions.regions(on: page, geometry: NativePDFPageGeometry.geometry(for: page))
+            check(regions.count == 1 && regions[0].kind == .panel
+                  && abs(regions[0].bounds.minX - 70.6) < 1 && abs(regions[0].bounds.maxX - 541.4) < 1
+                  && abs(regions[0].bounds.minY - 178.6) < 2 && abs(regions[0].bounds.maxY - 381.4) < 2,
+                  "paired vertical sidebars enclose solution content as one framed panel")
+        }
+        do {
+            // Outer framed box containing a vector diagram with short labels and a ruled 2x2 table.
+            let data = NSMutableData()
+            var media = CGRect(x: 0, y: 0, width: 612, height: 792)
+            let context = CGContext(consumer: CGDataConsumer(data: data)!, mediaBox: &media, nil)!
+            context.beginPDFPage(nil)
+            context.setFillColor(gray: 1, alpha: 1)
+            context.fill(media)
+            context.setStrokeColor(gray: 0.2, alpha: 1)
+            context.setLineWidth(1.5)
+            context.stroke(CGRect(x: 70, y: 300, width: 470, height: 340))
+            // Blue diagram block with feed arrow + diagonal arrowheads
+            context.setFillColor(red: 0, green: 0, blue: 1, alpha: 1)
+            context.setStrokeColor(gray: 0, alpha: 1)
+            context.setLineWidth(0.6)
+            context.addRect(CGRect(x: 280, y: 500, width: 32, height: 60))
+            context.drawPath(using: .fillStroke)
+            context.move(to: CGPoint(x: 245, y: 530)); context.addLine(to: CGPoint(x: 279, y: 530)); context.strokePath()
+            context.move(to: CGPoint(x: 275, y: 533)); context.addLine(to: CGPoint(x: 279, y: 530)); context.addLine(to: CGPoint(x: 275, y: 527)); context.strokePath()
+            context.move(to: CGPoint(x: 312, y: 530)); context.addLine(to: CGPoint(x: 346, y: 530)); context.strokePath()
+            context.move(to: CGPoint(x: 342, y: 533)); context.addLine(to: CGPoint(x: 346, y: 530)); context.addLine(to: CGPoint(x: 342, y: 527)); context.strokePath()
+            // Ruled 2x2 table
+            for y in [340.0, 360.0, 380.0] {
+                context.move(to: CGPoint(x: 220, y: y)); context.addLine(to: CGPoint(x: 380, y: y)); context.strokePath()
+            }
+            for x in [220.0, 300.0, 380.0] {
+                context.move(to: CGPoint(x: x, y: 340)); context.addLine(to: CGPoint(x: x, y: 380)); context.strokePath()
+            }
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.black]
+            ("Exercise Heading inside outer box." as NSString).draw(at: CGPoint(x: 85, y: 605), withAttributes: attrs)
+            ("feed" as NSString).draw(at: CGPoint(x: 215, y: 525), withAttributes: attrs)
+            ("out" as NSString).draw(at: CGPoint(x: 350, y: 525), withAttributes: attrs)
+            ("Col A" as NSString).draw(at: CGPoint(x: 235, y: 365), withAttributes: attrs)
+            ("Col B" as NSString).draw(at: CGPoint(x: 315, y: 365), withAttributes: attrs)
+            ("12" as NSString).draw(at: CGPoint(x: 245, y: 345), withAttributes: attrs)
+            ("34" as NSString).draw(at: CGPoint(x: 325, y: 345), withAttributes: attrs)
+            ("Concluding sentence inside outer box." as NSString).draw(at: CGPoint(x: 85, y: 312), withAttributes: attrs)
+            NSGraphicsContext.restoreGraphicsState()
+            context.endPDFPage()
+            context.closePDF()
+            let document = PDFDocument(data: data as Data)!
+            let page = document.page(at: 0)!
+            let regions = PDFFramedRegions.regions(on: page, geometry: NativePDFPageGeometry.geometry(for: page))
+            let figure = regions.first(where: { $0.kind == .figure })
+            let table = regions.first(where: { $0.kind == .table })
+            let panel = regions.first(where: { $0.kind == .panel })
+            check(panel != nil && figure != nil && table != nil,
+                  "nested figure and ruled table remain distinct inside an enclosing framed panel")
+            if let figure {
+                check(figure.bounds.minX <= 220 && figure.bounds.maxX >= 360,
+                      "vector figure region absorbs short adjacent diagram labels")
+            }
+        }
+        do {
+            // An open L-shaped orthogonal border around prose lines must not become a figure or panel.
+            let data = NSMutableData()
+            var media = CGRect(x: 0, y: 0, width: 612, height: 792)
+            let context = CGContext(consumer: CGDataConsumer(data: data)!, mediaBox: &media, nil)!
+            context.beginPDFPage(nil)
+            context.setFillColor(gray: 1, alpha: 1)
+            context.fill(media)
+            context.setStrokeColor(gray: 0.2, alpha: 1)
+            context.setLineWidth(1)
+            context.move(to: CGPoint(x: 150, y: 500))
+            context.addLine(to: CGPoint(x: 540, y: 500))
+            context.addLine(to: CGPoint(x: 540, y: 420))
+            context.strokePath()
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.black]
+            ("First prose sentence spanning across the page width cleanly." as NSString).draw(at: CGPoint(x: 80, y: 480), withAttributes: attrs)
+            ("Second prose sentence spanning across the page width cleanly." as NSString).draw(at: CGPoint(x: 80, y: 460), withAttributes: attrs)
+            NSGraphicsContext.restoreGraphicsState()
+            context.endPDFPage()
+            context.closePDF()
+            let document = PDFDocument(data: data as Data)!
+            let page = document.page(at: 0)!
+            let regions = PDFFramedRegions.regions(on: page, geometry: NativePDFPageGeometry.geometry(for: page))
+            check(regions.isEmpty, "open L-shaped rule borders do not produce false figure or table regions")
+        }
+        do {
+            // Combining negation slash stays attached and tall isolated math delimiters stay out of body rows.
+            let data = NSMutableData()
+            var media = CGRect(x: 0, y: 0, width: 612, height: 792)
+            let context = CGContext(consumer: CGDataConsumer(data: data)!, mediaBox: &media, nil)!
+            context.beginPDFPage(nil)
+            context.setFillColor(gray: 1, alpha: 1)
+            context.fill(media)
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            ("If det(A) =\u{0338} 0 then solve." as NSString).draw(
+                at: CGPoint(x: 90, y: 500),
+                withAttributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.black])
+            ("(" as NSString).draw(
+                at: CGPoint(x: 320, y: 488),
+                withAttributes: [.font: NSFont.systemFont(ofSize: 48), .foregroundColor: NSColor.black])
+            NSGraphicsContext.restoreGraphicsState()
+            context.endPDFPage()
+            context.closePDF()
+            let document = PDFDocument(data: data as Data)!
+            let page = document.page(at: 0)!
+            let geometry = NativePDFPageGeometry.geometry(for: page)
+            check(!geometry.excludedIndices.isEmpty && geometry.needsDirectSelection,
+                  "tall isolated math delimiters are excluded from body rows and trigger direct selection")
+            check(geometry.rows.contains { geometry.text(for: $0, on: page).contains("=\u{0338}") || geometry.text(for: $0, on: page).contains("\u{0338}=") || geometry.text(for: $0, on: page).contains("≠") },
+                  "combining negation slash is preserved in row text")
+        }
+        do {
+            @MainActor func buildAccessibilityRoot(for data: Data) -> (window: NSWindow, root: PDFContentAccessibility.GeometryElement?) {
+                let document = PDFDocument(data: data)!
+                let view = ThemedPDFView(frame: CGRect(x: 0, y: 0, width: 620, height: 820))
+                view.document = document
+                view.displayMode = .singlePage
+                view.autoScales = true
+                let window = NSWindow(contentRect: view.frame, styleMask: [.titled], backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false
+                window.contentView = view
+                window.orderBack(nil)
+                view.go(to: document.page(at: 0)!)
+                view.layoutDocumentView()
+                let root = view.accessibilityChildren()?.first(where: { $0 is PDFContentAccessibility.GeometryElement })
+                    as? PDFContentAccessibility.GeometryElement
+                return (window, root)
+            }
+            @MainActor func makePDF(draw: (CGContext) -> Void) -> Data {
+                let data = NSMutableData()
+                var media = CGRect(x: 0, y: 0, width: 612, height: 792)
+                let context = CGContext(consumer: CGDataConsumer(data: data)!, mediaBox: &media, nil)!
+                context.beginPDFPage(nil)
+                context.setFillColor(gray: 1, alpha: 1)
+                context.fill(media)
+                draw(context)
+                context.endPDFPage()
+                context.closePDF()
+                return data as Data
+            }
+
+            // 1. First-line indented 1.5x-spaced paragraphs with a short descenderless ending ("one.")
+            let indentPDF = makePDF { ctx in
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.black]
+                ("First indented opening line across the width." as NSString).draw(at: CGPoint(x: 92, y: 650), withAttributes: attrs)
+                ("Continuation line back at the left margin." as NSString).draw(at: CGPoint(x: 72, y: 630), withAttributes: attrs)
+                ("one." as NSString).draw(at: CGPoint(x: 72, y: 610), withAttributes: attrs)
+                ("Second indented paragraph directly below." as NSString).draw(at: CGPoint(x: 92, y: 590), withAttributes: attrs)
+                ("Second paragraph continuation at margin." as NSString).draw(at: CGPoint(x: 72, y: 570), withAttributes: attrs)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            let (win1, root1) = buildAccessibilityRoot(for: indentPDF)
+            defer { win1.orderOut(nil) }
+            let groups1 = root1?.allChildren.filter { $0.accessibilityRole() == .group } ?? []
+            check(groups1.count == 2 && groups1[0].allChildren.count == 3 && groups1[1].allChildren.count == 2,
+                  "first-line indented 1.5x-spaced paragraphs with a short ending group into distinct paragraph blocks")
+
+            // 2. Two-column staggered layout stays grouped independently per column
+            let twoColPDF = makePDF { ctx in
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.black]
+                ("Left column line one." as NSString).draw(at: CGPoint(x: 50, y: 600), withAttributes: attrs)
+                ("Right column line one." as NSString).draw(at: CGPoint(x: 330, y: 591), withAttributes: attrs)
+                ("Left column line two." as NSString).draw(at: CGPoint(x: 50, y: 582), withAttributes: attrs)
+                ("Right column line two." as NSString).draw(at: CGPoint(x: 330, y: 573), withAttributes: attrs)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            let (win2, root2) = buildAccessibilityRoot(for: twoColPDF)
+            defer { win2.orderOut(nil) }
+            let groups2 = root2?.allChildren.filter { $0.accessibilityRole() == .group } ?? []
+            check(groups2.count == 2 && groups2.allSatisfy { $0.allChildren.count == 2 },
+                  "two-column staggered baselines partition into two separate column paragraphs")
+
+            // 3. Paragraphs inside a framed panel and direct GeometryElement.accessibilityHitTest
+            let framedParaPDF = makePDF { ctx in
+                ctx.setStrokeColor(gray: 0.2, alpha: 1)
+                ctx.setLineWidth(1.5)
+                ctx.stroke(CGRect(x: 70, y: 400, width: 470, height: 210))
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.black]
+                ("Panel Title" as NSString).draw(at: CGPoint(x: 85, y: 585), withAttributes: attrs)
+                ("First body line inside framed panel." as NSString).draw(at: CGPoint(x: 85, y: 550), withAttributes: attrs)
+                ("Second body line inside framed panel." as NSString).draw(at: CGPoint(x: 85, y: 534), withAttributes: attrs)
+                ("Third body line inside framed panel." as NSString).draw(at: CGPoint(x: 85, y: 518), withAttributes: attrs)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            let (win3, root3) = buildAccessibilityRoot(for: framedParaPDF)
+            defer { win3.orderOut(nil) }
+            let panel3 = root3?.allChildren.first { $0.accessibilityRole() == .group }
+            let innerPara = panel3?.allChildren.first { $0.accessibilityRole() == .group && $0.allChildren.count == 3 }
+            check(panel3 != nil && panel3?.allChildren.count == 2 && innerPara != nil,
+                  "framed panel preserves separate heading while grouping body lines into a child paragraph")
+            if let root3, let innerPara, let l1 = innerPara.allChildren.first, let l2 = innerPara.allChildren.dropFirst().first {
+                let f1 = l1.accessibilityFrame(), f2 = l2.accessibilityFrame()
+                let gapPoint = CGPoint(x: f1.midX, y: (f1.minY + f2.maxY) / 2)
+                check((root3.accessibilityHitTest(gapPoint) as AnyObject?) === innerPara,
+                      "direct accessibilityHitTest in a panel paragraph gap hits the inner paragraph rather than the panel or page")
+            } else {
+                check(false, "direct accessibilityHitTest in a panel paragraph gap hits the inner paragraph rather than the panel or page")
+            }
+
+            // 4. Multi-step matrix derivation preserves delimiter bounds, protruding operators, and annotations
+            let matrixPDF = makePDF { ctx in
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.black]
+                let delimAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 48), .foregroundColor: NSColor.black]
+                ("We apply row operations to obtain:" as NSString).draw(at: CGPoint(x: 72, y: 700), withAttributes: attrs)
+                ("(" as NSString).draw(at: CGPoint(x: 135, y: 612), withAttributes: delimAttrs)
+                ("1 2" as NSString).draw(at: CGPoint(x: 155, y: 644), withAttributes: attrs)
+                ("3 4" as NSString).draw(at: CGPoint(x: 155, y: 629), withAttributes: attrs)
+                ("5 6" as NSString).draw(at: CGPoint(x: 155, y: 614), withAttributes: attrs)
+                (")" as NSString).draw(at: CGPoint(x: 185, y: 612), withAttributes: delimAttrs)
+                ("~" as NSString).draw(at: CGPoint(x: 205, y: 629), withAttributes: attrs)
+                ("(" as NSString).draw(at: CGPoint(x: 222, y: 612), withAttributes: delimAttrs)
+                ("1 2" as NSString).draw(at: CGPoint(x: 242, y: 644), withAttributes: attrs)
+                ("0 7" as NSString).draw(at: CGPoint(x: 242, y: 629), withAttributes: attrs)
+                ("0 8" as NSString).draw(at: CGPoint(x: 242, y: 614), withAttributes: attrs)
+                (")" as NSString).draw(at: CGPoint(x: 272, y: 612), withAttributes: delimAttrs)
+                ("R2 = row2" as NSString).draw(at: CGPoint(x: 345, y: 629), withAttributes: attrs)
+                ("R3 = row3" as NSString).draw(at: CGPoint(x: 345, y: 614), withAttributes: attrs)
+
+                ("~" as NSString).draw(at: CGPoint(x: 205, y: 579), withAttributes: attrs)
+                ("(" as NSString).draw(at: CGPoint(x: 222, y: 562), withAttributes: delimAttrs)
+                ("1 2" as NSString).draw(at: CGPoint(x: 242, y: 594), withAttributes: attrs)
+                ("0 7" as NSString).draw(at: CGPoint(x: 242, y: 579), withAttributes: attrs)
+                ("0 1" as NSString).draw(at: CGPoint(x: 242, y: 564), withAttributes: attrs)
+                (")" as NSString).draw(at: CGPoint(x: 272, y: 562), withAttributes: delimAttrs)
+                ("R3 = diff" as NSString).draw(at: CGPoint(x: 345, y: 564), withAttributes: attrs)
+                ("Translating back yields the solution." as NSString).draw(at: CGPoint(x: 72, y: 515), withAttributes: attrs)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            let (win4, root4) = buildAccessibilityRoot(for: matrixPDF)
+            defer { win4.orderOut(nil) }
+            let derivation = root4?.allChildren.first {
+                $0.accessibilityRole() == .group && $0.allChildren.count == 2
+            }
+            let step1 = derivation?.allChildren.first
+            let step2 = derivation?.allChildren.dropFirst().first
+            let step2Matrix = step2?.allChildren.first { $0.accessibilityRole() == .group }
+            let step1Text = step1?.accessibilityValue() as? String ?? ""
+            let step2Text = step2?.accessibilityValue() as? String ?? ""
+            let step2MatrixRect = step2Matrix?.pageRect ?? .zero
+            let enclosesFullMatrixDelimiters = step2MatrixRect.minX <= 228 && step2MatrixRect.maxX >= 278
+                && step2MatrixRect.minY <= 566 && step2MatrixRect.maxY >= 604
+            check(derivation != nil
+                  && step1Text.contains("R2 = row2") && step1Text.contains("R3 = row3")
+                  && step2Text.contains("R3 = diff") && step2Text.contains("0 1") && step2Text.contains("1 2")
+                  && (step2Matrix?.allChildren.count == 3)
+                  && enclosesFullMatrixDelimiters,
+                  "multi-step matrix derivation binds delimiters, protruding operators, and right annotations into complete nested groups")
+            if let root4, let step1, let step2, let step2Matrix {
+                let dFrame = step2Matrix.accessibilityFrame()
+                let delimPoint = CGPoint(x: dFrame.minX + 2, y: dFrame.midY)
+                let interStepPoint = CGPoint(x: step2.accessibilityFrame().midX,
+                                             y: (step1.accessibilityFrame().minY + step2.accessibilityFrame().maxY) / 2)
+                check((root4.accessibilityHitTest(delimPoint) as AnyObject?) === step2Matrix
+                      && (root4.accessibilityHitTest(interStepPoint) as AnyObject?) === derivation,
+                      "accessibilityHitTest hits matrix group on its delimiter and derivation group between steps")
+            } else {
+                check(false, "accessibilityHitTest hits matrix group on its delimiter and derivation group between steps")
+            }
+
+            // 5. Matrix in column 1 does not absorb column 2 prose across a vertical column gutter
+            let colMatrixPDF = makePDF { ctx in
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.black]
+                let delimAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 32), .foregroundColor: NSColor.black]
+                ("(" as NSString).draw(at: CGPoint(x: 90, y: 558), withAttributes: delimAttrs)
+                ("1 0" as NSString).draw(at: CGPoint(x: 108, y: 582), withAttributes: attrs)
+                ("0 1" as NSString).draw(at: CGPoint(x: 108, y: 564), withAttributes: attrs)
+                (")" as NSString).draw(at: CGPoint(x: 135, y: 558), withAttributes: delimAttrs)
+
+                ("Right column opening line." as NSString).draw(at: CGPoint(x: 320, y: 616), withAttributes: attrs)
+                ("Right column beside matrix one." as NSString).draw(at: CGPoint(x: 320, y: 598), withAttributes: attrs)
+                ("Right column beside matrix two." as NSString).draw(at: CGPoint(x: 320, y: 580), withAttributes: attrs)
+                ("Right column closing line." as NSString).draw(at: CGPoint(x: 320, y: 562), withAttributes: attrs)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            let (win5, root5) = buildAccessibilityRoot(for: colMatrixPDF)
+            defer { win5.orderOut(nil) }
+            let colGroups = root5?.allChildren.filter { $0.accessibilityRole() == .group } ?? []
+            let rightCol = colGroups.first { ($0.accessibilityValue() as? String)?.contains("Right column") == true }
+            let leftMatrix = colGroups.first { ($0.accessibilityValue() as? String)?.contains("1 0") == true }
+            check(colGroups.count == 2 && rightCol?.allChildren.count == 4 && leftMatrix?.allChildren.count == 2
+                  && !((leftMatrix?.pageRect ?? .zero).intersects(rightCol?.pageRect ?? .zero)),
+                  "two-column matrix does not absorb adjacent column prose")
+
+            // 6. Numbered list with inline tall delimited expression stays grouped while display heading stays separate
+            let inlineMathListPDF = makePDF { ctx in
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                let bodyAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.black]
+                let headAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.boldSystemFont(ofSize: 18), .foregroundColor: NSColor.black]
+                let inlineDelimAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 17), .foregroundColor: NSColor.black]
+
+                ("Section 4.2 Augmented Matrix Procedure" as NSString).draw(at: CGPoint(x: 72, y: 700), withAttributes: headAttrs)
+                ("We summarize the solving procedure with standard inline notation across the page width." as NSString).draw(at: CGPoint(x: 72, y: 672), withAttributes: bodyAttrs)
+                ("Each elementary step preserves solutions while reducing the coefficient block to triangular form." as NSString).draw(at: CGPoint(x: 72, y: 656), withAttributes: bodyAttrs)
+
+                ("1. Formulate the coefficient matrices A, x, and b from the system." as NSString).draw(at: CGPoint(x: 86, y: 620), withAttributes: bodyAttrs)
+                ("2. Create the augmented matrix" as NSString).draw(at: CGPoint(x: 86, y: 600), withAttributes: bodyAttrs)
+                ("(" as NSString).draw(at: CGPoint(x: 262, y: 597), withAttributes: inlineDelimAttrs)
+                ("A  b" as NSString).draw(at: CGPoint(x: 270, y: 600), withAttributes: bodyAttrs)
+                (")" as NSString).draw(at: CGPoint(x: 296, y: 597), withAttributes: inlineDelimAttrs)
+                ("3. Apply elementary row operations to obtain upper-triangular form." as NSString).draw(at: CGPoint(x: 86, y: 580), withAttributes: bodyAttrs)
+                ("4. Use back-substitution to solve cleanly for the remaining variables." as NSString).draw(at: CGPoint(x: 86, y: 562), withAttributes: bodyAttrs)
+                NSGraphicsContext.restoreGraphicsState()
+
+                ctx.setStrokeColor(gray: 0, alpha: 1)
+                ctx.setLineWidth(0.8)
+                ctx.move(to: CGPoint(x: 282, y: 596))
+                ctx.addLine(to: CGPoint(x: 282, y: 614))
+                ctx.strokePath()
+            }
+            let (win6, root6) = buildAccessibilityRoot(for: inlineMathListPDF)
+            defer { win6.orderOut(nil) }
+            let groups6 = root6?.allChildren.filter { $0.accessibilityRole() == .group } ?? []
+            let bodyPara6 = groups6.first { ($0.accessibilityValue() as? String)?.contains("summarize") == true }
+            let listGroup6 = groups6.first { ($0.accessibilityValue() as? String)?.contains("augmented matrix") == true }
+            let headingMerged6 = groups6.contains { ($0.accessibilityValue() as? String)?.contains("Section 4.2") == true }
+            check(!headingMerged6
+                  && bodyPara6?.allChildren.count == 2
+                  && listGroup6?.allChildren.count == 4,
+                  "display heading stays separate while numbered list with taller inline delimited math stays grouped")
+
+            // 7. Adjacent matrices with operators split free text cleanly and never merge across fractions
+            let multiMatrixRowPDF = makePDF { ctx in
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.black]
+                let delimAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 44), .foregroundColor: NSColor.black]
+                ("Compare the adjacent matrices and the scaled matrix product displayed across each row:" as NSString).draw(
+                    at: CGPoint(x: 72, y: 700), withAttributes: attrs)
+
+                ("A =" as NSString).draw(at: CGPoint(x: 110, y: 634), withAttributes: attrs)
+                ("(" as NSString).draw(at: CGPoint(x: 145, y: 611), withAttributes: delimAttrs)
+                ("1 2" as NSString).draw(at: CGPoint(x: 162, y: 643), withAttributes: attrs)
+                ("3 4" as NSString).draw(at: CGPoint(x: 162, y: 623), withAttributes: attrs)
+                (")" as NSString).draw(at: CGPoint(x: 190, y: 611), withAttributes: delimAttrs)
+                ("B =" as NSString).draw(at: CGPoint(x: 265, y: 634), withAttributes: attrs)
+                ("(" as NSString).draw(at: CGPoint(x: 300, y: 611), withAttributes: delimAttrs)
+                ("5 6" as NSString).draw(at: CGPoint(x: 317, y: 643), withAttributes: attrs)
+                ("7 8" as NSString).draw(at: CGPoint(x: 317, y: 623), withAttributes: attrs)
+                (")" as NSString).draw(at: CGPoint(x: 345, y: 611), withAttributes: delimAttrs)
+
+                ("(" as NSString).draw(at: CGPoint(x: 145, y: 521), withAttributes: delimAttrs)
+                ("1 0" as NSString).draw(at: CGPoint(x: 162, y: 553), withAttributes: attrs)
+                ("0 1" as NSString).draw(at: CGPoint(x: 162, y: 533), withAttributes: attrs)
+                (")" as NSString).draw(at: CGPoint(x: 190, y: 521), withAttributes: delimAttrs)
+                ("1" as NSString).draw(at: CGPoint(x: 218, y: 552), withAttributes: attrs)
+                ("2" as NSString).draw(at: CGPoint(x: 218, y: 531), withAttributes: attrs)
+                ("(" as NSString).draw(at: CGPoint(x: 250, y: 521), withAttributes: delimAttrs)
+                ("9 1" as NSString).draw(at: CGPoint(x: 267, y: 553), withAttributes: attrs)
+                ("2 3" as NSString).draw(at: CGPoint(x: 267, y: 533), withAttributes: attrs)
+                (")" as NSString).draw(at: CGPoint(x: 295, y: 521), withAttributes: delimAttrs)
+                NSGraphicsContext.restoreGraphicsState()
+
+                ctx.setStrokeColor(gray: 0, alpha: 1)
+                ctx.setLineWidth(0.9)
+                ctx.move(to: CGPoint(x: 212, y: 545))
+                ctx.addLine(to: CGPoint(x: 232, y: 545))
+                ctx.strokePath()
+            }
+            let (win7, root7) = buildAccessibilityRoot(for: multiMatrixRowPDF)
+            defer { win7.orderOut(nil) }
+            let rowA = root7?.allChildren.first {
+                $0.accessibilityRole() == .group && (($0.accessibilityValue() as? String)?.contains("A =") == true)
+            }
+            let aLabel = rowA?.allChildren.first { $0.accessibilityRole() == .staticText && (($0.accessibilityValue() as? String)?.contains("A") == true) }
+            let bLabel = rowA?.allChildren.first { $0.accessibilityRole() == .staticText && (($0.accessibilityValue() as? String)?.contains("B") == true) }
+            let rowAMatrices = rowA?.allChildren.filter { $0.accessibilityRole() == .group } ?? []
+            let noOperatorSpansMatrix1 = (aLabel != nil && bLabel != nil && rowAMatrices.count == 2)
+                && !aLabel!.pageRect.intersects(rowAMatrices[0].pageRect)
+                && !bLabel!.pageRect.intersects(rowAMatrices[0].pageRect)
+                && !bLabel!.pageRect.intersects(rowAMatrices[1].pageRect)
+            let rowB = root7?.allChildren.first {
+                $0.accessibilityRole() == .group && (($0.accessibilityValue() as? String)?.contains("9 1") == true)
+            }
+            let rowBMatrices = rowB?.allChildren.filter { $0.accessibilityRole() == .group } ?? []
+            let fracMatricesDisjoint = rowBMatrices.count == 2 && !rowBMatrices[0].pageRect.intersects(rowBMatrices[1].pageRect)
+            check(noOperatorSpansMatrix1 && fracMatricesDisjoint,
+                  "operator labels split around matrices and vertical fractions do not bridge separate matrices")
+
+            // 8. Short indented continuation and centered equation sharing right edge do not merge via indent/flush-right rules
+            let alignmentGuardPDF = makePDF { ctx in
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.black]
+                ("This reference prose line spans all the way across the normal column right edge." as NSString).draw(
+                    at: CGPoint(x: 72, y: 710), withAttributes: attrs)
+                ("Another reference prose line establishing the normal right margin of this column." as NSString).draw(
+                    at: CGPoint(x: 72, y: 694), withAttributes: attrs)
+
+                ("Indented item continuation line that stops well short." as NSString).draw(
+                    at: CGPoint(x: 105, y: 644), withAttributes: attrs)
+                ("2. Wider next item starting back left and extending further right than above." as NSString).draw(
+                    at: CGPoint(x: 86, y: 626), withAttributes: attrs)
+
+                ("d = (1, m)" as NSString).draw(at: CGPoint(x: 270, y: 564), withAttributes: attrs)
+                ("is parallel to the line (can you see why?)." as NSString).draw(at: CGPoint(x: 86, y: 546), withAttributes: attrs)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            let (win8, root8) = buildAccessibilityRoot(for: alignmentGuardPDF)
+            defer { win8.orderOut(nil) }
+            let groups8 = root8?.allChildren.filter { $0.accessibilityRole() == .group } ?? []
+            let falseIndentMerge = groups8.contains { ($0.accessibilityValue() as? String)?.contains("2. Wider") == true }
+            let falseFlushRightMerge = groups8.contains { ($0.accessibilityValue() as? String)?.contains("d = (1, m)") == true }
+            check(!falseIndentMerge && !falseFlushRightMerge,
+                  "narrow indented or centered lines do not falsely merge into wider left-margin prose lines")
+        }
+        do {
             // Two columns: a high left line and a low right line. A drag whose higher point sits in the
             // right column and lower point in the left column resolves the "first" line below the "last"
             // line, which used to invert verticalRange's closed range and trap.
@@ -243,6 +687,12 @@ struct ReaderRegressionTests {
             let unnamed = store.createTabGroup(name: "  \n", containing: a.id)!
             check(session.tabGroups.first?.name == "" && session.tabGroups.first?.tabIDs == [a.id],
                   "blank group names create a color-only group with its document intact")
+            check(session.tabGroupMenuTitle(session.tabGroups[0]) == "“\(a.title)”",
+                  "unnamed single-tab group menu title shows its quoted tab name")
+            check(session.destinationTabGroups(for: a.id).isEmpty,
+                  "Add to Group excludes the tab's current group when no other group exists")
+            check(session.destinationTabGroups(for: b.id).map(\.id) == [unnamed],
+                  "Add to Group lists existing groups for ungrouped tabs")
             store.ungroupTabs(unnamed)
             let groupID = store.createTabGroup(name: " Lectures ", containing: a.id)!
             store.moveTab(c.id, intoGroup: groupID)
@@ -288,6 +738,32 @@ struct ReaderRegressionTests {
                   && session.tabGroups.first(where: { $0.id == groupID })?.color == colors[groupID],
                   "choosing a group color updates only that group")
             store.renameTabGroup(second, name: " \n ")
+            if let unnamedSecond = session.tabGroups.first(where: { $0.id == second }) {
+                let expectedUnnamedTitle = session.tabs.compactMap {
+                    if case .document(let t) = $0, unnamedSecond.tabIDs.contains(t.id) { return "“\(t.title)”" }
+                    return nil
+                }.joined(separator: ", ")
+                check(session.tabGroupMenuTitle(unnamedSecond) == expectedUnnamedTitle,
+                      "unnamed multi-tab group menu title lists its quoted member tab names in order")
+            }
+            if let namedGroup = session.tabGroups.first(where: { $0.id == groupID }) {
+                check(session.tabGroupMenuTitle(namedGroup) == "Lectures",
+                      "named group menu title keeps its custom name")
+            }
+            check(session.destinationTabGroups(for: a.id).map(\.id) == [second],
+                  "Add to Group offers only other groups for a grouped tab")
+            store.moveTab(a.id, intoGroup: second)
+            if let threeTabUnnamed = session.tabGroups.first(where: { $0.id == second }) {
+                let firstTwo = session.tabs.compactMap {
+                    if case .document(let t) = $0, threeTabUnnamed.tabIDs.contains(t.id) { return "“\(t.title)”" }
+                    return nil
+                }.prefix(2).joined(separator: ", ")
+                check(session.tabGroupMenuTitle(threeTabUnnamed) == "\(firstTwo) (+1)",
+                      "unnamed group menu title summarizes more than two quoted member tabs")
+            }
+            store.createTabGroup(name: "Lectures", containing: a.id,
+                                 draft: ReaderTabGroup(id: groupID, name: "Lectures", tabIDs: [a.id], color: colors[groupID]!))
+            session.moveTabGroup(groupID, before: second)
             store.saveSession()
             let recolored = AppStore()
             let unnamedRestored = recolored.primarySession.tabGroups.first(where: { $0.id == second })
@@ -449,6 +925,51 @@ struct ReaderRegressionTests {
                   "night page indicator pill lifts distinctly above the dark canvas and black paper")
         }
         do {
+            var hoveredStates: [Bool] = []
+            let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 400, height: 300),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            let container = NSView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+            window.contentView = container
+            let hoverView = SidebarTabHoverView(frame: CGRect(x: 0, y: 0, width: 220, height: 300))
+            hoverView.onHover = { hoveredStates.append($0) }
+            container.addSubview(hoverView)
+
+            let inside = NSEvent.enterExitEvent(with: .mouseEntered,
+                location: NSPoint(x: 80, y: 150), modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 0, trackingNumber: 0, userData: nil)!
+            hoverView.mouseEntered(with: inside)
+            check(hoveredStates == [true], "sidebar hover opens when pointer enters")
+
+            hoverView.reconcileHover(at: NSPoint(x: 260, y: 150), immediate: true)
+            check(hoveredStates == [true, false], "reconciling with an outside point collapses sidebar immediately")
+
+            hoverView.mouseEntered(with: inside)
+            hoverView.isMenuTracking = true
+            NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+            check(hoveredStates == [true, false, true],
+                  "context menu tracking prevents premature resign-key collapse")
+
+            hoverView.isMenuTracking = false
+            NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+            check(hoveredStates == [true, false, true, false],
+                  "window resign-key collapses sidebar immediately once menu tracking finishes")
+
+            hoverView.mouseEntered(with: inside)
+            let edgeExit = NSEvent.enterExitEvent(with: .mouseExited,
+                location: NSPoint(x: 220, y: 150), modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 0, trackingNumber: 0, userData: nil)!
+            hoverView.mouseExited(with: edgeExit)
+            try await Task.sleep(for: .milliseconds(160))
+            check(hoveredStates.last == false,
+                  "mouseExited on exact drawer boundary collapses sidebar even without follow-up moves")
+
+            hoverView.removeFromSuperview()
+            window.close()
+        }
+        do {
             let store = freshStore()
             let original = try fixture("ClosedBeforeRename")
             let tab = store.openDocument(at: original, interactive: false)!
@@ -516,6 +1037,24 @@ struct ReaderRegressionTests {
             check(store.activeDocumentTab?.documentID == newID && store.activeDocumentTab?.currentPageIndex == 2
                   && store.activeDocumentTab?.zoomScale == 1.7 && store.activeDocumentTab?.isAutoScaling == false,
                   "moved and renamed file reopens at the same page and zoom")
+        }
+        do {
+            func luminance(_ color: NSColor) -> CGFloat {
+                let srgb = color.usingColorSpace(.sRGB)!
+                return 0.2126 * srgb.redComponent + 0.7152 * srgb.greenComponent + 0.0722 * srgb.blueComponent
+            }
+            for preset in [AppAccentColor.green, .teal, .red, .purple, .graphite] {
+                check(luminance(preset.nsColor(isDark: true)) > luminance(preset.nsColor(isDark: false)),
+                      "dark accent preset \(preset.rawValue) brightens for dark chrome contrast")
+            }
+            for preset in AppAccentColor.allCases {
+                let nightColor = preset.pdfSelectionNSColor(for: .night).usingColorSpace(.sRGB)!
+                check(nightColor.alphaComponent >= 0.99
+                      && nightColor.redComponent >= 0.55
+                      && nightColor.greenComponent >= 0.55
+                      && nightColor.blueComponent >= 0.55,
+                      "night selection color for \(preset.rawValue) stays pastel before inversion")
+            }
         }
         do {
             let store = freshStore()
@@ -1039,6 +1578,321 @@ struct ReaderRegressionTests {
             let nonPDF = root.appendingPathComponent("note.txt")
             check(PDFFileDrop.resolvedPDFURL(from: nonPDF) == nil,
                   "PDF drop ignores non-PDF file URLs")
+        }
+        do {
+            let store = freshStore()
+            let tabA = store.openDocument(at: alpha, interactive: false)!
+            let tabB = store.openDocument(at: beta, interactive: false)!
+            check(store.activeDocumentTab?.id == tabB.id, "opening a second document makes it active before Home toggle")
+            store.toggleHomeTab()
+            check(store.activeDocumentTab == nil && store.primarySession.returnableDocumentTabID == tabB.id,
+                  "clicking Home leaves the document tab and remembers it")
+            store.toggleHomeTab()
+            check(store.activeDocumentTab?.id == tabB.id,
+                  "clicking Home again returns to the previously active document tab")
+            store.toggleHomeTab()
+            store.closeTab(id: tabB.id)
+            check(store.activeDocumentTab == nil && store.primarySession.returnableDocumentTabID == tabA.id,
+                  "closing the last active document while on Home falls back to another open tab")
+            store.toggleHomeTab()
+            check(store.activeDocumentTab?.id == tabA.id,
+                  "clicking Home returns to the remaining open document tab")
+            store.toggleHomeTab()
+            store.closeTab(id: tabA.id)
+            store.toggleHomeTab()
+            check(store.activeDocumentTab == nil && store.primarySession.returnableDocumentTabID == nil,
+                  "clicking Home with no open document tabs stays on Home")
+
+            let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 320, height: 120),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            let container = NSView(frame: CGRect(x: 0, y: 0, width: 320, height: 120))
+            window.contentView = container
+            let panelCursor = PanelCursorRect.View()
+            panelCursor.frame = CGRect(x: 0, y: 0, width: 320, height: 40)
+            panelCursor.priority = 1
+            let textField = NSTextField(frame: CGRect(x: 180, y: 6, width: 120, height: 28))
+            textField.isEditable = true
+            let textChild = NSView(frame: textField.bounds)
+            textField.addSubview(textChild)
+            container.addSubview(panelCursor)
+            container.addSubview(textField)
+            check(ReaderCursorArbiter.shared.cursor(at: CGPoint(x: 40, y: 20), in: window) == .arrow,
+                  "cursor arbiter enforces arrow cursor across registered toolbar/panel areas")
+            check(ReaderCursorArbiter.shared.cursor(at: CGPoint(x: 220, y: 20), in: window) == nil,
+                  "cursor arbiter defers to editable text fields and their inner subviews")
+            panelCursor.removeFromSuperview()
+            window.close()
+        }
+        do {
+            // Unified multi-page export, thumbnail multi-selection, rotation/bookmark undo & redo, and localization
+            let store = freshStore()
+            let tab = store.openDocument(at: alpha, interactive: false)!
+            tab.undoManager.groupsByEvent = false
+            tab.currentPageIndex = 1
+            tab.readingSpot = .init(pageIndex: 1, point: CGPoint(x: 120, y: 640))
+            let initialJump = tab.pageJumpToken
+            let initialLayout = tab.clearMarginsLayoutToken
+
+            // 1. Rotate non-current thumbnail page without jumping away + Undo / Redo
+            tab.undoManager.beginUndoGrouping()
+            tab.rotatePage(at: 3, in: tab.pdfDocument, clockwise: true)
+            tab.undoManager.endUndoGrouping()
+            check(tab.pdfDocument.page(at: 3)?.rotation == 90
+                  && tab.pdfDocument.page(at: 1)?.rotation == 0
+                  && tab.currentPageIndex == 1
+                  && tab.pageJumpToken == initialJump
+                  && tab.clearMarginsLayoutToken == initialLayout + 1
+                  && tab.readingSpotBeforeCropChange == tab.readingSpot
+                  && tab.undoManager.canUndo,
+                  "rotating a non-current thumbnail rotates only that page, keeps reading spot, and records undo")
+
+            tab.undoManager.undo()
+            check(tab.pdfDocument.page(at: 3)?.rotation == 0 && tab.undoManager.canRedo,
+                  "undo restores single-page rotation and enables redo")
+            tab.undoManager.redo()
+            check(tab.pdfDocument.page(at: 3)?.rotation == 90,
+                  "redo reapplies single-page rotation")
+
+            // 2. Rotate primary current page & secondary pane current page
+            tab.undoManager.beginUndoGrouping()
+            tab.rotatePage(at: 1, in: tab.pdfDocument, clockwise: false)
+            tab.undoManager.endUndoGrouping()
+            check(tab.pdfDocument.page(at: 1)?.rotation == 270
+                  && tab.pageJumpToken == initialJump + 1
+                  && tab.readingSpotBeforeCropChange == nil,
+                  "rotating the primary current page updates rotation and clears stale pre-rotation spot")
+
+            tab.splitMode = .vertical
+            tab.setSecondaryDocument(url: beta)
+            tab.secondaryPageIndex = 2
+            tab.secondaryReadingSpot = .init(pageIndex: 2, point: CGPoint(x: 80, y: 500))
+            tab.activatePane(isSecondary: true)
+            let secJumpBefore = tab.secondaryPageJumpToken
+            let layoutBefore = tab.clearMarginsLayoutToken
+            tab.undoManager.beginUndoGrouping()
+            tab.rotateCurrentPage(clockwise: true)
+            tab.undoManager.endUndoGrouping()
+            check(tab.secondaryPDFDocument?.page(at: 2)?.rotation == 90
+                  && tab.pdfDocument.page(at: 2)?.rotation == 0
+                  && tab.secondaryPageJumpToken == secJumpBefore + 1
+                  && tab.clearMarginsLayoutToken == layoutBefore + 1
+                  && tab.secondaryReadingSpotBeforeCropChange == nil,
+                  "rotateCurrentPage targets the active secondary pane when focused")
+
+            // 3. Batch multi-page rotation undo/redo atomicity
+            tab.undoManager.beginUndoGrouping()
+            tab.rotatePages([0, 2], in: tab.pdfDocument, clockwise: true)
+            tab.undoManager.endUndoGrouping()
+            check(tab.pdfDocument.page(at: 0)?.rotation == 90 && tab.pdfDocument.page(at: 2)?.rotation == 90,
+                  "batch rotatePages rotates all selected pages together")
+            tab.undoManager.undo()
+            check(tab.pdfDocument.page(at: 0)?.rotation == 0 && tab.pdfDocument.page(at: 2)?.rotation == 0,
+                  "single undo restores all batch-rotated pages atomically")
+            tab.undoManager.redo()
+            check(tab.pdfDocument.page(at: 0)?.rotation == 90 && tab.pdfDocument.page(at: 2)?.rotation == 90,
+                  "single redo reapplies all batch-rotated pages atomically")
+
+            // 4. Split-view guard and opening specific page in split view
+            let foreignSource = tab.activeThumbnailSource
+            check(!tab.canOpenThumbnailInSplitView(source: foreignSource),
+                  "foreign document active in secondary pane cannot reopen secondary-into-primary split view")
+
+            tab.activatePane(isSecondary: false)
+            tab.splitMode = .disabled
+            tab.syncScrollAndZoom = true
+            tab.isPageOverviewVisible = true
+            let primarySource = tab.activeThumbnailSource
+            check(tab.canOpenThumbnailInSplitView(source: primarySource),
+                  "primary document thumbnail can open in split view")
+            tab.openPageInSplitView(2, from: primarySource)
+            check(tab.splitMode == .vertical
+                  && tab.secondaryPDFDocument === tab.pdfDocument
+                  && tab.secondaryPageIndex == 2
+                  && tab.currentPageIndex == 1
+                  && !tab.syncScrollAndZoom
+                  && !tab.targetsSecondaryPane
+                  && !tab.isPageOverviewVisible,
+                  "opening a thumbnail in split view switches to vertical split on the requested page independently")
+
+            tab.splitMode = .horizontal
+            tab.openPageInSplitView(3, from: primarySource)
+            check(tab.splitMode == .horizontal && tab.secondaryPageIndex == 3,
+                  "opening another thumbnail in split view preserves horizontal split orientation")
+
+            tab.setSecondaryDocument(from: tab)
+            check(tab.targetsSecondaryPane && tab.canOpenThumbnailInSplitView(source: tab.activeThumbnailSource),
+                  "same-document secondary pane stays eligible for opening counterpart pages in primary pane")
+            tab.openPageInSplitView(0, from: tab.activeThumbnailSource)
+            check(tab.currentPageIndex == 0 && tab.splitMode == .horizontal,
+                  "opening a thumbnail in split view while secondary pane owns the same document navigates primary pane")
+
+            // 5. Thumbnail multi-selection (Shift, Command, Command+Shift, clear, document isolation)
+            tab.activatePane(isSecondary: false)
+            let pSource = tab.activeThumbnailSource
+            tab.clearThumbnailSelection(anchor: 0, in: pSource)
+            tab.selectThumbnailRange(to: 2, in: pSource, extending: false)
+            check(tab.selectedThumbnailPages(in: pSource) == [0, 1, 2],
+                  "Shift-clicking selects inclusive range from anchor")
+            tab.toggleThumbnailSelection(1, in: pSource)
+            check(tab.selectedThumbnailPages(in: pSource) == [0, 2],
+                  "Command-clicking deselects a single page from selection")
+            tab.toggleThumbnailSelection(3, in: pSource)
+            tab.selectThumbnailRange(to: 1, in: pSource, extending: true)
+            check(tab.selectedThumbnailPages(in: pSource) == [0, 1, 2, 3],
+                  "Command+Shift extends existing selection range")
+            tab.setSecondaryDocument(url: beta)
+            tab.activatePane(isSecondary: true)
+            check(tab.selectedThumbnailPages.isEmpty,
+                  "switching to a different document in secondary pane clears stale thumbnail selection")
+            tab.activatePane(isSecondary: false)
+
+            // 6. Bookmark undo & redo preserving title & ID
+            let docID = tab.documentID
+            tab.undoManager.beginUndoGrouping()
+            store.toggleBookmark(pageIndex: 0, defaultTitle: "Custom Intro", in: docID, undoManager: tab.undoManager)
+            tab.undoManager.endUndoGrouping()
+            let addedBookmark = store.bookmarks(for: docID).first(where: { $0.pageIndex == 0 })
+            check(addedBookmark?.title == "Custom Intro", "bookmark added with custom title")
+            tab.undoManager.beginUndoGrouping()
+            if let bmID = addedBookmark?.id {
+                store.removeBookmark(id: bmID, in: docID, undoManager: tab.undoManager)
+            }
+            tab.undoManager.endUndoGrouping()
+            check(!store.isPageBookmarked(pageIndex: 0, in: docID), "bookmark removed")
+            tab.undoManager.undo()
+            let restoredBookmark = store.bookmarks(for: docID).first(where: { $0.pageIndex == 0 })
+            check(restoredBookmark?.id == addedBookmark?.id && restoredBookmark?.title == "Custom Intro",
+                  "undoing bookmark deletion restores exact ID and title")
+            tab.undoManager.undo()
+            check(!store.isPageBookmarked(pageIndex: 0, in: docID),
+                  "second undo removes originally added bookmark")
+            tab.undoManager.redo()
+            check(store.isPageBookmarked(pageIndex: 0, in: docID),
+                  "redo restores bookmark back")
+
+            tab.undoManager.beginUndoGrouping()
+            store.setBookmarks(pageIndices: [1, 2], bookmarked: true, in: docID, undoManager: tab.undoManager)
+            tab.undoManager.endUndoGrouping()
+            check(store.isPageBookmarked(pageIndex: 1, in: docID) && store.isPageBookmarked(pageIndex: 2, in: docID),
+                  "batch setBookmarks adds bookmarks for all selected pages")
+            tab.undoManager.undo()
+            check(!store.isPageBookmarked(pageIndex: 1, in: docID) && !store.isPageBookmarked(pageIndex: 2, in: docID)
+                  && store.isPageBookmarked(pageIndex: 0, in: docID),
+                  "undoing batch bookmark preserves unrelated bookmarks")
+
+            // 7. PageRangeParser parse & format (mixed numbers, fullwidth, printed numbers)
+            let identityResolve: (String) -> Int? = { Int($0).map { $0 - 1 } }
+            check(PageRangeParser.parse("1-3, 2, 5～6，8", pageCount: 10, resolvePage: identityResolve) == [0, 1, 2, 4, 5, 7],
+                  "PageRangeParser handles ranges, deduplication, and Chinese/fullwidth punctuation")
+            check(PageRangeParser.parse("3-1", pageCount: 10, resolvePage: identityResolve) == nil
+                  && PageRangeParser.parse("1-15", pageCount: 10, resolvePage: identityResolve) == nil
+                  && PageRangeParser.parse("abc", pageCount: 10, resolvePage: identityResolve) == nil
+                  && PageRangeParser.parse("1, ", pageCount: 10, resolvePage: identityResolve) == nil,
+                  "PageRangeParser rejects reversed, out-of-bounds, and trailing/empty segments")
+
+            let mixedURL = try fixture("MixedNums", mixedNumbers: true)
+            let mixedTab = store.openDocument(at: mixedURL, interactive: false)!
+            let mixedDoc = mixedTab.pdfDocument
+            // Printed numbers: index 5 == "1", index 6 == "2", index 7 == "3"; index 0 == "(1)"
+            let mixedResolve: (String) -> Int? = { mixedTab.pageIndex(forPageInput: $0) }
+            if mixedTab.pageIndex(forPageInput: "1") == nil {
+                // Ensure synchronous printed-number index check works cleanly with fixture PDF PageLabels / position fallback
+            }
+            let posParsed = PageRangeParser.parse("(1), (3)-(5)", pageCount: mixedDoc.pageCount, resolvePage: mixedResolve)
+            check(posParsed == [0, 2, 3, 4],
+                  "PageRangeParser supports parenthesized PDF position ranges")
+            let formatted = PageRangeParser.format([0, 1, 2, 4, 6, 7], pageCount: 10,
+                                                   labelFor: { "\($0 + 1)" },
+                                                   usesBookNumbers: false,
+                                                   resolvePage: identityResolve)
+            check(formatted == "1-3, 5, 7-8",
+                  "PageRangeParser formats contiguous runs into compact ranges")
+
+            // 8. Multi-page PDF export, URL-based export, PNG export, and filename formatting
+            let p1 = tab.pdfDocument.page(at: 1)!
+            let p3 = tab.pdfDocument.page(at: 3)!
+            p1.rotation = 180
+            p1.setBounds(CGRect(x: 10, y: 20, width: 480, height: 700), for: .cropBox)
+            p3.rotation = 90
+            p3.setBounds(CGRect(x: 30, y: 80, width: 500, height: 640), for: .cropBox)
+
+            let multiPDF = try PageExporter.pdfData(for: [p3, p1])
+            let multiDoc = PDFDocument(data: multiPDF)
+            check(multiDoc?.pageCount == 2
+                  && multiDoc?.page(at: 0)?.rotation == 90
+                  && multiDoc?.page(at: 0)?.bounds(for: .cropBox) == CGRect(x: 30, y: 80, width: 500, height: 640)
+                  && multiDoc?.page(at: 1)?.rotation == 180
+                  && multiDoc?.page(at: 1)?.bounds(for: .cropBox) == CGRect(x: 10, y: 20, width: 480, height: 700),
+                  "multi-page PDF export preserves page order, individual rotations, and crop boxes")
+
+            let specPDF = try PageExporter.pdfData(
+                from: alpha,
+                password: nil,
+                specs: [
+                    .init(index: 2, cropBox: CGRect(x: 20, y: 30, width: 400, height: 500), rotation: 90),
+                    .init(index: 2, cropBox: CGRect(x: 20, y: 30, width: 400, height: 500), rotation: 270),
+                ]
+            )
+            let specDoc = PDFDocument(data: specPDF)
+            check(specDoc?.pageCount == 2
+                  && specDoc?.page(at: 0)?.rotation == 90
+                  && specDoc?.page(at: 1)?.rotation == 270,
+                  "URL-based multi-page PDF export handles duplicate page indices independently")
+
+            let pngBytes = try await PageExporter.pngData(for: p3)
+            let exportedPNG = NSBitmapImageRep(data: pngBytes)
+            check(exportedPNG != nil && exportedPNG!.pixelsWide > exportedPNG!.pixelsHigh,
+                  "single-page PNG export renders rotated page dimensions")
+
+            let previousLanguage = L10n.currentLanguage
+            defer { L10n.currentLanguage = previousLanguage }
+            L10n.currentLanguage = .en
+            let safeName = PageExporter.suggestedFilename(documentTitle: "CS/101: Notes ", pageLabel: "iv/2", format: .pdf)
+            check(safeName == "CS-101- Notes - Page iv-2.pdf",
+                  "exported filename sanitizes slashes and colons")
+            let multiRangeName = PageExporter.suggestedFilename(documentTitle: "Notes", rangeText: "1-3, 5", pageCount: 4, isAllPages: false, format: .pdf)
+            let parenRangeName = PageExporter.suggestedFilename(documentTitle: "F17ZB", rangeText: "(1)-6", pageCount: 8, isAllPages: false, format: .pdf)
+            let allPagesName = PageExporter.suggestedFilename(documentTitle: "Notes", rangeText: nil, pageCount: 4, isAllPages: true, format: .pdf)
+            check(multiRangeName == "Notes - 1-3, 5.pdf"
+                  && parenRangeName == "F17ZB - (1)-6.pdf"
+                  && allPagesName == "Notes.pdf",
+                  "suggestedFilename formats multi-page range and full-document filenames without double parentheses")
+
+            // 9. Localization checks across all 10 non-zhHans/en catalog languages + dynamic helpers
+            let catalogKeys: [(String, String, Set<String>)] = [
+                ("在分屏中查看此页", "Open Page in Split View", []),
+                ("复制此页为图片", "Copy Page as Image", []),
+                ("无法导出此页。", "This page could not be exported.", []),
+                ("导出…", "Export…", []),
+                ("导出", "Export", []),
+                ("导出为：", "Export As:", []),
+                ("格式：", "Format:", ["de"]),
+                ("页面：", "Pages:", []),
+                ("全部页面", "All Pages", []),
+                ("当前页", "Current Page", []),
+                ("指定页码", "Page Range", []),
+                ("请输入有效的页码范围", "Enter a valid page range", []),
+                ("请输入有效页码", "Enter a valid page number", []),
+                ("取消选择", "Deselect All", []),
+                ("撤销", "Undo", []),
+                ("重做", "Redo", []),
+            ]
+            for lang in AppLanguage.allCases where lang != .system && lang != .zhHans && lang != .en {
+                L10n.currentLanguage = lang
+                for (zh, en, englishCognateLocales) in catalogKeys {
+                    let translated = L10n.tr(zh, en)
+                    let allowsEnglishSpelling = englishCognateLocales.contains(lang.rawValue)
+                    check(!translated.isEmpty && (allowsEnglishSpelling || translated != en),
+                          "localization '\(en)' present for \(lang.rawValue)")
+                }
+                check(L10n.selectedPagesCount(3).contains("3")
+                      && L10n.exportSelectedPages(3).contains("3")
+                      && L10n.exportPageCountSummary(3).contains("3")
+                      && !L10n.undoMenuTitle("Test").isEmpty
+                      && !L10n.redoMenuTitle("Test").isEmpty,
+                      "dynamic export/undo localization helpers formatted for \(lang.rawValue)")
+            }
         }
         if !failures.isEmpty {
             print("\(failures.count) regression checks failed")

@@ -448,6 +448,129 @@ struct ReaderRegressionTests {
             check(colGroups.count == 2 && rightCol?.allChildren.count == 4 && leftMatrix?.allChildren.count == 2
                   && !((leftMatrix?.pageRect ?? .zero).intersects(rightCol?.pageRect ?? .zero)),
                   "two-column matrix does not absorb adjacent column prose")
+
+            // 6. Numbered list with inline tall delimited expression stays grouped while display heading stays separate
+            let inlineMathListPDF = makePDF { ctx in
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                let bodyAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.black]
+                let headAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.boldSystemFont(ofSize: 18), .foregroundColor: NSColor.black]
+                let inlineDelimAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 17), .foregroundColor: NSColor.black]
+
+                ("Section 4.2 Augmented Matrix Procedure" as NSString).draw(at: CGPoint(x: 72, y: 700), withAttributes: headAttrs)
+                ("We summarize the solving procedure with standard inline notation across the page width." as NSString).draw(at: CGPoint(x: 72, y: 672), withAttributes: bodyAttrs)
+                ("Each elementary step preserves solutions while reducing the coefficient block to triangular form." as NSString).draw(at: CGPoint(x: 72, y: 656), withAttributes: bodyAttrs)
+
+                ("1. Formulate the coefficient matrices A, x, and b from the system." as NSString).draw(at: CGPoint(x: 86, y: 620), withAttributes: bodyAttrs)
+                ("2. Create the augmented matrix" as NSString).draw(at: CGPoint(x: 86, y: 600), withAttributes: bodyAttrs)
+                ("(" as NSString).draw(at: CGPoint(x: 262, y: 597), withAttributes: inlineDelimAttrs)
+                ("A  b" as NSString).draw(at: CGPoint(x: 270, y: 600), withAttributes: bodyAttrs)
+                (")" as NSString).draw(at: CGPoint(x: 296, y: 597), withAttributes: inlineDelimAttrs)
+                ("3. Apply elementary row operations to obtain upper-triangular form." as NSString).draw(at: CGPoint(x: 86, y: 580), withAttributes: bodyAttrs)
+                ("4. Use back-substitution to solve cleanly for the remaining variables." as NSString).draw(at: CGPoint(x: 86, y: 562), withAttributes: bodyAttrs)
+                NSGraphicsContext.restoreGraphicsState()
+
+                ctx.setStrokeColor(gray: 0, alpha: 1)
+                ctx.setLineWidth(0.8)
+                ctx.move(to: CGPoint(x: 282, y: 596))
+                ctx.addLine(to: CGPoint(x: 282, y: 614))
+                ctx.strokePath()
+            }
+            let (win6, root6) = buildAccessibilityRoot(for: inlineMathListPDF)
+            defer { win6.orderOut(nil) }
+            let groups6 = root6?.allChildren.filter { $0.accessibilityRole() == .group } ?? []
+            let bodyPara6 = groups6.first { ($0.accessibilityValue() as? String)?.contains("summarize") == true }
+            let listGroup6 = groups6.first { ($0.accessibilityValue() as? String)?.contains("augmented matrix") == true }
+            let headingMerged6 = groups6.contains { ($0.accessibilityValue() as? String)?.contains("Section 4.2") == true }
+            check(!headingMerged6
+                  && bodyPara6?.allChildren.count == 2
+                  && listGroup6?.allChildren.count == 4,
+                  "display heading stays separate while numbered list with taller inline delimited math stays grouped")
+
+            // 7. Adjacent matrices with operators split free text cleanly and never merge across fractions
+            let multiMatrixRowPDF = makePDF { ctx in
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.black]
+                let delimAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 44), .foregroundColor: NSColor.black]
+                ("Compare the adjacent matrices and the scaled matrix product displayed across each row:" as NSString).draw(
+                    at: CGPoint(x: 72, y: 700), withAttributes: attrs)
+
+                ("A =" as NSString).draw(at: CGPoint(x: 110, y: 634), withAttributes: attrs)
+                ("(" as NSString).draw(at: CGPoint(x: 145, y: 611), withAttributes: delimAttrs)
+                ("1 2" as NSString).draw(at: CGPoint(x: 162, y: 643), withAttributes: attrs)
+                ("3 4" as NSString).draw(at: CGPoint(x: 162, y: 623), withAttributes: attrs)
+                (")" as NSString).draw(at: CGPoint(x: 190, y: 611), withAttributes: delimAttrs)
+                ("B =" as NSString).draw(at: CGPoint(x: 265, y: 634), withAttributes: attrs)
+                ("(" as NSString).draw(at: CGPoint(x: 300, y: 611), withAttributes: delimAttrs)
+                ("5 6" as NSString).draw(at: CGPoint(x: 317, y: 643), withAttributes: attrs)
+                ("7 8" as NSString).draw(at: CGPoint(x: 317, y: 623), withAttributes: attrs)
+                (")" as NSString).draw(at: CGPoint(x: 345, y: 611), withAttributes: delimAttrs)
+
+                ("(" as NSString).draw(at: CGPoint(x: 145, y: 521), withAttributes: delimAttrs)
+                ("1 0" as NSString).draw(at: CGPoint(x: 162, y: 553), withAttributes: attrs)
+                ("0 1" as NSString).draw(at: CGPoint(x: 162, y: 533), withAttributes: attrs)
+                (")" as NSString).draw(at: CGPoint(x: 190, y: 521), withAttributes: delimAttrs)
+                ("1" as NSString).draw(at: CGPoint(x: 218, y: 552), withAttributes: attrs)
+                ("2" as NSString).draw(at: CGPoint(x: 218, y: 531), withAttributes: attrs)
+                ("(" as NSString).draw(at: CGPoint(x: 250, y: 521), withAttributes: delimAttrs)
+                ("9 1" as NSString).draw(at: CGPoint(x: 267, y: 553), withAttributes: attrs)
+                ("2 3" as NSString).draw(at: CGPoint(x: 267, y: 533), withAttributes: attrs)
+                (")" as NSString).draw(at: CGPoint(x: 295, y: 521), withAttributes: delimAttrs)
+                NSGraphicsContext.restoreGraphicsState()
+
+                ctx.setStrokeColor(gray: 0, alpha: 1)
+                ctx.setLineWidth(0.9)
+                ctx.move(to: CGPoint(x: 212, y: 545))
+                ctx.addLine(to: CGPoint(x: 232, y: 545))
+                ctx.strokePath()
+            }
+            let (win7, root7) = buildAccessibilityRoot(for: multiMatrixRowPDF)
+            defer { win7.orderOut(nil) }
+            let rowA = root7?.allChildren.first {
+                $0.accessibilityRole() == .group && (($0.accessibilityValue() as? String)?.contains("A =") == true)
+            }
+            let aLabel = rowA?.allChildren.first { $0.accessibilityRole() == .staticText && (($0.accessibilityValue() as? String)?.contains("A") == true) }
+            let bLabel = rowA?.allChildren.first { $0.accessibilityRole() == .staticText && (($0.accessibilityValue() as? String)?.contains("B") == true) }
+            let rowAMatrices = rowA?.allChildren.filter { $0.accessibilityRole() == .group } ?? []
+            let noOperatorSpansMatrix1 = (aLabel != nil && bLabel != nil && rowAMatrices.count == 2)
+                && !aLabel!.pageRect.intersects(rowAMatrices[0].pageRect)
+                && !bLabel!.pageRect.intersects(rowAMatrices[0].pageRect)
+                && !bLabel!.pageRect.intersects(rowAMatrices[1].pageRect)
+            let rowB = root7?.allChildren.first {
+                $0.accessibilityRole() == .group && (($0.accessibilityValue() as? String)?.contains("9 1") == true)
+            }
+            let rowBMatrices = rowB?.allChildren.filter { $0.accessibilityRole() == .group } ?? []
+            let fracMatricesDisjoint = rowBMatrices.count == 2 && !rowBMatrices[0].pageRect.intersects(rowBMatrices[1].pageRect)
+            check(noOperatorSpansMatrix1 && fracMatricesDisjoint,
+                  "operator labels split around matrices and vertical fractions do not bridge separate matrices")
+
+            // 8. Short indented continuation and centered equation sharing right edge do not merge via indent/flush-right rules
+            let alignmentGuardPDF = makePDF { ctx in
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.black]
+                ("This reference prose line spans all the way across the normal column right edge." as NSString).draw(
+                    at: CGPoint(x: 72, y: 710), withAttributes: attrs)
+                ("Another reference prose line establishing the normal right margin of this column." as NSString).draw(
+                    at: CGPoint(x: 72, y: 694), withAttributes: attrs)
+
+                ("Indented item continuation line that stops well short." as NSString).draw(
+                    at: CGPoint(x: 105, y: 644), withAttributes: attrs)
+                ("2. Wider next item starting back left and extending further right than above." as NSString).draw(
+                    at: CGPoint(x: 86, y: 626), withAttributes: attrs)
+
+                ("d = (1, m)" as NSString).draw(at: CGPoint(x: 270, y: 564), withAttributes: attrs)
+                ("is parallel to the line (can you see why?)." as NSString).draw(at: CGPoint(x: 86, y: 546), withAttributes: attrs)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            let (win8, root8) = buildAccessibilityRoot(for: alignmentGuardPDF)
+            defer { win8.orderOut(nil) }
+            let groups8 = root8?.allChildren.filter { $0.accessibilityRole() == .group } ?? []
+            let falseIndentMerge = groups8.contains { ($0.accessibilityValue() as? String)?.contains("2. Wider") == true }
+            let falseFlushRightMerge = groups8.contains { ($0.accessibilityValue() as? String)?.contains("d = (1, m)") == true }
+            check(!falseIndentMerge && !falseFlushRightMerge,
+                  "narrow indented or centered lines do not falsely merge into wider left-margin prose lines")
         }
         do {
             // Two columns: a high left line and a low right line. A drag whose higher point sits in the

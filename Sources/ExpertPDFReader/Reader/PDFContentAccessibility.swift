@@ -89,20 +89,30 @@ final class PDFContentAccessibility {
         return roots.lazy.compactMap { ($0 as? GeometryElement)?.deepestHit(at: point) }.first
     }
 
+    nonisolated private static func glyphScale(for glyphs: [NativePDFPageGeometry.Glyph], fallback: CGFloat) -> CGFloat {
+        let heights = glyphs.filter { !$0.isWhitespace }.map(\.bounds.height).sorted()
+        guard !heights.isEmpty else { return fallback }
+        return heights[Int(Double(heights.count - 1) * 0.75)]
+    }
+
     private struct LineMetrics {
         let cropWidth: CGFloat
         let typicalHeight: CGFloat
+        let typicalFontScale: CGFloat
         let typicalStep: CGFloat
 
         init(rows: [NativePDFPageGeometry.Row], cropBox: CGRect) {
             let cw = max(1, cropBox.width)
-            let rowRects = rows.map(\.bounds)
-            let substantive = rowRects.filter { $0.width >= cw * 0.15 }
-            let basis = substantive.isEmpty ? rowRects : substantive
-            let heights = basis.map(\.height).sorted()
+            let wideRows = rows.filter { $0.bounds.width >= cw * 0.35 }
+            let substantiveRows = rows.filter { $0.bounds.width >= cw * 0.15 }
+            let scaleBasis = wideRows.isEmpty ? (substantiveRows.isEmpty ? rows : substantiveRows) : wideRows
+            let heights = scaleBasis.map(\.bounds.height).sorted()
             let th = heights.isEmpty ? 10 : max(1, heights[heights.count / 2])
+            let fontScales = scaleBasis.map { PDFContentAccessibility.glyphScale(for: $0.glyphs, fallback: $0.bounds.height) }.sorted()
+            let tfs = fontScales.isEmpty ? th : max(1, fontScales[fontScales.count / 2])
 
-            let ordered = basis.sorted { $0.midY > $1.midY }
+            let stepBasis = (substantiveRows.isEmpty ? rows : substantiveRows).map(\.bounds)
+            let ordered = stepBasis.sorted { $0.midY > $1.midY }
             var steps: [CGFloat] = []
             for i in ordered.indices {
                 let u = ordered[i]
@@ -119,6 +129,7 @@ final class PDFContentAccessibility {
             steps.sort()
             self.cropWidth = cw
             self.typicalHeight = th
+            self.typicalFontScale = tfs
             self.typicalStep = steps.isEmpty
                 ? th * 1.45
                 : steps[Int(Double(steps.count - 1) * 0.4)]
@@ -139,6 +150,7 @@ final class PDFContentAccessibility {
     private struct BlockItem {
         let element: GeometryElement
         let isCompound: Bool
+        let fontScale: CGFloat
         var pageRect: CGRect { element.pageRect }
     }
 
@@ -301,6 +313,37 @@ final class PDFContentAccessibility {
         }
     }
 
+    /// Split a free glyph run wherever an intervening vertically overlapping obstacle sits between
+    /// adjacent glyphs, preventing operator text on either side of a matrix from spanning across it.
+    private static func split(_ row: NativePDFPageGeometry.Row, around obstacles: [CGRect])
+        -> [NativePDFPageGeometry.Row] {
+        guard row.glyphs.count > 1, !obstacles.isEmpty else { return [row] }
+        let blocking = obstacles.filter {
+            min($0.maxY, row.bounds.maxY) > max($0.minY, row.bounds.minY)
+                || (row.bounds.midY >= $0.minY && row.bounds.midY <= $0.maxY)
+        }
+        guard !blocking.isEmpty else { return [row] }
+        let sorted = row.glyphs.sorted { $0.bounds.minX < $1.bounds.minX }
+        var groups: [[NativePDFPageGeometry.Glyph]] = [[sorted[0]]]
+        var curMaxX = sorted[0].bounds.maxX
+        for glyph in sorted.dropFirst() {
+            let crossesObstacle = blocking.contains { obs in
+                obs.midX > curMaxX - 1 && obs.midX < glyph.bounds.minX + 1
+            }
+            if crossesObstacle {
+                groups.append([glyph])
+            } else {
+                groups[groups.count - 1].append(glyph)
+            }
+            curMaxX = max(curMaxX, glyph.bounds.maxX)
+        }
+        if groups.count == 1 { return [row] }
+        return groups.map { glyphs in
+            let bounds = glyphs.reduce(CGRect.null) { $0.union($1.bounds) }
+            return .init(bounds: bounds, glyphs: glyphs)
+        }
+    }
+
     private static func readingOrderSort(_ elements: [GeometryElement]) -> [GeometryElement] {
         guard elements.count > 1 else { return elements }
         let byTop = elements.sorted { $0.pageRect.maxY > $1.pageRect.maxY }
@@ -386,12 +429,7 @@ final class PDFContentAccessibility {
             let bandHeight = bandMaxY - bandMinY
             let yLo = bandMinY - th * 0.25, yHi = bandMaxY + th * 0.25
 
-            struct Compartment {
-                let leftPos: Int
-                let rightPos: Int
-                let rowIndices: Set<Int>
-            }
-            var compartments: [Compartment] = []
+            var validByPos: [Int: Set<Int>] = [:]
             for pos in 0..<(sortedIndices.count - 1) {
                 let left = scopedSpans[sortedIndices[pos]].rect
                 let right = scopedSpans[sortedIndices[pos + 1]].rect
@@ -423,30 +461,37 @@ final class PDFContentAccessibility {
                         && (right.minX - maxGX) <= th * 2.0
                 }
                 if isValid {
-                    compartments.append(Compartment(leftPos: pos, rightPos: pos + 1, rowIndices: rowIndices))
+                    validByPos[pos] = rowIndices
                 }
             }
 
-            var compIdx = 0
-            while compIdx < compartments.count {
-                let startPos = compartments[compIdx].leftPos
-                var endPos = compartments[compIdx].rightPos
-                var rowSet = compartments[compIdx].rowIndices
-                while compIdx + 1 < compartments.count && compartments[compIdx + 1].leftPos == endPos {
-                    compIdx += 1
-                    endPos = compartments[compIdx].rightPos
-                    rowSet.formUnion(compartments[compIdx].rowIndices)
+            var pos = 0
+            while pos < sortedIndices.count - 1 {
+                guard var rowSet = validByPos[pos] else { pos += 1; continue }
+                let startPos = pos
+                var endPos = pos + 1
+                while endPos < sortedIndices.count - 1, let nextRows = validByPos[endPos] {
+                    let midSpan = scopedSpans[sortedIndices[endPos]]
+                    let isThinDivider = !midSpan.isGlyph || midSpan.rect.width <= th * 0.35
+                    let sharedRows = rowSet.intersection(nextRows).count
+                    let sharesStructure = bandHeight >= th * 2.0
+                        ? sharedRows >= 2
+                        : (sharedRows >= 1
+                            && (scopedSpans[sortedIndices[endPos + 1]].rect.minX - midSpan.rect.maxX) <= th * 6)
+                    guard isThinDivider && sharesStructure else { break }
+                    endPos += 1
+                    rowSet.formUnion(nextRows)
                 }
                 var unionRect = CGRect.null
-                for pos in startPos...endPos {
-                    let spanIdx = sortedIndices[pos]
+                for p in startPos...endPos {
+                    let spanIdx = sortedIndices[p]
                     pairedSpanIndices.insert(spanIdx)
                     unionRect = unionRect.union(scopedSpans[spanIdx].rect)
                 }
                 if !unionRect.isNull {
                     enclosures.append(PairedEnclosure(bounds: unionRect, isMultiRow: rowSet.count >= 2))
                 }
-                compIdx += 1
+                pos = endPos + 1
             }
         }
 
@@ -471,7 +516,7 @@ final class PDFContentAccessibility {
         // Stage 1B: Split rows across multi-row paired enclosures.
         let multiSplitBoxes = multiEnclosures.map { $0.bounds.insetBy(dx: 0, dy: -th * 0.25) }
         var enclosedLines = multiEnclosures.map { _ in [GeometryElement]() }
-        var freeLines: [GeometryElement] = []
+        var freeLines: [(element: GeometryElement, fontScale: CGFloat)] = []
 
         for slice in slices {
             let splitRuns = Self.split(slice.row, across: multiSplitBoxes)
@@ -484,30 +529,34 @@ final class PDFContentAccessibility {
                     el.setAccessibilityValue(clean)
                     enclosedLines[encIdx].append(el)
                 } else {
-                    let runs = overlappedEnclosure
-                        ? Self.splitHorizontalGaps(subRow, gapThreshold: th * 3.0)
-                        : [subRow]
-                    for run in runs {
-                        let clean: String
-                        let rect: CGRect
-                        if runs.count == 1 && splitRuns.count == 1 {
-                            clean = slice.text
-                            rect = slice.bounds
-                        } else {
-                            clean = geometry.text(for: run, on: page)
-                            rect = run.bounds.intersection(containerBounds)
-                        }
-                        guard !clean.isEmpty, !rect.isNull, !rect.isEmpty else { continue }
-                        var finalRect = rect
-                        for single in singleEnclosures {
-                            let testBox = single.bounds.insetBy(dx: 0, dy: -th * 0.25)
-                            if run.glyphs.contains(where: { testBox.contains(CGPoint(x: $0.bounds.midX, y: $0.bounds.midY)) }) {
-                                finalRect = finalRect.union(single.bounds)
+                    let obstacleSplit = Self.split(subRow, around: multiSplitBoxes)
+                    for piece in obstacleSplit {
+                        let runs = (overlappedEnclosure || obstacleSplit.count > 1)
+                            ? Self.splitHorizontalGaps(piece, gapThreshold: th * 3.0)
+                            : [piece]
+                        for run in runs {
+                            let clean: String
+                            let rect: CGRect
+                            if runs.count == 1 && splitRuns.count == 1 && obstacleSplit.count == 1 {
+                                clean = slice.text
+                                rect = slice.bounds
+                            } else {
+                                clean = geometry.text(for: run, on: page)
+                                rect = run.bounds.intersection(containerBounds)
                             }
+                            guard !clean.isEmpty, !rect.isNull, !rect.isEmpty else { continue }
+                            let lineFontScale = Self.glyphScale(for: run.glyphs, fallback: rect.height)
+                            var finalRect = rect
+                            for single in singleEnclosures {
+                                let testBox = single.bounds.insetBy(dx: 0, dy: -th * 0.25)
+                                if run.glyphs.contains(where: { testBox.contains(CGPoint(x: $0.bounds.midX, y: $0.bounds.midY)) }) {
+                                    finalRect = finalRect.union(single.bounds)
+                                }
+                            }
+                            let el = GeometryElement(page: page, rect: finalRect, view: view, role: .staticText, label: nil)
+                            el.setAccessibilityValue(clean)
+                            freeLines.append((el, lineFontScale))
                         }
-                        let el = GeometryElement(page: page, rect: finalRect, view: view, role: .staticText, label: nil)
-                        el.setAccessibilityValue(clean)
-                        freeLines.append(el)
                     }
                 }
             }
@@ -625,9 +674,9 @@ final class PDFContentAccessibility {
         }
 
         let allBandYRanges = bands.map { ($0.rect.minY - th * 0.25, $0.rect.maxY + th * 0.25) }
-        var unattachedLines: [GeometryElement] = []
+        var unattachedLines: [(element: GeometryElement, fontScale: CGFloat)] = []
         for line in freeLines {
-            let lr = line.pageRect
+            let lr = line.element.pageRect
             let match = bands.indices.first { idx in
                 let br = bands[idx].rect
                 let vOverlap = min(br.maxY, lr.maxY) - max(br.minY, lr.minY)
@@ -647,18 +696,20 @@ final class PDFContentAccessibility {
                     && !blockedByObstacle(between: br, and: lr)
             }
             if let match {
-                bands[match].children.append(line)
+                bands[match].children.append(line.element)
                 bands[match].rect = bands[match].rect.union(lr)
             } else {
                 unattachedLines.append(line)
             }
         }
 
-        var result: [BlockItem] = unattachedLines.map { BlockItem(element: $0, isCompound: false) }
+        var result: [BlockItem] = unattachedLines.map {
+            BlockItem(element: $0.element, isCompound: false, fontScale: $0.fontScale)
+        }
         for band in bands {
             guard !band.children.isEmpty else { continue }
             if band.children.count == 1 && band.spans.isEmpty && band.children[0].accessibilityRole() == .group {
-                result.append(BlockItem(element: band.children[0], isCompound: true))
+                result.append(BlockItem(element: band.children[0], isCompound: true, fontScale: metrics.typicalFontScale))
                 continue
             }
             let sortedChildren = Self.readingOrderSort(band.children)
@@ -667,7 +718,7 @@ final class PDFContentAccessibility {
                                roleDescription: L10n.tr("内容块", "Section"))
             let joined = sortedChildren.compactMap { $0.accessibilityValue() as? String }.joined(separator: "\n")
             if !joined.isEmpty { group.setAccessibilityValue(joined) }
-            result.append(BlockItem(element: group, isCompound: true))
+            result.append(BlockItem(element: group, isCompound: true, fontScale: metrics.typicalFontScale))
         }
         return result
     }
@@ -919,18 +970,22 @@ final class PDFContentAccessibility {
             return false
         }
 
-        guard dyMid >= th * 0.45, dyMid <= step * 1.32 else { return false }
+        let excessH = max(0, upper.height - th) * 0.5 + max(0, lower.height - th) * 0.5
+        guard dyMid >= th * 0.45, dyMid <= step * 1.32 + excessH else { return false }
 
-        // Prevent mixing display headings with body lines while permitting short descenderless endings
-        // and inline math expressions within body height range.
-        let substantiveRects = substantive.map(\.pageRect)
-        if (substantiveRects.count == 1 && upper.height > th * 1.22 && upper.height > lower.height * 1.18)
-            || (lower.height > th * 1.22 && lower.height > upper.height * 1.18) {
+        // Prevent mixing display headings with body lines using typographic glyph scale (75th percentile
+        // glyph height) rather than full line bounds, so inline math delimiters or sub/superscripts on
+        // body lines never break paragraphs or lists.
+        let fs = metrics.typicalFontScale
+        let uScale = upperItem.fontScale, lScale = lowerItem.fontScale
+        if (substantive.count == 1 && uScale > fs * 1.20 && uScale > lScale * 1.16)
+            || (lScale > fs * 1.20 && lScale > uScale * 1.16) {
             return false
         }
-        guard max(upper.height, lower.height) <= max(lineHeight * 2.15, th * 1.65) else { return false }
+        guard max(upper.height, lower.height) <= max(lineHeight * 2.4, th * 2.2) else { return false }
 
         let maxIndent = th * 3.5
+        let substantiveRects = substantive.map(\.pageRect)
         let subCount = substantiveRects.count
         let bodyMinX = subCount >= 2 ? (substantiveRects.dropFirst().map(\.minX).min() ?? upper.minX) : upper.minX
 
@@ -940,13 +995,16 @@ final class PDFContentAccessibility {
             return true
         }
         // 2. Flush right (justified prose or right-aligned equations).
-        if abs(lower.maxX - upper.maxX) <= alignTol {
+        if abs(lower.maxX - upper.maxX) <= alignTol
+            && (upper.maxX >= columnRight - maxIndent
+                || lower.minX >= upper.minX - maxIndent) {
             return true
         }
         // 3. First-line paragraph indent returning to the body left margin.
         let leftDelta = upper.minX - lower.minX
         if subCount == 1 && leftDelta > alignTol && leftDelta <= maxIndent
-            && (upper.width >= containerWidth * 0.32 || upper.maxX >= lower.maxX - maxIndent) {
+            && (upper.maxX >= columnRight - maxIndent
+                || (lower.maxX <= columnRight - maxIndent && upper.maxX >= lower.maxX - alignTol)) {
             return true
         }
         // 4. Hanging indent (first line wraps across to column right edge, continuation is indented).

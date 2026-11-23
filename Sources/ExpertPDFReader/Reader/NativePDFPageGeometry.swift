@@ -50,6 +50,7 @@ final class NativePDFPageGeometry {
             let singleNonWhitespaceBounds: CGRect?
             let isExtensibleMath: Bool
             let isBracketDelim: Bool
+            let isPurePunctuation: Bool
             var isPureWhitespace: Bool { nonWhitespaceLocs.isEmpty }
         }
 
@@ -88,6 +89,7 @@ final class NativePDFPageGeometry {
         var rawStructuralPieces: [CGRect] = []
         var unmappedPieces: [CGRect] = []
         var tallRejectedPieces: [CGRect] = []
+        var coveredLocs = IndexSet()
         if textLength > 0 {
             for index in 0..<page.numberOfCharacters {
                 let box = page.characterBounds(at: index).standardized
@@ -157,20 +159,72 @@ final class NativePDFPageGeometry {
                     }
                     continue
                 }
+                for loc in keptSet { coveredLocs.insert(loc) }
                 let coalesced = keptSet.rangeView.map { NSRange(location: $0.lowerBound, length: $0.count) }
                 let nonWS = keptSet.filter { !info(at: $0).isWhitespace }
                 let singleBounds = nonWS.count == 1 ? info(at: nonWS[0]).bounds : nil
                 let isExtensible = !nonWS.isEmpty && nonWS.allSatisfy { info(at: $0).isExtensibleMath }
                 let isBracket = !nonWS.isEmpty && nonWS.allSatisfy { info(at: $0).isBracketDelim }
+                let isPunct = !nonWS.isEmpty && nonWS.allSatisfy { info(at: $0).isPunctuation }
                 candidates.append(Candidate(bounds: box, ranges: coalesced, nonWhitespaceLocs: nonWS,
                                             singleNonWhitespaceBounds: singleBounds,
-                                            isExtensibleMath: isExtensible, isBracketDelim: isBracket))
+                                            isExtensibleMath: isExtensible, isBracketDelim: isBracket,
+                                            isPurePunctuation: isPunct))
             }
         }
 
+        // Recover text characters missed when PDFKit's drawing glyph table terminates early.
+        if textLength > 0 {
+            var loc = 0
+            while loc < textLength {
+                guard !coveredLocs.contains(loc) else { loc += 1; continue }
+                let cInfo = info(at: loc)
+                guard !cInfo.isNewline, !cInfo.isWhitespace,
+                      !cInfo.bounds.isNull, !cInfo.bounds.isInfinite,
+                      cInfo.bounds.width > 0, cInfo.bounds.height > 0,
+                      cInfo.bounds.intersects(cropBox),
+                      cInfo.bounds.height < cropBox.height * 0.55 else {
+                    loc += 1
+                    continue
+                }
+                let midPt = CGPoint(x: cInfo.bounds.midX, y: cInfo.bounds.midY)
+                let coveredByExisting = candidates.contains {
+                    !$0.isPureWhitespace
+                        && $0.bounds.insetBy(dx: -1, dy: -1).contains(midPt)
+                        && min($0.bounds.maxY, cInfo.bounds.maxY) > max($0.bounds.minY, cInfo.bounds.minY)
+                }
+                guard !coveredByExisting else {
+                    loc += 1
+                    continue
+                }
+                var endLoc = loc + 1
+                var locs = [loc]
+                while endLoc < textLength && !coveredLocs.contains(endLoc) {
+                    let nInfo = info(at: endLoc)
+                    guard !nInfo.isNewline, !nInfo.isWhitespace, nInfo.bounds == cInfo.bounds else { break }
+                    locs.append(endLoc)
+                    endLoc += 1
+                }
+                let isExtensible = locs.allSatisfy { info(at: $0).isExtensibleMath }
+                let isBracket = locs.allSatisfy { info(at: $0).isBracketDelim }
+                let isPunct = locs.allSatisfy { info(at: $0).isPunctuation }
+                candidates.append(Candidate(
+                    bounds: cInfo.bounds,
+                    ranges: [NSRange(location: loc, length: endLoc - loc)],
+                    nonWhitespaceLocs: locs,
+                    singleNonWhitespaceBounds: locs.count == 1 ? cInfo.bounds : nil,
+                    isExtensibleMath: isExtensible,
+                    isBracketDelim: isBracket,
+                    isPurePunctuation: isPunct
+                ))
+                loc = endLoc
+            }
+        }
+
+        let contentHeights = candidates.filter { !$0.isPureWhitespace && !$0.isPurePunctuation }.map { $0.bounds.height }.sorted()
         let nonWSHeights = candidates.filter { !$0.isPureWhitespace }.map { $0.bounds.height }.sorted()
         let fallbackHeights = candidates.map { $0.bounds.height }.sorted()
-        let heights = nonWSHeights.isEmpty ? fallbackHeights : nonWSHeights
+        let heights = contentHeights.isEmpty ? (nonWSHeights.isEmpty ? fallbackHeights : nonWSHeights) : contentHeights
         let typicalHeight = heights.isEmpty ? 1 : heights[heights.count / 2]
 
         // Drop phantom wide/tall pure-whitespace boxes emitted around matrix gaps or line breaks.
@@ -214,7 +268,9 @@ final class NativePDFPageGeometry {
            && !candidate.isExtensibleMath && !candidate.isBracketDelim
            && !candidate.nonWhitespaceLocs.isEmpty
            && candidate.bounds.height > typicalHeight * 2.5
-           && candidate.nonWhitespaceLocs.allSatisfy({ coveredByNormal.contains($0) }) {
+           && (candidate.nonWhitespaceLocs.allSatisfy({ coveredByNormal.contains($0) })
+               || (candidate.bounds.width > max(candidate.bounds.height * 1.2, typicalHeight * 4.5)
+                   && candidate.nonWhitespaceLocs.contains(where: { coveredByNormal.contains($0) }))) {
             droppedDuplicates.insert(idx)
         }
 
@@ -262,16 +318,21 @@ final class NativePDFPageGeometry {
         }
 
         var rows: [Row] = []
+        var rowMaxGlyphHeight: [CGFloat] = []
         // Tall delimiters belong to equations, not to the neighboring body-text baseline.
         for glyph in glyphs.sorted(by: { $0.bounds.midY > $1.bounds.midY }) {
             if let row = rows.indices.last(where: {
-                let rh = rows[$0].bounds.height, gh = glyph.bounds.height
+                let rh = rows[$0].bounds.height, gh = glyph.bounds.height, mg = rowMaxGlyphHeight[$0]
                 return abs(rows[$0].bounds.midY - glyph.bounds.midY) <= max(typicalHeight, min(rh, gh) * 0.6)
-                    && (max(rh, gh) <= typicalHeight * 3 || max(rh, gh) <= min(rh, gh) * 2.2)
+                    && (max(mg, gh) <= typicalHeight * 3 || max(mg, gh) <= min(mg, gh) * 2.2)
             }) {
                 rows[row].glyphs.append(glyph)
                 rows[row].bounds = rows[row].bounds.union(glyph.bounds)
-            } else { rows.append(Row(bounds: glyph.bounds, glyphs: [glyph])) }
+                rowMaxGlyphHeight[row] = max(rowMaxGlyphHeight[row], glyph.bounds.height)
+            } else {
+                rows.append(Row(bounds: glyph.bounds, glyphs: [glyph]))
+                rowMaxGlyphHeight.append(glyph.bounds.height)
+            }
         }
 
         // Clamp stretched single-glyph advance boxes (e.g. a colon before a displayed equation)
@@ -375,7 +436,8 @@ final class NativePDFPageGeometry {
         guard !pieces.isEmpty else { return [] }
         func canMerge(_ a: CGRect, _ b: CGRect) -> Bool {
             let vGap = max(0, max(a.minY - b.maxY, b.minY - a.maxY))
-            guard vGap <= rowHeight * 0.45 else { return false }
+            let maxVGap = min(a.height, b.height) >= rowHeight * 2.2 ? rowHeight * 0.12 : rowHeight * 0.45
+            guard vGap <= maxVGap else { return false }
             let hGap = max(0, max(a.minX - b.maxX, b.minX - a.maxX))
             guard hGap <= rowHeight * 0.35 else { return false }
             let vOverlap = min(a.maxY, b.maxY) - max(a.minY, b.minY)

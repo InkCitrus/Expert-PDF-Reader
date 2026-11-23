@@ -1407,6 +1407,10 @@ public final class ReaderWindowSession: ObservableObject, Identifiable {
     public let isPrimary: Bool
     @Published public var tabs: [AppTab] {
         didSet {
+            if let lastID = lastDocumentTabID,
+               !tabs.contains(where: { $0.id == lastID && !$0.isHome }) {
+                lastDocumentTabID = nil
+            }
             if case .create(_, let tabID, _) = tabGroupNameEdit, !tabs.contains(where: { $0.id == tabID }) {
                 tabGroupNameEdit = nil
             }
@@ -1415,8 +1419,15 @@ public final class ReaderWindowSession: ObservableObject, Identifiable {
         }
     }
     @Published public var selectedTabID: UUID {
-        didSet { revealSelectedTabGroup(); onTabsChanged?() }
+        didSet {
+            if case .document = tabs.first(where: { $0.id == selectedTabID }) {
+                lastDocumentTabID = selectedTabID
+            }
+            revealSelectedTabGroup()
+            onTabsChanged?()
+        }
     }
+    public var lastDocumentTabID: UUID?
     @Published public var tabGroups: [ReaderTabGroup] = [] {
         didSet {
             if case .rename(let id) = tabGroupNameEdit, !tabGroups.contains(where: { $0.id == id }) {
@@ -1446,6 +1457,16 @@ public final class ReaderWindowSession: ObservableObject, Identifiable {
         self.isPrimary = isPrimary
         self.tabs = tabs
         self.selectedTabID = selectedTabID
+        if case .document = tabs.first(where: { $0.id == selectedTabID }) {
+            self.lastDocumentTabID = selectedTabID
+        }
+    }
+
+    public var returnableDocumentTabID: UUID? {
+        if let lastDocumentTabID, tabs.contains(where: { $0.id == lastDocumentTabID && !$0.isHome }) {
+            return lastDocumentTabID
+        }
+        return tabs.last(where: { !$0.isHome })?.id
     }
 
     public var activeDocumentTab: DocumentTabState? {
@@ -2122,6 +2143,19 @@ public final class AppStore: ObservableObject {
                 targetSession.selectedTabID = newID
             }
         }
+    }
+
+    public func toggleHomeTab(in sessionID: UUID? = nil) {
+        let targetSession = session(withID: sessionID)
+        if targetSession.activeDocumentTab == nil {
+            if let returnID = targetSession.returnableDocumentTabID {
+                performAnimated(AppAnimation.tab) {
+                    targetSession.selectedTabID = returnID
+                }
+            }
+            return
+        }
+        selectHomeTab(in: targetSession.id)
     }
 
     public func openNewHomeTab(in sessionID: UUID? = nil) {

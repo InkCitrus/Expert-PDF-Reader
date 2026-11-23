@@ -1561,6 +1561,51 @@ struct ReaderRegressionTests {
             check(PDFFileDrop.resolvedPDFURL(from: nonPDF) == nil,
                   "PDF drop ignores non-PDF file URLs")
         }
+        do {
+            let store = freshStore()
+            let tabA = store.openDocument(at: alpha, interactive: false)!
+            let tabB = store.openDocument(at: beta, interactive: false)!
+            check(store.activeDocumentTab?.id == tabB.id, "opening a second document makes it active before Home toggle")
+            store.toggleHomeTab()
+            check(store.activeDocumentTab == nil && store.primarySession.returnableDocumentTabID == tabB.id,
+                  "clicking Home leaves the document tab and remembers it")
+            store.toggleHomeTab()
+            check(store.activeDocumentTab?.id == tabB.id,
+                  "clicking Home again returns to the previously active document tab")
+            store.toggleHomeTab()
+            store.closeTab(id: tabB.id)
+            check(store.activeDocumentTab == nil && store.primarySession.returnableDocumentTabID == tabA.id,
+                  "closing the last active document while on Home falls back to another open tab")
+            store.toggleHomeTab()
+            check(store.activeDocumentTab?.id == tabA.id,
+                  "clicking Home returns to the remaining open document tab")
+            store.toggleHomeTab()
+            store.closeTab(id: tabA.id)
+            store.toggleHomeTab()
+            check(store.activeDocumentTab == nil && store.primarySession.returnableDocumentTabID == nil,
+                  "clicking Home with no open document tabs stays on Home")
+
+            let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 320, height: 120),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            let container = NSView(frame: CGRect(x: 0, y: 0, width: 320, height: 120))
+            window.contentView = container
+            let panelCursor = PanelCursorRect.View()
+            panelCursor.frame = CGRect(x: 0, y: 0, width: 320, height: 40)
+            panelCursor.priority = 1
+            let textField = NSTextField(frame: CGRect(x: 180, y: 6, width: 120, height: 28))
+            textField.isEditable = true
+            let textChild = NSView(frame: textField.bounds)
+            textField.addSubview(textChild)
+            container.addSubview(panelCursor)
+            container.addSubview(textField)
+            check(ReaderCursorArbiter.shared.cursor(at: CGPoint(x: 40, y: 20), in: window) == .arrow,
+                  "cursor arbiter enforces arrow cursor across registered toolbar/panel areas")
+            check(ReaderCursorArbiter.shared.cursor(at: CGPoint(x: 220, y: 20), in: window) == nil,
+                  "cursor arbiter defers to editable text fields and their inner subviews")
+            panelCursor.removeFromSuperview()
+            window.close()
+        }
         if !failures.isEmpty {
             print("\(failures.count) regression checks failed")
             exit(1)

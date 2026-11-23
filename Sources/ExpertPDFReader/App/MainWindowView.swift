@@ -96,7 +96,9 @@ public struct MainWindowView: View {
     }
 
     private var titlebarContent: some View {
-        let homeTitle = L10n.tr("主页", "Home")
+        let homeTitle = session.activeDocumentTab == nil && session.returnableDocumentTabID != nil
+            ? L10n.tr("返回之前的页面", "Return to Previous Page")
+            : L10n.tr("主页", "Home")
         let sidebarVisible = store.isLeftPanelVisible(in: session)
         let sidebarTitle = sidebarVisible
             ? L10n.tr("隐藏左边面板", "Hide Left Panel") : L10n.tr("显示左边面板", "Show Left Panel")
@@ -126,11 +128,12 @@ public struct MainWindowView: View {
         }
         .background(WindowDragArea())
         .background(AppPalette.tabStripBackground(isDark))
+        .background(PanelCursorRect())
     }
 
     private func goHome() {
         store.activateWindowSession(session.id)
-        store.selectHomeTab(in: session.id)
+        store.toggleHomeTab(in: session.id)
     }
 
     private func windowContent(windowWidth: CGFloat) -> some View {
@@ -359,7 +362,8 @@ final class ReaderCursorArbiter {
             guard let view = region.view else { return false }
             return view.bounds.contains(view.convert(point, from: nil))
         }), let view = region.view else { return nil }
-        if let hit = window.contentView?.hitTest(point), Self.isEditableTextView(hit) { return nil }
+        let hitRoot = window.contentView?.superview ?? window.contentView
+        if let hit = hitRoot?.hitTest(point), Self.isEditableTextView(hit) { return nil }
         return region.cursor(view)
     }
 
@@ -368,8 +372,12 @@ final class ReaderCursorArbiter {
     }
 
     private static func isEditableTextView(_ view: NSView) -> Bool {
-        if let field = view as? NSTextField { return field.isEditable }
-        if let text = view as? NSTextView { return text.isEditable }
+        var current: NSView? = view
+        while let candidate = current {
+            if let field = candidate as? NSTextField { return field.isEditable }
+            if let text = candidate as? NSTextView { return text.isEditable }
+            current = candidate.superview
+        }
         return false
     }
 }
@@ -419,10 +427,26 @@ struct PanelCursorRect: NSViewRepresentable {
             tracking = area
         }
 
-        override func mouseMoved(with event: NSEvent) { ReaderCursorArbiter.shared.schedule(window) }
-        override func mouseEntered(with event: NSEvent) { ReaderCursorArbiter.shared.schedule(window) }
+        override func mouseMoved(with event: NSEvent) {
+            if let window, let cursor = ReaderCursorArbiter.shared.cursor(at: event.locationInWindow, in: window) {
+                cursor.set()
+            }
+            ReaderCursorArbiter.shared.schedule(window)
+        }
+        override func mouseEntered(with event: NSEvent) {
+            if let window, let cursor = ReaderCursorArbiter.shared.cursor(at: event.locationInWindow, in: window) {
+                cursor.set()
+            }
+            ReaderCursorArbiter.shared.schedule(window)
+        }
         override func mouseExited(with event: NSEvent) { ReaderCursorArbiter.shared.schedule(window) }
-        override func cursorUpdate(with event: NSEvent) { ReaderCursorArbiter.shared.schedule(window) }
+        override func cursorUpdate(with event: NSEvent) {
+            if let window, let cursor = ReaderCursorArbiter.shared.cursor(at: event.locationInWindow, in: window) {
+                cursor.set()
+            } else {
+                super.cursorUpdate(with: event)
+            }
+        }
     }
 }
 

@@ -115,8 +115,8 @@
 "Recently opened PDFs will appear here so you can pick up where you left off." = "最近開いた PDF がここに表示され、すぐに続きを読むことができます。";
 "打开过的文件会自动显示在这里，方便随时继续阅读。|||Opened files will appear here automatically so you can continue reading anytime." = "開いたファイルが自動的にここに表示され、いつでも続きを読むことができます。";
 "Opened files will appear here automatically so you can continue reading anytime." = "開いたファイルが自動的にここに表示され、いつでも続きを読むことができます。";
-"按 ⌘D 或点击右上角的 + 标记当前页|||Press ⌘D or click + in the top right to bookmark this page" = "⌘D を押すか右上の + をクリックして現在のページをブックマーク";
-"Press ⌘D or click + in the top right to bookmark this page" = "⌘D を押すか右上の + をクリックして現在のページをブックマーク";
+"按 ⌘D 或点击工具栏中的书签图标标记当前页|||Press ⌘D or click the bookmark button in the toolbar to bookmark this page" = "⌘D を押すかツールバーのブックマークボタンをクリックして現在のページをブックマーク";
+"Press ⌘D or click the bookmark button in the toolbar to bookmark this page" = "⌘D を押すかツールバーのブックマークボタンをクリックして現在のページをブックマーク";
 "搜索|||Search" = "検索";
 "Search" = "検索";
 "搜索结果|||Search Results" = "検索結果";
@@ -504,3 +504,6 @@
 "Copy Current Page as Image" = "現在のページを画像としてコピー";
 "无法将此页复制为图片。|||This page could not be copied as an image." = "このページを画像としてコピーできませんでした。";
 "This page could not be copied as an image." = "このページを画像としてコピーできませんでした。";
+
+"返回之前的页面|||Return to Previous Page" = "前のページに戻る";
+"Return to Previous Page" = "前のページに戻る";

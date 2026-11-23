@@ -115,8 +115,8 @@
 "Recently opened PDFs will appear here so you can pick up where you left off." = "Os PDFs abertos recentemente aparecerão aqui para você continuar lendo.";
 "打开过的文件会自动显示在这里，方便随时继续阅读。|||Opened files will appear here automatically so you can continue reading anytime." = "Os arquivos abertos aparecerão aqui automaticamente para continuar lendo a qualquer momento.";
 "Opened files will appear here automatically so you can continue reading anytime." = "Os arquivos abertos aparecerão aqui automaticamente para continuar lendo a qualquer momento.";
-"按 ⌘D 或点击右上角的 + 标记当前页|||Press ⌘D or click + in the top right to bookmark this page" = "Pressione ⌘D ou clique em + no canto superior direito para marcar esta página";
-"Press ⌘D or click + in the top right to bookmark this page" = "Pressione ⌘D ou clique em + no canto superior direito para marcar esta página";
+"按 ⌘D 或点击工具栏中的书签图标标记当前页|||Press ⌘D or click the bookmark button in the toolbar to bookmark this page" = "Pressione ⌘D ou clique no botão de marcador na barra de ferramentas para marcar esta página";
+"Press ⌘D or click the bookmark button in the toolbar to bookmark this page" = "Pressione ⌘D ou clique no botão de marcador na barra de ferramentas para marcar esta página";
 "搜索|||Search" = "Pesquisar";
 "Search" = "Pesquisar";
 "搜索结果|||Search Results" = "Resultados da pesquisa";
@@ -504,3 +504,6 @@
 "Copy Current Page as Image" = "Copiar página atual como imagem";
 "无法将此页复制为图片。|||This page could not be copied as an image." = "Não foi possível copiar esta página como imagem.";
 "This page could not be copied as an image." = "Não foi possível copiar esta página como imagem.";
+
+"返回之前的页面|||Return to Previous Page" = "Voltar para a página anterior";
+"Return to Previous Page" = "Voltar para a página anterior";

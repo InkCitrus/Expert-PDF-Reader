@@ -358,45 +358,6 @@ public enum AppPalette {
         return Color(nsColor: base.blended(withFraction: isDark ? 0.35 : 0, of: .white) ?? base)
     }
 
-    public static func tabGroupSoftFill(_ color: TabGroupColor, _ isDark: Bool) -> Color {
-        tabGroupFill(color, isDark).opacity(isDark ? 0.24 : 0.14)
-    }
-
-    public static func tabGroupSoftBorder(_ color: TabGroupColor, _ isDark: Bool) -> Color {
-        tabGroupFill(color, isDark).opacity(isDark ? 0.44 : 0.30)
-    }
-
-    public static func tabGroupSoftInk(_ color: TabGroupColor, _ isDark: Bool) -> Color {
-        if isDark {
-            switch color {
-            case .blue:   return Color(hex: 0x8EB2FF)
-            case .purple: return Color(hex: 0xCFA0FF)
-            case .pink:   return Color(hex: 0xFF8CE0)
-            case .red:    return Color(hex: 0xFF8A94)
-            case .orange: return Color(hex: 0xFFBE78)
-            case .yellow: return Color(hex: 0xF5DA6B)
-            case .green:  return Color(hex: 0x6BE08A)
-            case .teal:   return Color(hex: 0x5ADBE5)
-            case .gray:   return Color(hex: 0xC6CBD4)
-            }
-        }
-        switch color {
-        case .blue:   return Color(hex: 0x264BB0)
-        case .purple: return Color(hex: 0x6C22A8)
-        case .pink:   return Color(hex: 0x9A0872)
-        case .red:    return Color(hex: 0xB31222)
-        case .orange: return Color(hex: 0xA85100)
-        case .yellow: return Color(hex: 0x8A6300)
-        case .green:  return Color(hex: 0x166326)
-        case .teal:   return Color(hex: 0x005F66)
-        case .gray:   return Color(hex: 0x454A52)
-        }
-    }
-
-    public static func tabCountBadgeFill(_ color: TabGroupColor, _ isDark: Bool) -> Color {
-        tabGroupFill(color, isDark).opacity(isDark ? 0.30 : 0.16)
-    }
-
     public static func tabSelectedBorder(_ isDark: Bool) -> Color {
         isDark ? Color.white.opacity(0.11) : Color.black.opacity(0.08)
     }

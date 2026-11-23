@@ -194,10 +194,10 @@ public struct MainWindowView: View {
         let width = boundedWidth(sidebarResizeWidth ?? preferredWidth)
         let isCollapsed = !isSidebarHovered && !isSidebarDragging && !isSidebarMenuTracking && !isSidebarResizing
             && session.editingTabGroupID == nil
-        let defaultPopupWidth = min(520, max(360, windowWidth * 0.45))
-        let popupMin: CGFloat = 280
+        let defaultPopupWidth = min(400, max(360, windowWidth * 0.37))
+        let popupMin: CGFloat = 240
         // Even a minimum-size window must fit the default popup, or the list opens narrower than intended
-        let popupMax = max(defaultPopupWidth, min(720, windowWidth - railWidth - 320))
+        let popupMax = max(defaultPopupWidth, min(640, windowWidth - railWidth - 320))
         func boundedPopup(_ w: CGFloat) -> CGFloat { min(max(w, popupMin), popupMax) }
         let storedPopupWidth = sidebarPopupWidth.map { CGFloat($0) } ?? defaultPopupWidth
         let popupWidth = boundedPopup(sidebarPopupResizeWidth ?? storedPopupWidth)
@@ -850,7 +850,7 @@ struct TabBarView: View {
     private static let minimumTabWidth: CGFloat = 168
     private static let maximumTabWidth: CGFloat = 340
     private static let maximumGroupWidth: CGFloat = 180
-    private static let sidebarRowHeight: CGFloat = 44
+    private static let sidebarRowHeight: CGFloat = 40
     /// The Open File row, top hairline, and bottom inset; the popup resize boundary stays above it so the row keeps its clicks
     static let sidebarFooterHeight: CGFloat = sidebarRowHeight + 8
     /// Leave room between the last tab and the help button.
@@ -927,18 +927,10 @@ struct TabBarView: View {
 
     private func groupWidth(_ group: ReaderTabGroup, available: CGFloat) -> CGFloat {
         if session.editingTabGroupID == group.id { return min(Self.maximumGroupWidth, available) }
-        if group.name.isEmpty {
-            if group.isCollapsed && !group.tabIDs.isEmpty {
-                return group.tabIDs.count >= 10 ? 54 : 48
-            }
-            return 32
-        }
-        let font = NSFont.systemFont(ofSize: 11.5, weight: .semibold)
+        if group.name.isEmpty { return 32 }
+        let font = NSFont.systemFont(ofSize: 11, weight: .semibold)
         let labelWidth = (group.name as NSString).size(withAttributes: [.font: font]).width
-        let collapsedBadgeExtra: CGFloat = (group.isCollapsed && !group.tabIDs.isEmpty)
-            ? (group.tabIDs.count >= 10 ? 32 : 24)
-            : 0
-        return min(Self.maximumGroupWidth, max(62, ceil(labelWidth) + 44 + collapsedBadgeExtra))
+        return min(Self.maximumGroupWidth, max(52, ceil(labelWidth) + 26))
     }
 
     private func groupHeader(_ group: ReaderTabGroup) -> some View {
@@ -994,9 +986,8 @@ struct TabBarView: View {
                 .background(alignment: .leading) {
                     if !group.isCollapsed && !group.tabIDs.isEmpty {
                         Capsule().fill(AppPalette.tabOutline(group.color, isDark))
-                            .opacity(0.85)
-                            .frame(width: 2.5)
-                            .padding(.vertical, 6)
+                            .frame(width: 2)
+                            .padding(.top, 6)
                             .allowsHitTesting(false)
                     }
                 }
@@ -1547,78 +1538,42 @@ struct DocumentTabItemView: View {
                     .accessibilityHidden(true)
             }
             if !isCollapsed {
-                if isSidebar {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(state.title)
-                            .font(.system(size: 12.5, weight: isSelected ? .semibold : .medium))
-                            .foregroundColor(labelColor)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-
-                        HStack(spacing: 5) {
-                            if state.pageCount > 0 {
-                                Text("\(state.displayPageNumber(at: state.currentPageIndex)) / \(state.pageCount)")
-                                    .font(.system(size: 10.5, weight: .regular))
-                                    .monospacedDigit()
-                                    .foregroundColor(AppPalette.labelTertiary(isDark))
-                                    .lineLimit(1)
-                            }
-                            if state.splitMode != .disabled {
-                                Image(systemName: state.splitMode.iconName)
-                                    .font(.system(size: 9.5, weight: .medium))
-                                    .foregroundColor(isSelected ? sidebarAccentTint : AppPalette.labelTertiary(isDark))
-                            }
-                            if let disambiguatedFolder {
-                                Text(disambiguatedFolder)
-                                    .font(.system(size: 10, weight: .regular))
-                                    .foregroundColor(AppPalette.labelTertiary(isDark))
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                    .padding(.horizontal, 5)
-                                    .padding(.vertical, 1)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                            .fill(AppPalette.segmentedTrack(isDark).opacity(isSelected ? 0.9 : 0.6))
-                                    )
-                                    .layoutPriority(-1)
-                            }
-                        }
+                HStack(spacing: 5) {
+                    if !isSidebar && state.splitMode != .disabled {
+                        Image(systemName: state.splitMode.iconName)
+                            .font(.system(size: 9.5, weight: .medium))
+                            .foregroundColor(AppPalette.labelTertiary(isDark))
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityHidden(true)
-                    .animation(AppAnimation.micro, value: isSelected)
-                } else {
-                    HStack(spacing: 5) {
-                        if state.splitMode != .disabled {
-                            Image(systemName: state.splitMode.iconName)
-                                .font(.system(size: 9.5, weight: .medium))
-                                .foregroundColor(AppPalette.labelTertiary(isDark))
-                        }
-                        Text(state.title)
-                            .font(.system(size: 12, weight: isSelected ? .medium : .regular))
-                            .foregroundColor(labelColor)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
+                    Text(state.title)
+                        .font(.system(size: 12, weight: isSelected ? .medium : .regular))
+                        .foregroundColor(labelColor)
+                        .lineLimit(isSidebar ? 2 : 1)
+                        .truncationMode(.middle)
 
-                        if let disambiguatedFolder {
-                            Text(disambiguatedFolder)
-                                .font(.system(size: 10.5, weight: .regular))
-                                .foregroundColor(AppPalette.labelTertiary(isDark))
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 1)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                        .fill(AppPalette.segmentedTrack(isDark).opacity(isSelected ? 0.9 : 0.6))
-                                )
-                                .layoutPriority(-1)
-                        }
+                    if isSidebar && state.splitMode != .disabled {
+                        Image(systemName: state.splitMode.iconName)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(isSelected ? sidebarAccentTint : AppPalette.labelTertiary(isDark))
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityHidden(true)
-                    .animation(AppAnimation.micro, value: isSelected)
+
+                    if let disambiguatedFolder {
+                        Text(disambiguatedFolder)
+                            .font(.system(size: 10.5, weight: .regular))
+                            .foregroundColor(AppPalette.labelTertiary(isDark))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .fill(AppPalette.segmentedTrack(isDark).opacity(isSelected ? 0.9 : 0.6))
+                            )
+                            .layoutPriority(-1)
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityHidden(true)
+                .animation(AppAnimation.micro, value: isSelected)
             }
 
             if !isCollapsed {

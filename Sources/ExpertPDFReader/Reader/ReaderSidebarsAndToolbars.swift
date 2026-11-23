@@ -653,7 +653,10 @@ public struct ReaderLeftSidebarView: View {
     private var headerAccessory: some View {
         switch tab.activeSidebarTab {
         case .thumbnails:
-            Text(L10n.pageCountText(tab.activeThumbnailSource.document.pageCount))
+            let selectedCount = tab.selectedThumbnailPages(in: tab.activeThumbnailSource).count
+            Text(selectedCount > 0
+                 ? L10n.selectedPagesCount(selectedCount)
+                 : L10n.pageCountText(tab.activeThumbnailSource.document.pageCount))
                 .font(.system(size: 11))
                 .monospacedDigit()
                 .foregroundColor(AppPalette.labelTertiary(isDark))
@@ -775,6 +778,7 @@ struct PDFPageThumbnailsPanel: View {
 
     var body: some View {
         let source = tab.activeThumbnailSource
+        let selectedPages = tab.selectedThumbnailPages(in: source)
         let scale = panelWidth / ReaderLeftSidebarView.width
         // Reuse nearby resolutions during a drag instead of rendering on every point of movement.
         let renderScale = (scale * 4).rounded(.up) / 4
@@ -809,6 +813,11 @@ struct PDFPageThumbnailsPanel: View {
             }
         }
         .id(ObjectIdentifier(source.document))
+        .onExitCommand {
+            if !selectedPages.isEmpty {
+                tab.clearThumbnailSelection()
+            }
+        }
     }
 }
 
@@ -835,11 +844,25 @@ struct PageThumbnailCell: View {
 
     var body: some View {
         let isCurrent = source.pageIndex == pageIndex
+        let selectedPages = tab.selectedThumbnailPages(in: source)
+        let isSelected = selectedPages.contains(pageIndex)
+        let hasMultiSelection = !selectedPages.isEmpty
+        let isEmphasized = hasMultiSelection ? isSelected : isCurrent
         let isBookmarked = store.isPageBookmarked(pageIndex: pageIndex, in: source.documentID)
         let page = source.document.page(at: pageIndex)
         let pageLabel = tab.thumbnailPageNumber(at: pageIndex, in: source.document)
 
-        Button(action: action) {
+        Button {
+            let flags = NSApp.currentEvent?.modifierFlags.intersection(.deviceIndependentFlagsMask) ?? []
+            if flags.contains(.shift) {
+                tab.selectThumbnailRange(to: pageIndex, in: source, extending: flags.contains(.command))
+            } else if flags.contains(.command) {
+                tab.toggleThumbnailSelection(pageIndex, in: source)
+            } else {
+                tab.clearThumbnailSelection(anchor: pageIndex, in: source)
+                action()
+            }
+        } label: {
             VStack(spacing: 7) {
                 if let page {
                     let request = PDFThumbnailCache.ThumbnailRequest(
@@ -884,26 +907,36 @@ struct PageThumbnailCell: View {
                         }
                         .shadow(color: Color.black.opacity(isDark ? 0.45 : 0.10), radius: 2.5, x: 0, y: 1)
                         .padding(4)
+                        .background(
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .fill(isSelected ? accent.opacity(isDark ? 0.14 : 0.08) : Color.clear)
+                        )
                         .overlay(
                             RoundedRectangle(cornerRadius: 5, style: .continuous)
                                 .stroke(
-                                    isCurrent
+                                    isEmphasized
                                         ? accent
-                                        : (isHovered ? accent.opacity(0.35) : Color.clear),
-                                    lineWidth: 2
+                                        : (hasMultiSelection && isCurrent
+                                            ? AppPalette.labelQuaternary(isDark)
+                                            : (isHovered ? accent.opacity(0.35) : Color.clear)),
+                                    lineWidth: isEmphasized ? 2 : (hasMultiSelection && isCurrent ? 1.5 : 2)
                                 )
                         )
                 }
 
                 Text(pageLabel)
-                    .font(.system(size: 11, weight: isCurrent ? .semibold : .regular))
+                    .font(.system(size: 11, weight: isEmphasized ? .semibold : .regular))
                     .monospacedDigit()
-                    .foregroundColor(isCurrent ? .white : AppPalette.labelSecondary(isDark))
+                    .foregroundColor(
+                        isEmphasized
+                            ? .white
+                            : (hasMultiSelection && isCurrent ? AppPalette.labelPrimary(isDark) : AppPalette.labelSecondary(isDark))
+                    )
                     .padding(.horizontal, 7)
                     .padding(.vertical, 2)
                     .background(
                         RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .fill(isCurrent ? accent : Color.clear)
+                            .fill(isEmphasized ? accent : (hasMultiSelection && isCurrent ? AppPalette.rowHover(isDark) : Color.clear))
                     )
             }
             .contentShape(Rectangle())
@@ -911,11 +944,96 @@ struct PageThumbnailCell: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(L10n.pageTitle(pageLabel)))
-        .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : [.isButton])
+        .accessibilityAddTraits((isCurrent || isSelected) ? [.isButton, .isSelected] : [.isButton])
         .onHover { isHovered = $0 }
         .contextMenu {
-            Button(isBookmarked ? L10n.tr("移除书签", "Remove Bookmark") : L10n.tr("添加书签", "Add Bookmark")) {
-                store.toggleBookmark(pageIndex: pageIndex, in: source.documentID)
+            let selectedPages = tab.selectedThumbnailPages(in: source)
+            let actsOnSelection = selectedPages.count > 1 && selectedPages.contains(pageIndex)
+            let targetWindow = store.window(forTabID: tab.id)
+            let canCopyPage = PageImageClipboard.canCopy(page)
+
+            if actsOnSelection {
+                let orderedSelection = selectedPages.sorted()
+                let allBookmarked = orderedSelection.allSatisfy {
+                    store.isPageBookmarked(pageIndex: $0, in: source.documentID)
+                }
+
+                Button(L10n.exportSelectedPages(orderedSelection.count)) {
+                    tab.beginExportPanel(in: targetWindow, initialPages: orderedSelection, source: source)
+                }
+                .disabled(!canCopyPage)
+
+                Divider()
+
+                Button(allBookmarked ? L10n.tr("移除书签", "Remove Bookmark") : L10n.tr("添加书签", "Add Bookmark")) {
+                    store.setBookmarks(
+                        pageIndices: orderedSelection,
+                        bookmarked: !allBookmarked,
+                        in: source.documentID,
+                        undoManager: tab.undoManager
+                    )
+                }
+
+                Divider()
+
+                Button(L10n.tr("向左旋转", "Rotate Left")) {
+                    tab.rotatePages(orderedSelection, in: source.document, clockwise: false)
+                }
+
+                Button(L10n.tr("向右旋转", "Rotate Right")) {
+                    tab.rotatePages(orderedSelection, in: source.document, clockwise: true)
+                }
+
+                Divider()
+
+                Button(L10n.tr("取消选择", "Deselect All")) {
+                    tab.clearThumbnailSelection()
+                }
+            } else {
+                if tab.canOpenThumbnailInSplitView(source: source) {
+                    Button(L10n.tr("在分屏中查看此页", "Open Page in Split View")) {
+                        tab.openPageInSplitView(pageIndex, from: source)
+                    }
+
+                    Divider()
+                }
+
+                Button(isBookmarked ? L10n.tr("移除书签", "Remove Bookmark") : L10n.tr("添加书签", "Add Bookmark")) {
+                    store.toggleBookmark(
+                        pageIndex: pageIndex,
+                        in: source.documentID,
+                        undoManager: tab.undoManager
+                    )
+                }
+
+                Divider()
+
+                Button(L10n.tr("向左旋转", "Rotate Left")) {
+                    tab.rotatePage(at: pageIndex, in: source.document, clockwise: false)
+                }
+                .disabled(page == nil)
+
+                Button(L10n.tr("向右旋转", "Rotate Right")) {
+                    tab.rotatePage(at: pageIndex, in: source.document, clockwise: true)
+                }
+                .disabled(page == nil)
+
+                Divider()
+
+                Button(L10n.tr("复制此页为图片", "Copy Page as Image")) {
+                    guard let page else { return }
+                    PageImageClipboard.beginCopy(
+                        page,
+                        in: targetWindow,
+                        title: L10n.tr("复制此页为图片", "Copy Page as Image")
+                    )
+                }
+                .disabled(!canCopyPage)
+
+                Button(L10n.tr("导出…", "Export…")) {
+                    tab.beginExportPanel(in: targetWindow, initialPages: [pageIndex], source: source)
+                }
+                .disabled(!canCopyPage)
             }
         }
     }

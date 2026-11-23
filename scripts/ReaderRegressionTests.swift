@@ -1848,16 +1848,13 @@ struct ReaderRegressionTests {
             let previousLanguage = L10n.currentLanguage
             defer { L10n.currentLanguage = previousLanguage }
             L10n.currentLanguage = .en
-            let safeName = PageExporter.suggestedFilename(documentTitle: "CS/101: Notes ", pageLabel: "iv/2", format: .pdf)
-            check(safeName == "CS-101- Notes - Page iv-2.pdf",
-                  "exported filename sanitizes slashes and colons")
-            let multiRangeName = PageExporter.suggestedFilename(documentTitle: "Notes", rangeText: "1-3, 5", pageCount: 4, isAllPages: false, format: .pdf)
-            let parenRangeName = PageExporter.suggestedFilename(documentTitle: "F17ZB", rangeText: "(1)-6", pageCount: 8, isAllPages: false, format: .pdf)
-            let allPagesName = PageExporter.suggestedFilename(documentTitle: "Notes", rangeText: nil, pageCount: 4, isAllPages: true, format: .pdf)
-            check(multiRangeName == "Notes - 1-3, 5.pdf"
-                  && parenRangeName == "F17ZB - (1)-6.pdf"
-                  && allPagesName == "Notes.pdf",
-                  "suggestedFilename formats multi-page range and full-document filenames without double parentheses")
+            let safeName = PageExporter.suggestedFilename(documentTitle: "CS/101: Notes v1.2 ", format: .pdf)
+            check(safeName == "CS-101- Notes v1.2 - Export.pdf",
+                  "the default name retains the document title and has a distinct export suffix")
+            check(PageExporter.filename("My Notes v1.2", for: .png) == "My Notes v1.2.png"
+                  && PageExporter.filename("My Notes v1.2.PDF", for: .png) == "My Notes v1.2.png"
+                  && PageExporter.filename("My Notes v1.2.png", for: .pdf) == "My Notes v1.2.pdf",
+                  "switching output formats replaces only a known export extension")
 
             // 9. Localization checks across all 10 non-zhHans/en catalog languages + dynamic helpers
             let catalogKeys: [(String, String, Set<String>)] = [

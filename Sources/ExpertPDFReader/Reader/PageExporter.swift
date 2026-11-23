@@ -102,13 +102,6 @@ enum PageExporter {
         case pdf = 0
         case png = 1
 
-        var contentType: UTType {
-            switch self {
-            case .pdf: return .pdf
-            case .png: return .png
-            }
-        }
-
         var fileExtension: String {
             switch self {
             case .pdf: return "pdf"
@@ -163,35 +156,20 @@ enum PageExporter {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    static func suggestedFilename(documentTitle: String, pageLabel: String, format: Format) -> String {
+    static func suggestedFilename(documentTitle: String, format: Format) -> String {
         let cleanedTitle = sanitizeFilenameComponent(documentTitle)
         let safeTitle = cleanedTitle.isEmpty ? "Document" : cleanedTitle
-        let cleanedLabel = sanitizeFilenameComponent(pageLabel)
-        let safeLabel = cleanedLabel.isEmpty ? "1" : cleanedLabel
-        return "\(safeTitle) - \(L10n.pageTitle(safeLabel)).\(format.fileExtension)"
+        return "\(safeTitle) - \(L10n.tr("导出", "Export")).\(format.fileExtension)"
     }
 
-    static func suggestedFilename(
-        documentTitle: String,
-        rangeText: String?,
-        pageCount: Int,
-        isAllPages: Bool,
-        format: Format
-    ) -> String {
-        let cleanedTitle = sanitizeFilenameComponent(documentTitle)
-        let safeTitle = cleanedTitle.isEmpty ? "Document" : cleanedTitle
-        if isAllPages {
-            return "\(safeTitle).\(format.fileExtension)"
+    static func filename(_ name: String, for format: Format) -> String {
+        let path = name as NSString
+        switch path.pathExtension.lowercased() {
+        case "pdf", "png":
+            return "\(path.deletingPathExtension).\(format.fileExtension)"
+        default:
+            return "\(name).\(format.fileExtension)"
         }
-        let cleanedRange = rangeText.map(sanitizeFilenameComponent) ?? ""
-        if pageCount == 1 {
-            let safeLabel = cleanedRange.isEmpty ? "1" : cleanedRange
-            return "\(safeTitle) - \(L10n.pageTitle(safeLabel)).\(format.fileExtension)"
-        }
-        if !cleanedRange.isEmpty && cleanedRange.count <= 24 {
-            return "\(safeTitle) - \(cleanedRange).\(format.fileExtension)"
-        }
-        return "\(safeTitle) - \(L10n.pageCountText(pageCount)).\(format.fileExtension)"
     }
 
     nonisolated static func pdfData(from snapshots: [PageImageClipboard.PageSnapshot]) throws -> Data {
@@ -299,25 +277,17 @@ enum PageExporter {
 
 @MainActor
 private final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate, NSTextFieldDelegate {
-    private static var activeController: PageExportPanelController?
-
     private let context: PageExporter.ExportDocumentContext
     private weak var hostWindow: NSWindow?
     private let panel = NSSavePanel()
 
-    private let formatPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
     private let pagesModePopUp = NSPopUpButton(frame: .zero, pullsDown: false)
     private let rangeField = NSTextField(string: "")
     private let pngPageField = NSTextField(string: "")
-    private let pagesControlContainer = NSView()
-    private let rangeStack = NSStackView()
     private let statusLabel = NSTextField(labelWithString: "")
-    private var compactBottomConstraint: NSLayoutConstraint?
-    private var expandedBottomConstraint: NSLayoutConstraint?
-
-    private var lastAutoFilename = ""
     private var selectedFormat: PageExporter.Format = .pdf
     private var selectedMode: PageExporter.PageSelectionMode
+    private var initializedPNGPage = false
 
     init(
         context: PageExporter.ExportDocumentContext,
@@ -327,182 +297,113 @@ private final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate
     ) {
         self.context = context
         self.hostWindow = window
-        let pageCount = context.document.pageCount
-        let sanitizedPages = (initialPages ?? []).filter { (0..<pageCount).contains($0) }
-        if !sanitizedPages.isEmpty {
-            self.selectedMode = .range
-        } else {
-            self.selectedMode = initialMode
-        }
+        let pages = (initialPages ?? []).filter { (0..<context.document.pageCount).contains($0) }
+        self.selectedMode = pages.isEmpty ? initialMode : .range
         super.init()
 
-        configureControls(initialPages: sanitizedPages)
+        rangeField.stringValue = pageRangeText(for: pages.isEmpty ? [context.currentPageIndex] : pages)
         configurePanel()
-    }
-
-    private func configureControls(initialPages: [Int]) {
-        formatPopUp.addItems(withTitles: ["PDF", "PNG"])
-        formatPopUp.selectItem(at: PageExporter.Format.pdf.rawValue)
-        formatPopUp.target = self
-        formatPopUp.action = #selector(formatChanged)
-
-        let pageCount = context.document.pageCount
-        pagesModePopUp.addItems(withTitles: [
-            L10n.parenthetical(L10n.tr("全部页面", "All Pages"), L10n.pageCountText(pageCount)),
-            L10n.parenthetical(L10n.tr("当前页", "Current Page"), context.labelForPage(context.currentPageIndex)),
-            L10n.tr("指定页码", "Page Range")
-        ])
-        pagesModePopUp.selectItem(at: selectedMode.rawValue)
-        pagesModePopUp.target = self
-        pagesModePopUp.action = #selector(pagesModeChanged)
-
-        if !initialPages.isEmpty {
-            rangeField.stringValue = PageRangeParser.format(
-                initialPages,
-                pageCount: pageCount,
-                labelFor: context.labelForPage,
-                usesBookNumbers: context.usesBookNumbers,
-                resolvePage: context.resolvePage
-            )
-            pngPageField.stringValue = context.labelForPage(initialPages[0])
-        } else {
-            let currentLabel = context.labelForPage(context.currentPageIndex)
-            rangeField.stringValue = currentLabel
-            pngPageField.stringValue = currentLabel
-        }
-
-        rangeField.placeholderString = "1-5, 8, 12-15"
-        rangeField.delegate = self
-        rangeField.font = NSFont.systemFont(ofSize: 13)
-
-        pngPageField.placeholderString = context.labelForPage(context.currentPageIndex)
-        pngPageField.delegate = self
-        pngPageField.font = NSFont.systemFont(ofSize: 13)
-
-        pagesModePopUp.translatesAutoresizingMaskIntoConstraints = false
-        pngPageField.translatesAutoresizingMaskIntoConstraints = false
-        pagesControlContainer.translatesAutoresizingMaskIntoConstraints = false
-        pagesControlContainer.addSubview(pagesModePopUp)
-        pagesControlContainer.addSubview(pngPageField)
-        NSLayoutConstraint.activate([
-            pagesModePopUp.leadingAnchor.constraint(equalTo: pagesControlContainer.leadingAnchor),
-            pagesModePopUp.trailingAnchor.constraint(equalTo: pagesControlContainer.trailingAnchor),
-            pagesModePopUp.topAnchor.constraint(equalTo: pagesControlContainer.topAnchor),
-            pagesModePopUp.bottomAnchor.constraint(equalTo: pagesControlContainer.bottomAnchor),
-
-            pngPageField.leadingAnchor.constraint(equalTo: pagesControlContainer.leadingAnchor),
-            pngPageField.trailingAnchor.constraint(equalTo: pagesControlContainer.trailingAnchor),
-            pngPageField.topAnchor.constraint(equalTo: pagesControlContainer.topAnchor),
-            pngPageField.bottomAnchor.constraint(equalTo: pagesControlContainer.bottomAnchor)
-        ])
-
-        formatPopUp.translatesAutoresizingMaskIntoConstraints = false
-        rangeField.translatesAutoresizingMaskIntoConstraints = false
-        statusLabel.translatesAutoresizingMaskIntoConstraints = false
-        statusLabel.font = NSFont.systemFont(ofSize: 11)
-        statusLabel.textColor = .secondaryLabelColor
-        statusLabel.lineBreakMode = .byTruncatingTail
-
-        for control in [formatPopUp, pagesModePopUp, pngPageField, rangeField] as [NSView] {
-            control.setContentHuggingPriority(.init(200), for: .horizontal)
-        }
-
-        rangeStack.addArrangedSubview(rangeField)
-        rangeStack.addArrangedSubview(statusLabel)
-        rangeStack.translatesAutoresizingMaskIntoConstraints = false
-        rangeStack.orientation = .vertical
-        rangeStack.alignment = .leading
-        rangeStack.spacing = 4
-
-        let formatLabel = NSTextField(labelWithString: L10n.tr("格式：", "Format:"))
-        formatLabel.font = NSFont.systemFont(ofSize: 13)
-        formatLabel.textColor = .secondaryLabelColor
-        formatLabel.alignment = .right
-        formatLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        let pagesLabel = NSTextField(labelWithString: L10n.tr("页面：", "Pages:"))
-        pagesLabel.font = NSFont.systemFont(ofSize: 13)
-        pagesLabel.textColor = .secondaryLabelColor
-        pagesLabel.alignment = .right
-        pagesLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        // Match macOS Save Panel's 380pt top form directly: labels right-aligned at x=101.5,
-        // 9pt column gap, and 230pt controls spanning x=110.5..340.5.
-        let labelTrailing: CGFloat = 101.5
-        let controlLeading: CGFloat = 110.5
-        let controlTrailing: CGFloat = 340.5
-
-        let formContainer = NSView()
-        formContainer.translatesAutoresizingMaskIntoConstraints = false
-        for subview in [formatLabel, formatPopUp, pagesLabel, pagesControlContainer, rangeStack] as [NSView] {
-            formContainer.addSubview(subview)
-        }
-
-        let compactBottom = pagesControlContainer.bottomAnchor.constraint(equalTo: formContainer.bottomAnchor, constant: -14)
-        let expandedBottom = rangeStack.bottomAnchor.constraint(equalTo: formContainer.bottomAnchor, constant: -14)
-        compactBottomConstraint = compactBottom
-        expandedBottomConstraint = expandedBottom
-
-        let accessoryContainer = NSView()
-        accessoryContainer.translatesAutoresizingMaskIntoConstraints = false
-        accessoryContainer.addSubview(formContainer)
-        let minWidth = accessoryContainer.widthAnchor.constraint(greaterThanOrEqualToConstant: 380)
-        minWidth.priority = .defaultHigh
-        NSLayoutConstraint.activate([
-            minWidth,
-            formContainer.widthAnchor.constraint(equalToConstant: 380),
-            formContainer.centerXAnchor.constraint(equalTo: accessoryContainer.centerXAnchor),
-            formContainer.topAnchor.constraint(equalTo: accessoryContainer.topAnchor),
-            formContainer.bottomAnchor.constraint(equalTo: accessoryContainer.bottomAnchor),
-
-            formatLabel.leadingAnchor.constraint(greaterThanOrEqualTo: formContainer.leadingAnchor, constant: 12),
-            formatLabel.trailingAnchor.constraint(equalTo: formContainer.leadingAnchor, constant: labelTrailing),
-            formatLabel.centerYAnchor.constraint(equalTo: formatPopUp.centerYAnchor),
-
-            formatPopUp.leadingAnchor.constraint(equalTo: formContainer.leadingAnchor, constant: controlLeading),
-            formatPopUp.trailingAnchor.constraint(equalTo: formContainer.leadingAnchor, constant: controlTrailing),
-            formatPopUp.topAnchor.constraint(equalTo: formContainer.topAnchor, constant: 14),
-
-            pagesLabel.leadingAnchor.constraint(greaterThanOrEqualTo: formContainer.leadingAnchor, constant: 12),
-            pagesLabel.trailingAnchor.constraint(equalTo: formContainer.leadingAnchor, constant: labelTrailing),
-            pagesLabel.centerYAnchor.constraint(equalTo: pagesControlContainer.centerYAnchor),
-
-            pagesControlContainer.leadingAnchor.constraint(equalTo: formContainer.leadingAnchor, constant: controlLeading),
-            pagesControlContainer.trailingAnchor.constraint(equalTo: formContainer.leadingAnchor, constant: controlTrailing),
-            pagesControlContainer.topAnchor.constraint(equalTo: formatPopUp.bottomAnchor, constant: 10),
-
-            rangeStack.leadingAnchor.constraint(equalTo: formContainer.leadingAnchor, constant: controlLeading),
-            rangeStack.trailingAnchor.constraint(equalTo: formContainer.leadingAnchor, constant: controlTrailing),
-            rangeStack.topAnchor.constraint(equalTo: pagesControlContainer.bottomAnchor, constant: 10),
-            rangeField.widthAnchor.constraint(equalTo: rangeStack.widthAnchor),
-            statusLabel.widthAnchor.constraint(equalTo: rangeStack.widthAnchor)
-        ])
-
-        panel.accessoryView = accessoryContainer
+        refreshPageControls()
     }
 
     private func configurePanel() {
         panel.nameFieldLabel = L10n.tr("导出为：", "Export As:")
-        panel.title = L10n.tr("导出", "Export")
-        panel.allowedContentTypes = [selectedFormat.contentType]
+        panel.prompt = L10n.tr("导出", "Export")
+        panel.allowedContentTypes = [.pdf, .png]
         panel.canCreateDirectories = true
+        panel.showsTagField = false
         panel.isExtensionHidden = false
         panel.delegate = self
 
-        syncControlVisibility()
-        syncSuggestedFilename(force: true)
-        updateStatusLabel()
+        let defaultFilename = PageExporter.suggestedFilename(documentTitle: context.documentTitle, format: .pdf)
+        var rows: [[NSView]] = []
+        if #available(macOS 15.0, *) {
+            panel.showsContentTypes = true
+            panel.nameFieldStringValue = defaultFilename
+        } else {
+            panel.isExtensionHidden = true
+            panel.nameFieldStringValue = (defaultFilename as NSString).deletingPathExtension
+            let format = NSPopUpButton(frame: .zero, pullsDown: false)
+            format.addItems(withTitles: ["PDF", "PNG"])
+            format.setAccessibilityLabel(L10n.tr("格式：", "Format:"))
+            format.target = self
+            format.action = #selector(legacyFormatChanged(_:))
+            rows.append([formLabel(L10n.tr("格式：", "Format:")), format])
+        }
+
+        let pagesTitle = L10n.tr("页面：", "Pages:")
+        pagesModePopUp.addItems(withTitles: [
+            L10n.tr("全部页面", "All Pages"),
+            L10n.parenthetical(L10n.tr("当前页", "Current Page"), context.labelForPage(context.currentPageIndex)),
+            L10n.tr("指定页码", "Page Range")
+        ])
+        pagesModePopUp.selectItem(at: selectedMode.rawValue)
+        pagesModePopUp.setAccessibilityLabel(pagesTitle)
+        pagesModePopUp.target = self
+        pagesModePopUp.action = #selector(pagesModeChanged)
+        pagesModePopUp.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+
+        rangeField.placeholderString = "1–5, 8, 12–15"
+        rangeField.setAccessibilityLabel(L10n.tr("指定页码", "Page Range"))
+        pngPageField.placeholderString = pageRangeText(for: [context.currentPageIndex])
+        pngPageField.setAccessibilityLabel(pagesTitle)
+        for field in [rangeField, pngPageField] {
+            field.delegate = self
+            field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        }
+        rangeField.widthAnchor.constraint(greaterThanOrEqualToConstant: 114).isActive = true
+
+        let controls = [pagesModePopUp, rangeField, pngPageField] as [NSView]
+        let pageControls = NSStackView(views: controls)
+        pageControls.orientation = .horizontal
+        pageControls.alignment = .centerY
+        pageControls.spacing = 8
+        let rowHeight = controls.map { $0.fittingSize.height }.max() ?? 0
+        pageControls.heightAnchor.constraint(equalToConstant: rowHeight).isActive = true
+
+        statusLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        statusLabel.lineBreakMode = .byTruncatingTail
+        statusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        updateStatus()
+        statusLabel.heightAnchor.constraint(equalToConstant: statusLabel.fittingSize.height).isActive = true
+        rows.append([formLabel(pagesTitle), pageControls])
+        rows.append([NSGridCell.emptyContentView, statusLabel])
+        let form = NSGridView(views: rows)
+        form.column(at: 0).xPlacement = .trailing
+        form.column(at: 1).xPlacement = .fill
+        form.yPlacement = .center
+        form.columnSpacing = 9
+        form.rowSpacing = 6
+        form.translatesAutoresizingMaskIntoConstraints = false
+
+        // Keep the save sheet at a constant height while the page controls and status change.
+        // NSSavePanel observes the accessory's frame, independently of its Auto Layout constraints.
+        pngPageField.isHidden = true
+        let horizontalInset: CGFloat = 20
+        let verticalInset: CGFloat = 12
+        let size = form.fittingSize
+        let accessory = NSView(frame: CGRect(
+            x: 0, y: 0, width: max(380, ceil(size.width) + 2 * horizontalInset),
+            height: ceil(size.height) + 2 * verticalInset
+        ))
+        accessory.addSubview(form)
+        NSLayoutConstraint.activate([
+            form.leadingAnchor.constraint(equalTo: accessory.leadingAnchor, constant: horizontalInset),
+            form.trailingAnchor.constraint(equalTo: accessory.trailingAnchor, constant: -horizontalInset),
+            form.topAnchor.constraint(equalTo: accessory.topAnchor, constant: verticalInset),
+            form.bottomAnchor.constraint(equalTo: accessory.bottomAnchor, constant: -verticalInset)
+        ])
+        panel.accessoryView = accessory
+    }
+
+    private func formLabel(_ title: String) -> NSTextField {
+        let label = NSTextField(labelWithString: title)
+        label.textColor = .secondaryLabelColor
+        return label
     }
 
     func present() {
-        Self.activeController = self
-        let completion: (NSApplication.ModalResponse) -> Void = { [weak self] response in
-            guard let self else { return }
-            defer {
-                if Self.activeController === self {
-                    Self.activeController = nil
-                }
-            }
+        let completion: (NSApplication.ModalResponse) -> Void = { response in
             guard response == .OK, let destinationURL = self.panel.url else { return }
             self.startExport(to: destinationURL)
         }
@@ -513,211 +414,118 @@ private final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate
         }
     }
 
-    @objc private func formatChanged() {
-        let newFormat = PageExporter.Format(rawValue: formatPopUp.indexOfSelectedItem) ?? .pdf
-        guard newFormat != selectedFormat else { return }
-        if newFormat == .png {
-            if let resolved = resolvedPDFPageIndices(), let first = resolved.first {
-                pngPageField.stringValue = context.labelForPage(first)
-            } else {
-                pngPageField.stringValue = context.labelForPage(context.currentPageIndex)
-            }
+    @available(macOS 15.0, *)
+    func panel(_ sender: Any, displayNameFor type: UTType) -> String? {
+        switch type {
+        case .pdf: return "PDF"
+        case .png: return "PNG"
+        default: return nil
         }
-        selectedFormat = newFormat
-        panel.allowedContentTypes = [newFormat.contentType]
-        syncControlVisibility()
-        updateFilenameExtensionOrSuggestion()
-        updateStatusLabel()
+    }
+
+    @available(macOS 15.0, *)
+    func panel(_ sender: Any, didSelect type: UTType?) {
+        selectFormat(type == .png ? .png : .pdf)
+    }
+
+    @objc private func legacyFormatChanged(_ sender: NSPopUpButton) {
+        selectFormat(PageExporter.Format(rawValue: sender.indexOfSelectedItem) ?? .pdf)
+    }
+
+    private func selectFormat(_ format: PageExporter.Format) {
+        guard selectedFormat != format else { return }
+        if format == .png, !initializedPNGPage {
+            let rangePage = selectedMode == .range ? parsedRange()?.first : nil
+            pngPageField.stringValue = pageRangeText(for: [rangePage ?? context.currentPageIndex])
+            initializedPNGPage = true
+        }
+        selectedFormat = format
+        refreshPageControls()
     }
 
     @objc private func pagesModeChanged() {
         selectedMode = PageExporter.PageSelectionMode(rawValue: pagesModePopUp.indexOfSelectedItem) ?? .all
-        syncControlVisibility()
-        syncSuggestedFilename(force: false)
-        updateStatusLabel()
+        refreshPageControls()
         if selectedMode == .range {
             panel.makeFirstResponder(rangeField)
         }
     }
 
-    nonisolated func controlTextDidChange(_ obj: Notification) {
-        MainActor.assumeIsolated {
-            syncSuggestedFilename(force: false)
-            updateStatusLabel()
+    func controlTextDidChange(_ notification: Notification) {
+        updateStatus()
+    }
+
+    func panel(_ sender: Any, userEnteredFilename filename: String, confirmed: Bool) -> String? {
+        guard confirmed, !filename.isEmpty else { return filename }
+        return PageExporter.filename(filename, for: selectedFormat)
+    }
+
+    func panel(_ sender: Any, validate url: URL) throws {
+        guard let firstPage = resolvedPageIndices()?.first else {
+            panel.makeFirstResponder(selectedFormat == .png ? pngPageField : rangeField)
+            throw invalidSelection
+        }
+        guard url.pathExtension.lowercased() == selectedFormat.fileExtension,
+              PageImageClipboard.canCopy(context.document.page(at: firstPage)) else {
+            throw PageExporter.ExportError.unavailable
         }
     }
 
-    nonisolated func panel(_ sender: Any, validate url: URL) throws {
-        try MainActor.assumeIsolated {
-            guard let indices = resolvedPageIndices(), !indices.isEmpty else {
-                updateStatusLabel(forceError: true)
-                let targetField = selectedFormat == .png ? pngPageField : rangeField
-                panel.makeFirstResponder(targetField)
-                throw selectedFormat == .png ? PageExporter.ExportError.invalidPageNumber : PageExporter.ExportError.invalidPageRange
-            }
-            if selectedFormat == .png, let page = context.document.page(at: indices[0]), !PageImageClipboard.canCopy(page) {
-                throw PageExporter.ExportError.unavailable
-            }
-            if let firstPage = context.document.page(at: indices[0]), !PageImageClipboard.canCopy(firstPage) {
-                throw PageExporter.ExportError.unavailable
-            }
-        }
+    private var invalidSelection: PageExporter.ExportError {
+        selectedFormat == .png ? .invalidPageNumber : .invalidPageRange
     }
 
-    private func applyRow3Visibility(showRow3: Bool, showRangeField: Bool) {
-        rangeField.isHidden = !showRangeField
-        statusLabel.isHidden = !showRow3
-        rangeStack.isHidden = !showRow3
-        if showRow3 {
-            compactBottomConstraint?.isActive = false
-            expandedBottomConstraint?.isActive = true
-        } else {
-            expandedBottomConstraint?.isActive = false
-            compactBottomConstraint?.isActive = true
-        }
-        panel.accessoryView?.layoutSubtreeIfNeeded()
+    private func pageRangeText(for pages: [Int]) -> String {
+        PageRangeParser.format(
+            pages,
+            pageCount: context.document.pageCount,
+            labelFor: context.labelForPage,
+            usesBookNumbers: context.usesBookNumbers,
+            resolvePage: context.resolvePage
+        )
     }
 
-    private func syncControlVisibility() {
-        let isPDF = selectedFormat == .pdf
-        pagesModePopUp.isHidden = !isPDF
-        pngPageField.isHidden = isPDF
-        if isPDF {
-            let isRange = selectedMode == .range
-            applyRow3Visibility(showRow3: isRange, showRangeField: isRange)
-        } else {
-            let isInvalidPNG = resolvedPNGPageIndex() == nil && !pngPageField.stringValue.isEmpty
-            applyRow3Visibility(showRow3: isInvalidPNG, showRangeField: false)
-        }
-    }
-
-    private func resolvedPDFPageIndices() -> [Int]? {
-        let pageCount = context.document.pageCount
-        guard pageCount > 0 else { return nil }
-        switch selectedMode {
-        case .all:
-            return Array(0..<pageCount)
-        case .current:
-            let idx = max(0, min(pageCount - 1, context.currentPageIndex))
-            return [idx]
-        case .range:
-            return PageRangeParser.parse(rangeField.stringValue, pageCount: pageCount, resolvePage: context.resolvePage)
-        }
-    }
-
-    private func resolvedPNGPageIndex() -> Int? {
-        let pageCount = context.document.pageCount
-        guard pageCount > 0 else { return nil }
-        let raw = (pngPageField.stringValue.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? pngPageField.stringValue)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !raw.isEmpty, let idx = context.resolvePage(raw), (0..<pageCount).contains(idx) else {
-            return nil
-        }
-        return idx
+    private func parsedRange() -> [Int]? {
+        PageRangeParser.parse(rangeField.stringValue, pageCount: context.document.pageCount, resolvePage: context.resolvePage)
     }
 
     private func resolvedPageIndices() -> [Int]? {
-        switch selectedFormat {
-        case .pdf: return resolvedPDFPageIndices()
-        case .png: return resolvedPNGPageIndex().map { [$0] }
+        let pageCount = context.document.pageCount
+        guard pageCount > 0 else { return nil }
+        if selectedFormat == .png {
+            guard let page = context.resolvePage(pngPageField.stringValue), (0..<pageCount).contains(page) else { return nil }
+            return [page]
+        }
+        switch selectedMode {
+        case .all: return Array(0..<pageCount)
+        case .current: return [max(0, min(context.currentPageIndex, pageCount - 1))]
+        case .range: return parsedRange()
         }
     }
 
-    private func defaultFilenameForCurrentSelection() -> String {
-        switch selectedFormat {
-        case .pdf:
-            let indices = resolvedPDFPageIndices() ?? []
-            let count = indices.count
-            switch selectedMode {
-            case .all:
-                return PageExporter.suggestedFilename(
-                    documentTitle: context.documentTitle,
-                    rangeText: nil,
-                    pageCount: context.document.pageCount,
-                    isAllPages: true,
-                    format: .pdf
-                )
-            case .current:
-                return PageExporter.suggestedFilename(
-                    documentTitle: context.documentTitle,
-                    pageLabel: context.labelForPage(context.currentPageIndex),
-                    format: .pdf
-                )
-            case .range:
-                let rangeText = count == 1 ? context.labelForPage(indices[0]) : rangeField.stringValue
-                return PageExporter.suggestedFilename(
-                    documentTitle: context.documentTitle,
-                    rangeText: rangeText,
-                    pageCount: max(1, count),
-                    isAllPages: false,
-                    format: .pdf
-                )
-            }
-        case .png:
-            let pageIdx = resolvedPNGPageIndex() ?? context.currentPageIndex
-            return PageExporter.suggestedFilename(
-                documentTitle: context.documentTitle,
-                pageLabel: context.labelForPage(pageIdx),
-                format: .png
-            )
+    private func refreshPageControls() {
+        let isPDF = selectedFormat == .pdf
+        pagesModePopUp.isHidden = !isPDF
+        rangeField.isHidden = !isPDF || selectedMode != .range
+        pngPageField.isHidden = isPDF
+        updateStatus()
+    }
+
+    private func updateStatus() {
+        if let count = resolvedPageIndices()?.count {
+            statusLabel.textColor = .secondaryLabelColor
+            statusLabel.stringValue = L10n.exportPageCountSummary(count)
+        } else {
+            statusLabel.textColor = .systemRed
+            statusLabel.stringValue = invalidSelection.localizedDescription
         }
     }
 
-    private func syncSuggestedFilename(force: Bool) {
-        let suggestion = defaultFilenameForCurrentSelection()
-        if force || panel.nameFieldStringValue == lastAutoFilename || panel.nameFieldStringValue.isEmpty {
-            panel.nameFieldStringValue = suggestion
-            lastAutoFilename = suggestion
-        }
-    }
-
-    private func updateFilenameExtensionOrSuggestion() {
-        let current = panel.nameFieldStringValue
-        if current == lastAutoFilename || current.isEmpty {
-            syncSuggestedFilename(force: true)
-            return
-        }
-        let stem = (current as NSString).deletingPathExtension
-        let safeStem = stem.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Document" : stem
-        panel.nameFieldStringValue = "\(safeStem).\(selectedFormat.fileExtension)"
-    }
-
-    private func updateStatusLabel(forceError: Bool = false) {
-        switch selectedFormat {
-        case .pdf:
-            guard selectedMode == .range else {
-                statusLabel.stringValue = ""
-                applyRow3Visibility(showRow3: false, showRangeField: false)
-                return
-            }
-            if let indices = resolvedPDFPageIndices(), !indices.isEmpty {
-                statusLabel.textColor = .secondaryLabelColor
-                statusLabel.stringValue = L10n.exportPageCountSummary(indices.count)
-            } else {
-                statusLabel.textColor = .systemRed
-                statusLabel.stringValue = L10n.tr("请输入有效的页码范围", "Enter a valid page range")
-            }
-            applyRow3Visibility(showRow3: true, showRangeField: true)
-        case .png:
-            if resolvedPNGPageIndex() != nil {
-                statusLabel.stringValue = ""
-                applyRow3Visibility(showRow3: false, showRangeField: false)
-            } else if forceError || !pngPageField.stringValue.isEmpty {
-                statusLabel.textColor = .systemRed
-                statusLabel.stringValue = L10n.tr("请输入有效页码", "Enter a valid page number")
-                applyRow3Visibility(showRow3: true, showRangeField: false)
-            } else {
-                statusLabel.stringValue = ""
-                applyRow3Visibility(showRow3: false, showRangeField: false)
-            }
-        }
-    }
 
     private func startExport(to destinationURL: URL) {
         guard let indices = resolvedPageIndices(), !indices.isEmpty else {
             PageExporter.presentError(
-                selectedFormat == .png ? PageExporter.ExportError.invalidPageNumber : PageExporter.ExportError.invalidPageRange,
-                in: hostWindow
+                invalidSelection, in: hostWindow
             )
             return
         }

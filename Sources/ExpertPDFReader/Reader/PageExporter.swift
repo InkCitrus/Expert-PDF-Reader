@@ -590,6 +590,7 @@ final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate, NSText
     private var selectedMode: PageExporter.PageSelectionMode
     private var selectedResolution: PageExporter.ImageResolution = .dpi216
     private var jpegQuality: Double = 0.85
+    private var pendingFormatRefreshWorkItem: DispatchWorkItem?
 
     init(
         context: PageExporter.ExportDocumentContext,
@@ -614,7 +615,10 @@ final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate, NSText
             resolvePage: context.resolvePage
         )
         configurePanel()
-        refreshControlStates(animated: false)
+    }
+
+    deinit {
+        pendingFormatRefreshWorkItem?.cancel()
     }
 
     private func configurePanel() {
@@ -630,6 +634,7 @@ final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate, NSText
         let usesSystemFormatRow: Bool
         if #available(macOS 15.0, *) {
             panel.showsContentTypes = true
+            panel.currentContentType = .pdf
             panel.nameFieldStringValue = defaultFilename
             usesSystemFormatRow = true
         } else {
@@ -686,6 +691,7 @@ final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate, NSText
 
         let accessory = buildAccessoryView(includeFormatRow: !usesSystemFormatRow)
         accessoryView = accessory
+        refreshControlStates(animated: false)
         panel.accessoryView = accessory
     }
 
@@ -789,6 +795,8 @@ final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate, NSText
         Self.activeController = self
         let completion: (NSApplication.ModalResponse) -> Void = { [weak self] response in
             guard let self else { return }
+            self.pendingFormatRefreshWorkItem?.cancel()
+            self.pendingFormatRefreshWorkItem = nil
             defer {
                 if Self.activeController === self {
                     Self.activeController = nil
@@ -817,11 +825,13 @@ final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate, NSText
 
     @available(macOS 15.0, *)
     func panel(_ sender: Any, didSelect type: UTType?) {
+        let format: PageExporter.Format
         switch type {
-        case .png: selectFormat(.png)
-        case .jpeg: selectFormat(.jpeg)
-        default: selectFormat(.pdf)
+        case .png: format = .png
+        case .jpeg: format = .jpeg
+        default: format = .pdf
         }
+        selectFormat(format, deferLayout: true)
     }
 
     @objc private func legacyFormatChanged(_ sender: NSPopUpButton) {
@@ -833,10 +843,26 @@ final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate, NSText
         }
     }
 
-    private func selectFormat(_ format: PageExporter.Format) {
+    private func selectFormat(_ format: PageExporter.Format, deferLayout: Bool = false) {
         guard selectedFormat != format else { return }
         selectedFormat = format
-        refreshControlStates(animated: true)
+        pendingFormatRefreshWorkItem?.cancel()
+        pendingFormatRefreshWorkItem = nil
+
+        if deferLayout && panel.isVisible {
+            let workItem = DispatchWorkItem { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.pendingFormatRefreshWorkItem = nil
+                    guard self.panel.isVisible else { return }
+                    self.refreshControlStates(animated: true)
+                }
+            }
+            pendingFormatRefreshWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: workItem)
+        } else {
+            refreshControlStates(animated: panel.isVisible)
+        }
     }
 
     @objc private func pagesModeChanged() {
@@ -863,6 +889,9 @@ final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate, NSText
 
     func panel(_ sender: Any, userEnteredFilename filename: String, confirmed: Bool) -> String? {
         guard confirmed, !filename.isEmpty else { return filename }
+        if selectedFormat == .jpeg && (filename as NSString).pathExtension.lowercased() == "jpeg" {
+            return filename
+        }
         return PageExporter.filename(filename, for: selectedFormat)
     }
 
@@ -1118,9 +1147,7 @@ private final class PageExportAccessoryView: NSView {
     private let verticalInset: CGFloat
 
     private var stackCenter: NSLayoutConstraint?
-    private var heightConstraint: NSLayoutConstraint?
     private var hasMountedInWindow = false
-    private var lastExpandedState: Bool?
 
     init(
         panel: NSSavePanel,
@@ -1143,6 +1170,7 @@ private final class PageExportAccessoryView: NSView {
         self.verticalInset = verticalInset
 
         super.init(frame: CGRect(x: 0, y: 0, width: formWidth, height: 80))
+        translatesAutoresizingMaskIntoConstraints = false
 
         rowsStack.orientation = .vertical
         rowsStack.alignment = .trailing
@@ -1165,16 +1193,13 @@ private final class PageExportAccessoryView: NSView {
         stackCenter = trailingCenter
 
         let widthMin = widthAnchor.constraint(greaterThanOrEqualToConstant: formWidth)
-        widthMin.priority = .defaultHigh
-        let height = heightAnchor.constraint(equalToConstant: 80)
-        height.priority = NSLayoutConstraint.Priority(999)
-        heightConstraint = height
+        widthMin.priority = .defaultLow
 
         NSLayoutConstraint.activate([
             widthMin,
-            height,
             trailingCenter,
-            rowsStack.topAnchor.constraint(equalTo: topAnchor, constant: verticalInset)
+            rowsStack.topAnchor.constraint(equalTo: topAnchor, constant: verticalInset),
+            rowsStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -verticalInset)
         ])
     }
 
@@ -1187,83 +1212,66 @@ private final class PageExportAccessoryView: NSView {
         animated: Bool
     ) {
         let shouldAnimate = animated && hasMountedInWindow && !AppAnimation.reduceMotion
-        let updates: () -> Void = {
-            self.applyVisibility(rangeVisible: rangeVisible, resolutionVisible: resolutionVisible, qualityVisible: qualityVisible)
-        }
-        if shouldAnimate {
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = AppAnimation.sheetMorphDuration
-                ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.0, 0.0, 1.0)
-                ctx.allowsImplicitAnimation = true
-                updates()
-                self.window?.layoutIfNeeded()
-            }
-        } else {
-            updates()
-            self.window?.layoutIfNeeded()
-        }
-    }
-
-    private func applyVisibility(rangeVisible: Bool, resolutionVisible: Bool, qualityVisible: Bool) {
         let pairs: [(NSView, Bool)] = [
             (rangeRow, rangeVisible),
             (resolutionRow, resolutionVisible),
             (qualityRow, qualityVisible)
         ]
+
+        var newlyRevealed: [NSView] = []
         for (row, visible) in pairs where row.superview === rowsStack {
+            let wasHidden = row.isHidden
             row.isHidden = !visible
-            row.alphaValue = visible ? 1 : 0
+            if !visible {
+                row.alphaValue = 0
+            } else if wasHidden && shouldAnimate {
+                row.alphaValue = 0
+                newlyRevealed.append(row)
+            } else {
+                row.alphaValue = 1
+            }
         }
-        rowsStack.layoutSubtreeIfNeeded()
-        let contentHeight = ceil(rowsStack.fittingSize.height)
-        let targetHeight = max(44, contentHeight + 2 * verticalInset)
-        heightConstraint?.constant = targetHeight
-        if frame.size.height != targetHeight {
-            setFrameSize(NSSize(width: max(formWidth, frame.size.width), height: targetHeight))
+
+        if shouldAnimate && !newlyRevealed.isEmpty {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.16
+                ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.0, 0.0, 1.0)
+                for row in newlyRevealed {
+                    row.animator().alphaValue = 1
+                }
+            }
         }
-        invalidateIntrinsicContentSize()
     }
 
-    override var intrinsicContentSize: NSSize {
-        let h = heightConstraint?.constant ?? frame.height
-        return NSSize(width: NSView.noIntrinsicMetric, height: h)
+    private var targetStackCenterConstant: CGFloat {
+        (panel?.isExpanded == true ? 0 : compactOffset) + fieldWidth / 2
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        let expanded = panel?.isExpanded == true
-        lastExpandedState = expanded
-        updateColumnOffset(expanded: expanded, animated: false)
         hasMountedInWindow = window != nil
+        needsUpdateConstraints = true
+    }
+
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        if stackCenter?.constant != targetStackCenterConstant {
+            needsUpdateConstraints = true
+        }
     }
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
-        needsUpdateConstraints = true
+        if stackCenter?.constant != targetStackCenterConstant {
+            needsUpdateConstraints = true
+        }
     }
 
     override func updateConstraints() {
-        let expanded = panel?.isExpanded == true
-        if expanded != lastExpandedState {
-            let shouldAnimate = hasMountedInWindow && lastExpandedState != nil && !AppAnimation.reduceMotion
-            lastExpandedState = expanded
-            updateColumnOffset(expanded: expanded, animated: shouldAnimate)
+        let target = targetStackCenterConstant
+        if stackCenter?.constant != target {
+            stackCenter?.constant = target
         }
         super.updateConstraints()
-    }
-
-    private func updateColumnOffset(expanded: Bool, animated: Bool) {
-        let halfControlWidth = fieldWidth / 2
-        let targetConstant = (expanded ? 0 : compactOffset) + halfControlWidth
-        guard let stackCenter else { return }
-        if animated {
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = AppAnimation.sheetMorphDuration
-                ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.0, 0.0, 1.0)
-                stackCenter.animator().constant = targetConstant
-            }
-        } else {
-            stackCenter.constant = targetConstant
-        }
     }
 }

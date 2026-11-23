@@ -574,6 +574,51 @@ struct SidebarTabBackground: View {
     }
 }
 
+private struct TopTabLayoutAnimationState: Equatable {
+    let entryIDs: [UUID]
+    let editingGroupID: UUID?
+    let dragPlacement: TabDropPlacement?
+    let groupNames: [String]
+}
+
+private struct HorizontalSlideEffect: GeometryEffect {
+    var fraction: CGFloat
+    var animatableData: CGFloat {
+        get { fraction }
+        set { fraction = newValue }
+    }
+
+    func effectValue(size: CGSize) -> ProjectionTransform {
+        let clamped = max(0, min(1, fraction))
+        return ProjectionTransform(CGAffineTransform(translationX: -(1 - clamped) * size.width, y: 0))
+    }
+}
+
+private struct HorizontalRevealRect: Shape {
+    var fraction: CGFloat
+    var animatableData: CGFloat {
+        get { fraction }
+        set { fraction = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let clamped = max(0, min(1, fraction))
+        // Extend vertically so top/bottom shadows and 2pt group outlines stay unclipped during reveal.
+        return Path(CGRect(x: rect.minX, y: rect.minY - 4,
+                          width: rect.width * clamped, height: rect.height + 8))
+    }
+}
+
+private struct HorizontalGroupDrawerTransition: Transition {
+    func body(content: Content, phase: TransitionPhase) -> some View {
+        let fraction: CGFloat = phase.isIdentity ? 1 : 0
+        content
+            .modifier(HorizontalSlideEffect(fraction: fraction))
+            .clipShape(HorizontalRevealRect(fraction: fraction))
+            .opacity(phase.isIdentity ? 1 : 0)
+    }
+}
+
 struct TabBarView: View {
     @ObservedObject var store: AppStore
     @ObservedObject var session: ReaderWindowSession
@@ -784,6 +829,10 @@ struct TabBarView: View {
         }
     }
 
+    private var topTabDrawerTransition: AnyTransition {
+        AppAnimation.reduceMotion ? .opacity : AnyTransition(HorizontalGroupDrawerTransition())
+    }
+
     private var topTabs: some View {
         GeometryReader { proxy in
             let documentTabs = self.documentTabs
@@ -809,127 +858,178 @@ struct TabBarView: View {
                 : ((available - headersWidth - CGFloat(visibleCount)) / CGFloat(visibleCount)).rounded(.down)
             let tabWidth = min(Self.maximumTabWidth, max(Self.minimumTabWidth, fitWidth))
             let stripWidth = headersWidth + CGFloat(visibleCount) * (tabWidth + 1)
-
+            let stripSlotWidth = min(available, stripWidth)
+            let needsScrolling = session.editingTabGroupID != nil
+                || fitWidth < Self.minimumTabWidth
+                || headersWidth > available
+            let layoutAnimationState = TopTabLayoutAnimationState(
+                entryIDs: entries.map(\.id),
+                editingGroupID: session.editingTabGroupID,
+                dragPlacement: session.tabDragPreview?.placement,
+                groupNames: session.displayedTabGroups.map(\.name)
+            )
             let hideLeading = hidesLeadingSeparator(in: entries)
-            HStack(spacing: 0) {
-                tabSeparator
-                    .opacity(hideLeading ? 0 : 1)
-                    .animation(AppAnimation.micro, value: hideLeading)
 
-                if session.editingTabGroupID != nil || fitWidth < Self.minimumTabWidth || headersWidth > available {
-                    scrollingTabs(.horizontal) {
-                        documentTabsRow(documentTabs, tabWidth: tabWidth, available: available)
+            ZStack(alignment: .leading) {
+                HStack(spacing: 0) {
+                    tabSeparator
+                        .opacity(hideLeading ? 0 : 1)
+                        .animation(AppAnimation.micro, value: hideLeading)
+
+                    scrollingTabs(.horizontal, isScrollEnabled: needsScrolling) {
+                        documentTabsRow(documentTabs, entries: entries, tabWidth: tabWidth,
+                                        available: available, layoutAnimationState: layoutAnimationState)
+                            .frame(height: proxy.size.height)
                     }
-                    .frame(width: min(available, stripWidth))
-                } else {
-                    documentTabsRow(documentTabs, tabWidth: tabWidth, available: available)
-                        .animation(AppAnimation.tab, value: documentTabs.count)
+                    .frame(width: available, height: proxy.size.height)
                 }
+                .animation(AppAnimation.tabGroup, value: layoutAnimationState)
 
-                openFileButton.frame(width: openWidth)
+                HStack(spacing: 0) {
+                    openFileButton.frame(width: openWidth)
 
-                if showsAllTabsMenu {
-                    allTabsButton(documentTabs: documentTabs)
-                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    if showsAllTabsMenu {
+                        allTabsButton(documentTabs: documentTabs)
+                            .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    }
+
+                    Spacer(minLength: Self.reservedTrailingWidth)
+                        .background(WindowDragArea())
+
+                    shortcutsHelpButton
                 }
-
-                Spacer(minLength: Self.reservedTrailingWidth)
-                    .background(WindowDragArea())
-
-                shortcutsHelpButton
+                .frame(width: max(0, proxy.size.width - (1 + stripSlotWidth)), height: proxy.size.height)
+                .background(AppPalette.tabStripBackground(isDark))
+                .padding(.leading, 1 + stripSlotWidth)
+                .animation(AppAnimation.tabGroup, value: layoutAnimationState)
+                .animation(AppAnimation.snappy, value: showsAllTabsMenu)
             }
-            .frame(height: proxy.size.height)
-            .animation(AppAnimation.snappy, value: showsAllTabsMenu)
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
     }
 
-    private func scrollingTabs<Content: View>(_ axis: Axis.Set, @ViewBuilder content: @escaping () -> Content) -> some View {
+    private func scrollingTabs<Content: View>(
+        _ axis: Axis.Set,
+        isScrollEnabled: Bool = true,
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
         ScrollViewReader { scrollProxy in
             let anchor: UnitPoint? = axis == .horizontal ? .center : nil
             GeometryReader { geometry in
                 ScrollView(axis, showsIndicators: axis == .vertical, content: content)
+                    .scrollDisabled(!isScrollEnabled)
+                    .scrollBounceBehavior(.basedOnSize)
                     .onAppear {
+                        guard isScrollEnabled else { return }
                         DispatchQueue.main.async {
                             scrollProxy.scrollTo(session.editingTabGroupID ?? session.selectedTabScrollID, anchor: anchor)
                         }
                     }
                     .onChange(of: session.editingTabGroupID) { _, id in
-                        guard let id else { return }
+                        guard isScrollEnabled, let id else { return }
                         DispatchQueue.main.async { scrollProxy.scrollTo(id, anchor: anchor) }
                     }
                     .onChange(of: session.selectedTabScrollID) { _, newID in
-                        guard session.editingTabGroupID == nil else { return }
-                        withAnimation(AppAnimation.tab) {
+                        guard isScrollEnabled, session.editingTabGroupID == nil else { return }
+                        withAnimation(axis == .horizontal ? AppAnimation.tabGroup : AppAnimation.tab) {
                             scrollProxy.scrollTo(newID, anchor: anchor)
                         }
                     }
                     .onChange(of: axis == .vertical ? geometry.size.height : geometry.size.width) { _, _ in
+                        guard isScrollEnabled else { return }
                         DispatchQueue.main.async {
                             scrollProxy.scrollTo(session.editingTabGroupID ?? session.selectedTabScrollID, anchor: anchor)
                         }
                     }
                     .onChange(of: entries.map(\.id)) { _, _ in
-                        guard draggingTabID == nil, session.tabDragPreview == nil else { return }
+                        guard isScrollEnabled, draggingTabID == nil, session.tabDragPreview == nil else { return }
                         DispatchQueue.main.async {
-                            scrollProxy.scrollTo(session.editingTabGroupID ?? session.selectedTabScrollID, anchor: anchor)
+                            withAnimation(axis == .horizontal ? AppAnimation.tabGroup : AppAnimation.sidebarReveal) {
+                                scrollProxy.scrollTo(session.editingTabGroupID ?? session.selectedTabScrollID, anchor: anchor)
+                            }
                         }
                     }
             }
         }
     }
 
-    private func documentTabsRow(_ documentTabs: [DocumentTabState], tabWidth: CGFloat, available: CGFloat) -> some View {
-        let entries = self.entries
+    private func documentTabsRow(
+        _ documentTabs: [DocumentTabState],
+        entries: [Entry],
+        tabWidth: CGFloat,
+        available: CGFloat,
+        layoutAnimationState: TopTabLayoutAnimationState
+    ) -> some View {
+        let groups = session.displayedTabGroups
+        let ungrouped = ungroupedTabs
         return HStack(spacing: 0) {
-            ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
-                switch entry {
-                case .document(let state):
-                    let hideTrailing = hidesTrailingSeparator(at: index, in: entries)
-                    HStack(spacing: 0) {
-                        tabItem(state, count: documentTabs.count).frame(width: tabWidth)
-                        tabSeparator
-                            .opacity(hideTrailing ? 0 : 1)
-                            .animation(AppAnimation.micro, value: hideTrailing)
-                    }
-                    .overlay(alignment: .bottom) {
-                        ZStack(alignment: .bottom) {
-                            if let color = session.displayedTabGroup(containing: state.id)?.color {
-                                if session.selectedTabID == state.id && session.tabDragPreview?.tab.id != state.id {
-                                    TabContour()
-                                        .stroke(AppPalette.tabOutline(color, isDark),
-                                                style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                                        .allowsHitTesting(false)
-                                        .transition(.opacity)
-                                } else {
-                                    AppPalette.tabOutline(color, isDark)
-                                        .frame(height: 2)
-                                        .allowsHitTesting(false)
-                                        .transition(.opacity)
-                                }
-                            }
-                        }
-                        .animation(AppAnimation.snappy, value: session.selectedTabID == state.id)
-                    }
-                    .id(state.id)
-                    .transition(AppAnimation.reduceMotion
-                        ? .opacity
-                        : .asymmetric(
-                            insertion: .opacity.combined(with: .scale(scale: 0.94, anchor: .leading)),
-                            removal: .opacity.combined(with: .scale(scale: 0.94, anchor: .center))
-                        ))
-                case .group(let group):
+            ForEach(groups) { group in
+                let members = documentTabs.filter { group.tabIDs.contains($0.id) }
+                HStack(spacing: 0) {
                     groupHeader(group)
                         .frame(width: groupWidth(group, available: available))
+                        .background(AppPalette.tabStripBackground(isDark))
                         .id(group.id)
+                        .zIndex(2)
                         .transition(AppAnimation.reduceMotion
                             ? .opacity
                             : .opacity.combined(with: .scale(scale: 0.94, anchor: .leading)))
+
+                    if !group.isCollapsed && !members.isEmpty {
+                        HStack(spacing: 0) {
+                            ForEach(members) { state in
+                                topDocumentTab(state, count: documentTabs.count, tabWidth: tabWidth, entries: entries)
+                            }
+                        }
+                        .zIndex(1)
+                        .transition(topTabDrawerTransition)
+                    }
                 }
             }
+            ForEach(ungrouped) { state in
+                topDocumentTab(state, count: documentTabs.count, tabWidth: tabWidth, entries: entries)
+                    .zIndex(0)
+            }
         }
-        .animation(AppAnimation.tab, value: entries.map(\.id))
+        .animation(AppAnimation.tabGroup, value: layoutAnimationState)
         .animation(draggingTabID == nil && session.tabDragPreview == nil ? AppAnimation.snappy : nil,
                    value: session.selectedTabID)
+    }
+
+    private func topDocumentTab(
+        _ state: DocumentTabState,
+        count: Int,
+        tabWidth: CGFloat,
+        entries: [Entry]
+    ) -> some View {
+        let hideTrailing = hidesTrailingSeparator(for: state.id, in: entries)
+        return HStack(spacing: 0) {
+            tabItem(state, count: count).frame(width: tabWidth)
+            tabSeparator
+                .opacity(hideTrailing ? 0 : 1)
+                .animation(AppAnimation.micro, value: hideTrailing)
+        }
+        .overlay(alignment: .bottom) {
+            ZStack(alignment: .bottom) {
+                if let color = session.displayedTabGroup(containing: state.id)?.color {
+                    if session.selectedTabID == state.id && session.tabDragPreview?.tab.id != state.id {
+                        TabContour()
+                            .stroke(AppPalette.tabOutline(color, isDark),
+                                    style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                            .allowsHitTesting(false)
+                            .transition(.opacity)
+                    } else {
+                        AppPalette.tabOutline(color, isDark)
+                            .frame(height: 2)
+                            .allowsHitTesting(false)
+                            .transition(.opacity)
+                    }
+                }
+            }
+            .animation(AppAnimation.snappy, value: session.selectedTabID == state.id)
+        }
+        .id(state.id)
+        .transition(topTabDrawerTransition)
     }
 
     private func tabItem(_ state: DocumentTabState, count: Int) -> some View {
@@ -1013,6 +1113,16 @@ struct TabBarView: View {
     private func hidesLeadingSeparator(in entries: [Entry]) -> Bool {
         if case .document(let first) = entries.first, isTabHighlighted(first.id) { return true }
         return entries.isEmpty && isOpenFileHovered
+    }
+
+    private func hidesTrailingSeparator(for stateID: UUID, in entries: [Entry]) -> Bool {
+        guard let index = entries.firstIndex(where: {
+            if case .document(let candidate) = $0 { return candidate.id == stateID }
+            return false
+        }) else {
+            return false
+        }
+        return hidesTrailingSeparator(at: index, in: entries)
     }
 
     private func hidesTrailingSeparator(at index: Int, in entries: [Entry]) -> Bool {
@@ -1311,14 +1421,18 @@ struct DocumentTabItemView: View {
                 Button(L10n.tr("新建分组…", "New Group…")) {
                     store.beginCreatingTabGroup(containing: state.id, in: session.id)
                 }
-                if !session.tabGroups.isEmpty {
+                let destinations = session.destinationTabGroups(for: state.id)
+                if !destinations.isEmpty {
                     Divider()
-                    ForEach(session.tabGroups) { group in
+                    ForEach(destinations) { group in
                         Button {
                             store.moveTab(state.id, intoGroup: group.id, in: session.id)
                         } label: {
-                            if group.tabIDs.contains(state.id) { Label(group.displayName, systemImage: "checkmark") }
-                            else { Text(group.displayName) }
+                            Label {
+                                Text(session.tabGroupMenuTitle(group))
+                            } icon: {
+                                Image(nsImage: group.color.menuSwatch(isDark: isDark))
+                            }
                         }
                     }
                 }

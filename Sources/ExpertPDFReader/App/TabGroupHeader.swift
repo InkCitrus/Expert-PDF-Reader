@@ -82,7 +82,7 @@ struct TabGroupHeader: View {
                         .transition(.opacity)
                 }
             }
-            .animation(AppAnimation.snappy, value: group.isCollapsed)
+            .animation(AppAnimation.tabGroup, value: group.isCollapsed)
         }
     }
 
@@ -123,7 +123,9 @@ struct TabGroupHeader: View {
     }
 
     private func toggleGroup() {
-        withAnimation(AppAnimation.sidebarReveal) { session.toggleTabGroup(group.id) }
+        withAnimation(isSidebar ? AppAnimation.sidebarReveal : AppAnimation.tabGroup) {
+            session.toggleTabGroup(group.id)
+        }
     }
 
     private func finishEditing(_ name: String?) {
@@ -131,11 +133,7 @@ struct TabGroupHeader: View {
     }
 
     private func swatch(_ color: TabGroupColor) -> NSImage {
-        NSImage(size: NSSize(width: 14, height: 14), flipped: false) { rect in
-            NSColor(AppPalette.tabGroupFill(color, isDark)).setFill()
-            NSBezierPath(roundedRect: rect.insetBy(dx: 2, dy: 2), xRadius: 2, yRadius: 2).fill()
-            return true
-        }
+        color.menuSwatch(isDark: isDark)
     }
 }
 
@@ -259,6 +257,16 @@ private struct TabGroupNameEditor: NSViewRepresentable {
             guard !didFinish else { return }
             stop()
             onFinish(name)
+        }
+    }
+}
+
+extension TabGroupColor {
+    func menuSwatch(isDark: Bool) -> NSImage {
+        NSImage(size: NSSize(width: 14, height: 14), flipped: false) { rect in
+            NSColor(AppPalette.tabGroupFill(self, isDark)).setFill()
+            NSBezierPath(roundedRect: rect.insetBy(dx: 2, dy: 2), xRadius: 2, yRadius: 2).fill()
+            return true
         }
     }
 }

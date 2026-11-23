@@ -110,12 +110,6 @@ enum PageExporter {
         }
     }
 
-    enum PageSelectionMode: Int {
-        case all = 0
-        case current = 1
-        case range = 2
-    }
-
     enum ExportError: LocalizedError {
         case unavailable
         case invalidPageRange
@@ -250,13 +244,11 @@ enum PageExporter {
 
     @MainActor static func beginExportPanel(
         context: ExportDocumentContext,
-        initialMode: PageSelectionMode = .all,
         initialPages: [Int]? = nil,
         in window: NSWindow?
     ) {
         let controller = PageExportPanelController(
             context: context,
-            initialMode: initialMode,
             initialPages: initialPages,
             window: window
         )
@@ -277,6 +269,11 @@ enum PageExporter {
 
 @MainActor
 private final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate, NSTextFieldDelegate {
+    private enum PageSelectionMode: Int {
+        case all
+        case range
+    }
+
     private let context: PageExporter.ExportDocumentContext
     private weak var hostWindow: NSWindow?
     private let panel = NSSavePanel()
@@ -286,19 +283,18 @@ private final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate
     private let pngPageField = NSTextField(string: "")
     private let statusLabel = NSTextField(labelWithString: "")
     private var selectedFormat: PageExporter.Format = .pdf
-    private var selectedMode: PageExporter.PageSelectionMode
+    private var selectedMode: PageSelectionMode
     private var initializedPNGPage = false
 
     init(
         context: PageExporter.ExportDocumentContext,
-        initialMode: PageExporter.PageSelectionMode,
         initialPages: [Int]?,
         window: NSWindow?
     ) {
         self.context = context
         self.hostWindow = window
         let pages = (initialPages ?? []).filter { (0..<context.document.pageCount).contains($0) }
-        self.selectedMode = pages.isEmpty ? initialMode : .range
+        self.selectedMode = pages.isEmpty ? .all : .range
         super.init()
 
         rangeField.stringValue = pageRangeText(for: pages.isEmpty ? [context.currentPageIndex] : pages)
@@ -316,10 +312,11 @@ private final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate
         panel.delegate = self
 
         let defaultFilename = PageExporter.suggestedFilename(documentTitle: context.documentTitle, format: .pdf)
-        var rows: [[NSView]] = []
+        let legacyFormat: NSPopUpButton?
         if #available(macOS 15.0, *) {
             panel.showsContentTypes = true
             panel.nameFieldStringValue = defaultFilename
+            legacyFormat = nil
         } else {
             panel.isExtensionHidden = true
             panel.nameFieldStringValue = (defaultFilename as NSString).deletingPathExtension
@@ -328,20 +325,18 @@ private final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate
             format.setAccessibilityLabel(L10n.tr("格式：", "Format:"))
             format.target = self
             format.action = #selector(legacyFormatChanged(_:))
-            rows.append([formLabel(L10n.tr("格式：", "Format:")), format])
+            legacyFormat = format
         }
 
         let pagesTitle = L10n.tr("页面：", "Pages:")
         pagesModePopUp.addItems(withTitles: [
             L10n.tr("全部页面", "All Pages"),
-            L10n.parenthetical(L10n.tr("当前页", "Current Page"), context.labelForPage(context.currentPageIndex)),
             L10n.tr("指定页码", "Page Range")
         ])
         pagesModePopUp.selectItem(at: selectedMode.rawValue)
         pagesModePopUp.setAccessibilityLabel(pagesTitle)
         pagesModePopUp.target = self
         pagesModePopUp.action = #selector(pagesModeChanged)
-        pagesModePopUp.setContentHuggingPriority(.defaultHigh, for: .horizontal)
 
         rangeField.placeholderString = "1–5, 8, 12–15"
         rangeField.setAccessibilityLabel(L10n.tr("指定页码", "Page Range"))
@@ -349,57 +344,73 @@ private final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate
         pngPageField.setAccessibilityLabel(pagesTitle)
         for field in [rangeField, pngPageField] {
             field.delegate = self
-            field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         }
-        rangeField.widthAnchor.constraint(greaterThanOrEqualToConstant: 114).isActive = true
-
-        let controls = [pagesModePopUp, rangeField, pngPageField] as [NSView]
-        let pageControls = NSStackView(views: controls)
-        pageControls.orientation = .horizontal
-        pageControls.alignment = .centerY
-        pageControls.spacing = 8
-        let rowHeight = controls.map { $0.fittingSize.height }.max() ?? 0
-        pageControls.heightAnchor.constraint(equalToConstant: rowHeight).isActive = true
 
         statusLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         statusLabel.lineBreakMode = .byTruncatingTail
-        statusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         updateStatus()
-        statusLabel.heightAnchor.constraint(equalToConstant: statusLabel.fittingSize.height).isActive = true
-        rows.append([formLabel(pagesTitle), pageControls])
-        rows.append([NSGridCell.emptyContentView, statusLabel])
-        let form = NSGridView(views: rows)
-        form.column(at: 0).xPlacement = .trailing
-        form.column(at: 1).xPlacement = .fill
-        form.yPlacement = .center
-        form.columnSpacing = 9
-        form.rowSpacing = 6
-        form.translatesAutoresizingMaskIntoConstraints = false
-
-        // Keep the save sheet at a constant height while the page controls and status change.
-        // NSSavePanel observes the accessory's frame, independently of its Auto Layout constraints.
-        pngPageField.isHidden = true
-        let horizontalInset: CGFloat = 20
-        let verticalInset: CGFloat = 12
-        let size = form.fittingSize
-        let accessory = NSView(frame: CGRect(
-            x: 0, y: 0, width: max(380, ceil(size.width) + 2 * horizontalInset),
-            height: ceil(size.height) + 2 * verticalInset
-        ))
-        accessory.addSubview(form)
-        NSLayoutConstraint.activate([
-            form.leadingAnchor.constraint(equalTo: accessory.leadingAnchor, constant: horizontalInset),
-            form.trailingAnchor.constraint(equalTo: accessory.trailingAnchor, constant: -horizontalInset),
-            form.topAnchor.constraint(equalTo: accessory.topAnchor, constant: verticalInset),
-            form.bottomAnchor.constraint(equalTo: accessory.bottomAnchor, constant: -verticalInset)
-        ])
-        panel.accessoryView = accessory
+        panel.accessoryView = makeAccessoryView(pagesTitle: pagesTitle, legacyFormat: legacyFormat)
     }
 
-    private func formLabel(_ title: String) -> NSTextField {
+    private func makeAccessoryView(pagesTitle: String, legacyFormat: NSPopUpButton?) -> NSView {
+        // Match the built-in compact form's field width and outer margin.
+        let formWidth: CGFloat = legacyFormat == nil ? 390 : 380
+        let fieldWidth: CGFloat = 230
+        let trailingInset: CGFloat = 40.5
+        let labelGap: CGFloat = 8
+        let verticalInset: CGFloat = 14
+
+        let pageControl = NSView()
+        pageControl.heightAnchor.constraint(equalToConstant: max(
+            pagesModePopUp.fittingSize.height, pngPageField.fittingSize.height
+        )).isActive = true
+        for control in [pagesModePopUp, pngPageField] as [NSView] {
+            control.translatesAutoresizingMaskIntoConstraints = false
+            pageControl.addSubview(control)
+            NSLayoutConstraint.activate([
+                control.leadingAnchor.constraint(equalTo: pageControl.leadingAnchor),
+                control.trailingAnchor.constraint(equalTo: pageControl.trailingAnchor),
+                control.centerYAnchor.constraint(equalTo: pageControl.centerYAnchor)
+            ])
+        }
+
+        var controls = [pageControl, rangeField, statusLabel]
+        if let legacyFormat { controls.insert(legacyFormat, at: 0) }
+        let column = NSStackView(views: controls)
+        column.orientation = .vertical
+        column.alignment = .leading
+        column.spacing = 8
+        column.translatesAutoresizingMaskIntoConstraints = false
+        for control in controls {
+            control.widthAnchor.constraint(equalToConstant: fieldWidth).isActive = true
+        }
+
+        // Size the accessory once using the range layout, then keep the top row fixed.
+        let accessory = PageExportAccessoryView(
+            panel: panel,
+            column: column,
+            frame: CGRect(x: 0, y: 0, width: formWidth, height: ceil(column.fittingSize.height) + 2 * verticalInset),
+            compactOffset: (formWidth - fieldWidth) / 2 - trailingInset,
+            topInset: verticalInset
+        )
+        addFormLabel(pagesTitle, for: pageControl, in: accessory, gap: labelGap)
+        if let legacyFormat {
+            addFormLabel(L10n.tr("格式：", "Format:"), for: legacyFormat, in: accessory, gap: labelGap)
+        }
+        return accessory
+    }
+
+    private func addFormLabel(_ title: String, for control: NSView, in accessory: NSView, gap: CGFloat) {
         let label = NSTextField(labelWithString: title)
         label.textColor = .secondaryLabelColor
-        return label
+        label.alignment = .right
+        label.translatesAutoresizingMaskIntoConstraints = false
+        accessory.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(greaterThanOrEqualTo: accessory.leadingAnchor, constant: 12),
+            label.trailingAnchor.constraint(equalTo: control.leadingAnchor, constant: -gap),
+            label.centerYAnchor.constraint(equalTo: control.centerYAnchor)
+        ])
     }
 
     func present() {
@@ -444,7 +455,7 @@ private final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate
     }
 
     @objc private func pagesModeChanged() {
-        selectedMode = PageExporter.PageSelectionMode(rawValue: pagesModePopUp.indexOfSelectedItem) ?? .all
+        selectedMode = PageSelectionMode(rawValue: pagesModePopUp.indexOfSelectedItem) ?? .all
         refreshPageControls()
         if selectedMode == .range {
             panel.makeFirstResponder(rangeField)
@@ -498,7 +509,6 @@ private final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate
         }
         switch selectedMode {
         case .all: return Array(0..<pageCount)
-        case .current: return [max(0, min(context.currentPageIndex, pageCount - 1))]
         case .range: return parsedRange()
         }
     }
@@ -520,7 +530,6 @@ private final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate
             statusLabel.stringValue = invalidSelection.localizedDescription
         }
     }
-
 
     private func startExport(to destinationURL: URL) {
         guard let indices = resolvedPageIndices(), !indices.isEmpty else {
@@ -580,5 +589,48 @@ private final class PageExportPanelController: NSObject, NSOpenSavePanelDelegate
                 }
             }
         }
+    }
+}
+
+@MainActor
+private final class PageExportAccessoryView: NSView {
+    private weak var panel: NSSavePanel?
+    private let compactOffset: CGFloat
+    private var columnCenter: NSLayoutConstraint?
+
+    init(panel: NSSavePanel, column: NSView, frame: NSRect, compactOffset: CGFloat, topInset: CGFloat) {
+        self.panel = panel
+        self.compactOffset = compactOffset
+        super.init(frame: frame)
+        addSubview(column)
+        let center = column.centerXAnchor.constraint(equalTo: centerXAnchor, constant: compactOffset)
+        columnCenter = center
+        NSLayoutConstraint.activate([
+            center,
+            column.topAnchor.constraint(equalTo: topAnchor, constant: topInset)
+        ])
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        needsUpdateConstraints = true
+    }
+
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        needsUpdateConstraints = true
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsUpdateConstraints = true
+    }
+
+    override func updateConstraints() {
+        // The expanded save sheet centers its fields in the file browser column.
+        columnCenter?.constant = panel?.isExpanded == true ? 0 : compactOffset
+        super.updateConstraints()
     }
 }

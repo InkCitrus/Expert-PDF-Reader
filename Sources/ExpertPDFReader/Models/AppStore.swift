@@ -844,22 +844,14 @@ public final class DocumentTabState: ObservableObject, Identifiable {
                 self?.pageIndex(forPageInput: token, inSecondaryPane: isSecondary)
             }
         )
-        let mode: PageExporter.PageSelectionMode
         let pages: [Int]?
         if let initialPages, !initialPages.isEmpty {
-            mode = .range
             pages = initialPages
         } else {
             let selection = selectedThumbnailPages(in: targetSource)
-            if selection.count > 1 {
-                mode = .range
-                pages = selection.sorted()
-            } else {
-                mode = .all
-                pages = nil
-            }
+            pages = selection.count > 1 ? selection.sorted() : nil
         }
-        PageExporter.beginExportPanel(context: context, initialMode: mode, initialPages: pages, in: window)
+        PageExporter.beginExportPanel(context: context, initialPages: pages, in: window)
     }
 
     // Navigation History (Go Back / Go Forward)

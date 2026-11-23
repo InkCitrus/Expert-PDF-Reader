@@ -821,7 +821,12 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         }
     }
 
-    func beginExportPanel(in window: NSWindow?, initialPages: [Int]? = nil, source: ReaderThumbnailSource? = nil) {
+    func beginExportPanel(
+        in window: NSWindow?,
+        initialPages: [Int]? = nil,
+        source: ReaderThumbnailSource? = nil,
+        session: ReaderWindowSession? = nil
+    ) {
         let targetSource = source ?? activeThumbnailSource
         let doc = targetSource.document
         guard doc.pageCount > 0 else { return }
@@ -851,7 +856,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
             let selection = selectedThumbnailPages(in: targetSource)
             pages = selection.count > 1 ? selection.sorted() : nil
         }
-        PageExporter.beginExportPanel(context: context, initialPages: pages, in: window)
+        PageExporter.beginExportPanel(context: context, initialPages: pages, session: session, in: window)
     }
 
     // Navigation History (Go Back / Go Forward)
@@ -1602,6 +1607,16 @@ public struct ClosedTabRecord: Codable, Equatable {
     public var tabGroupColor: TabGroupColor? = nil
 }
 
+public struct ExportActivityState: Equatable {
+    public enum Phase: Equatable {
+        case exporting(completed: Int, total: Int, formatLabel: String)
+        case completed(pageCount: Int, formatLabel: String, outputURL: URL, isFolder: Bool)
+    }
+
+    public let id: UUID
+    public var phase: Phase
+}
+
 @MainActor
 public final class ReaderWindowSession: ObservableObject, Identifiable {
     public let id: UUID
@@ -1650,6 +1665,12 @@ public final class ReaderWindowSession: ObservableObject, Identifiable {
     @Published var isHomeSidebarVisible = true
     @Published public var isShortcutsSheetPresented: Bool = false
     @Published public var shortcutsInitialCategory: ShortcutGuideCategory = .all
+    @Published public var exportActivity: ExportActivityState?
+    private var activeExportID: UUID?
+    private var exportTask: Task<Void, Never>?
+    private var exportDelayTask: Task<Void, Never>?
+    private var exportDismissTask: Task<Void, Never>?
+    private var isExportToastHovered = false
     public weak var nsWindow: NSWindow?
     var cancellables = Set<AnyCancellable>()
 
@@ -1676,6 +1697,150 @@ public final class ReaderWindowSession: ObservableObject, Identifiable {
             return nil
         }
         return state
+    }
+
+    @MainActor
+    func startExportActivity(id: UUID, total: Int, formatLabel: String, task: Task<Void, Never>) {
+        exportDelayTask?.cancel()
+        exportDismissTask?.cancel()
+        exportTask?.cancel()
+        activeExportID = id
+        exportTask = task
+        exportDelayTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled, let self, self.activeExportID == id else { return }
+            withAnimation(AppAnimation.toast) {
+                self.exportActivity = ExportActivityState(
+                    id: id,
+                    phase: .exporting(completed: 0, total: total, formatLabel: formatLabel)
+                )
+            }
+        }
+    }
+
+    @MainActor
+    func updateExportProgress(id: UUID, completed: Int, total: Int, formatLabel: String) {
+        guard activeExportID == id else { return }
+        if completed > 0, exportDelayTask != nil {
+            exportDelayTask?.cancel()
+            exportDelayTask = nil
+        }
+        guard exportActivity?.id == id || completed > 0 else { return }
+        let update = ExportActivityState(
+            id: id,
+            phase: .exporting(completed: completed, total: total, formatLabel: formatLabel)
+        )
+        if exportActivity?.id == id {
+            exportActivity = update
+        } else {
+            withAnimation(AppAnimation.toast) {
+                exportActivity = update
+            }
+        }
+    }
+
+    @MainActor
+    func completeExportActivity(
+        id: UUID,
+        pageCount: Int,
+        formatLabel: String,
+        outputURL: URL,
+        isFolder: Bool
+    ) {
+        guard activeExportID == id else { return }
+        exportDelayTask?.cancel()
+        exportDelayTask = nil
+        exportDismissTask?.cancel()
+        exportTask = nil
+        withAnimation(AppAnimation.toast) {
+            exportActivity = ExportActivityState(
+                id: id,
+                phase: .completed(
+                    pageCount: pageCount,
+                    formatLabel: formatLabel,
+                    outputURL: outputURL,
+                    isFolder: isFolder
+                )
+            )
+        }
+        scheduleExportDismiss(for: id)
+    }
+
+    @MainActor
+    func failOrCancelExportActivity(id: UUID) {
+        guard activeExportID == id else { return }
+        exportDelayTask?.cancel()
+        exportDelayTask = nil
+        exportDismissTask?.cancel()
+        exportTask = nil
+        activeExportID = nil
+        if exportActivity?.id == id {
+            withAnimation(AppAnimation.toast) {
+                exportActivity = nil
+            }
+        }
+    }
+
+    @MainActor
+    func cancelActiveExport() {
+        exportDelayTask?.cancel()
+        exportDelayTask = nil
+        exportDismissTask?.cancel()
+        exportTask?.cancel()
+        exportTask = nil
+        activeExportID = nil
+        if exportActivity != nil {
+            withAnimation(AppAnimation.toast) {
+                exportActivity = nil
+            }
+        }
+    }
+
+    @MainActor
+    func dismissExportToast() {
+        exportDismissTask?.cancel()
+        exportDismissTask = nil
+        isExportToastHovered = false
+        if exportActivity != nil {
+            withAnimation(AppAnimation.toast) {
+                exportActivity = nil
+            }
+        }
+    }
+
+    @MainActor
+    func setExportToastHovered(_ hovered: Bool) {
+        isExportToastHovered = hovered
+        if hovered {
+            exportDismissTask?.cancel()
+            exportDismissTask = nil
+        } else if case .completed = exportActivity?.phase, let id = exportActivity?.id {
+            scheduleExportDismiss(for: id)
+        }
+    }
+
+    @MainActor
+    func revealExportedItemInFinder() {
+        guard case .completed(_, _, let outputURL, _) = exportActivity?.phase else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([outputURL])
+        dismissExportToast()
+    }
+
+    @MainActor
+    private func scheduleExportDismiss(for id: UUID) {
+        exportDismissTask?.cancel()
+        guard !isExportToastHovered else { return }
+        exportDismissTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(4500))
+            guard !Task.isCancelled, let self, !self.isExportToastHovered,
+                  self.exportActivity?.id == id else { return }
+            withAnimation(AppAnimation.toast) {
+                self.exportActivity = nil
+            }
+            if self.activeExportID == id {
+                self.activeExportID = nil
+            }
+        }
     }
 }
 
@@ -3141,9 +3306,13 @@ public final class AppStore: ObservableObject {
         bookmarks(for: documentID).contains(where: { $0.pageIndex == pageIndex })
     }
 
+    func windowSession(forTabID tabID: UUID) -> ReaderWindowSession {
+        allWindowSessions.first(where: { $0.tabs.contains(where: { $0.id == tabID }) })
+            ?? activeSession
+    }
+
     func window(forTabID tabID: UUID) -> NSWindow? {
-        allWindowSessions.first(where: { $0.tabs.contains(where: { $0.id == tabID }) })?.nsWindow
-            ?? activeSession.nsWindow
+        windowSession(forTabID: tabID).nsWindow
     }
 
     public func undoManager(for documentID: DocumentID) -> UndoManager? {

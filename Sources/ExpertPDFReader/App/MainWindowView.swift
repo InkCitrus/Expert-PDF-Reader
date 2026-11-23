@@ -38,6 +38,26 @@ public struct MainWindowView: View {
             GeometryReader { geometry in
                 windowContent(windowWidth: geometry.size.width)
             }
+            .overlay(alignment: .bottom) {
+                if let activity = session.exportActivity {
+                    ExportActivityToast(
+                        state: activity,
+                        pdfTheme: store.resolvedPDFTheme(isDark: isDark),
+                        isDarkUI: isDark,
+                        onCancel: { session.cancelActiveExport() },
+                        onReveal: { session.revealExportedItemInFinder() },
+                        onDismiss: { session.dismissExportToast() },
+                        onHoverChanged: { session.setExportToastHovered($0) }
+                    )
+                    .padding(.bottom, exportToastBottomPadding)
+                    .transition(
+                        AppAnimation.reduceMotion
+                            ? .opacity
+                            : .move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.95))
+                    )
+                }
+            }
+            .animation(AppAnimation.toast, value: session.exportActivity)
         }
         .background(AppPalette.homeContentBackground(isDark), ignoresSafeAreaEdges: [])
         .overlay {
@@ -132,6 +152,15 @@ public struct MainWindowView: View {
         .background(PanelCursorRect())
     }
 
+    private var exportToastBottomPadding: CGFloat {
+        if let tab = session.activeDocumentTab,
+           tab.isPageOverviewVisible,
+           !tab.selectedThumbnailPages(in: tab.activeThumbnailSource).isEmpty {
+            return 76
+        }
+        return 22
+    }
+
     private func goHome() {
         store.activateWindowSession(session.id)
         store.toggleHomeTab(in: session.id)
@@ -165,6 +194,12 @@ public struct MainWindowView: View {
             if store.tabsInSidebar { Color.clear.frame(width: railWidth) }
             if showsNavigation {
                 navigationColumn(width: width)
+                    .clipped()
+                    .transition(
+                        AppAnimation.reduceMotion
+                            ? .opacity
+                            : .move(edge: .leading).combined(with: .opacity)
+                    )
             }
             ZStack {
                 if let tab = session.activeDocumentTab {
@@ -178,6 +213,7 @@ public struct MainWindowView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()
         }
+        .animation(sidebarResizeWidth == nil ? AppAnimation.panel : nil, value: showsNavigation)
         .overlay(alignment: .leading) {
             if showsNavigation {
                 ReaderResizeHandle(axis: .horizontal, length: width) { newWidth, ended in
@@ -198,9 +234,11 @@ public struct MainWindowView: View {
                         .allowsHitTesting(false)
                 }
                 .offset(x: railWidth + width - gripWidth / 2)
+                .transition(.opacity)
                 .onDisappear { sidebarResizeWidth = nil }
             }
         }
+        .animation(sidebarResizeWidth == nil ? AppAnimation.panel : nil, value: showsNavigation)
         .overlay(alignment: .topLeading) {
             if store.tabsInSidebar {
                 SidebarReveal(width: visibleTabsWidth) { drawerWidth in

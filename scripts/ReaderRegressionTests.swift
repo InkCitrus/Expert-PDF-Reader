@@ -1845,6 +1845,67 @@ struct ReaderRegressionTests {
             check(exportedPNG != nil && exportedPNG!.pixelsWide > exportedPNG!.pixelsHigh,
                   "single-page PNG export renders rotated page dimensions")
 
+            // JPEG export, DPI scaling, and quality comparison
+            let p3Snapshot = try PageImageClipboard.snapshot(of: p3)
+            let png144 = try PageExporter.renderImageData(for: p3Snapshot, resolution: .dpi144, format: .png)
+            let png300 = try PageExporter.renderImageData(for: p3Snapshot, resolution: .dpi300, format: .png)
+            let rep144 = NSBitmapImageRep(data: png144)
+            let rep300 = NSBitmapImageRep(data: png300)
+            check(rep144 != nil && rep300 != nil && rep300!.pixelsWide > rep144!.pixelsWide && rep300!.pixelsHigh > rep144!.pixelsHigh,
+                  "300 DPI image export produces higher pixel dimensions than 144 DPI")
+
+            let jpgLow = try PageExporter.renderImageData(for: p3Snapshot, resolution: .dpi216, format: .jpeg, jpegQuality: 0.45)
+            let jpgHigh = try PageExporter.renderImageData(for: p3Snapshot, resolution: .dpi216, format: .jpeg, jpegQuality: 0.95)
+            let jpgRep = NSBitmapImageRep(data: jpgHigh)
+            check(jpgHigh.starts(with: [0xFF, 0xD8, 0xFF])
+                  && jpgRep != nil
+                  && jpgRep!.pixelsWide > jpgRep!.pixelsHigh
+                  && jpgHigh.count > jpgLow.count,
+                  "JPEG export produces valid JPEG bytes scaled by quality")
+
+            // Odd / Even / Current / Range resolution
+            check(PageExporter.resolvePageIndices(mode: .all, rangeText: "", pageCount: 5, currentPageIndex: 2, resolvePage: identityResolve) == [0, 1, 2, 3, 4]
+                  && PageExporter.resolvePageIndices(mode: .current, rangeText: "", pageCount: 5, currentPageIndex: 2, resolvePage: identityResolve) == [2]
+                  && PageExporter.resolvePageIndices(mode: .odd, rangeText: "", pageCount: 5, currentPageIndex: 2, resolvePage: identityResolve) == [0, 2, 4]
+                  && PageExporter.resolvePageIndices(mode: .even, rangeText: "", pageCount: 5, currentPageIndex: 2, resolvePage: identityResolve) == [1, 3]
+                  && PageExporter.resolvePageIndices(mode: .even, rangeText: "", pageCount: 1, currentPageIndex: 0, resolvePage: identityResolve) == nil,
+                  "resolvePageIndices supports all, current, odd, even, and single-page even edge cases")
+
+            // Multi-page image folder export, unique folder numbering, and Finder tags
+            let p0 = tab.pdfDocument.page(at: 0)!
+            let p2 = tab.pdfDocument.page(at: 2)!
+            let multiItems = [
+                PageExporter.ImageExportItem(pageIndex: 0, label: "1", snapshot: try PageImageClipboard.snapshot(of: p0)),
+                PageExporter.ImageExportItem(pageIndex: 2, label: "3", snapshot: try PageImageClipboard.snapshot(of: p2)),
+                PageExporter.ImageExportItem(pageIndex: 3, label: "4", snapshot: try PageImageClipboard.snapshot(of: p3)),
+            ]
+            let imgDest = root.appendingPathComponent("BatchOut.jpg")
+            let folder1 = try await PageExporter.writeMultiPageImages(
+                items: multiItems,
+                destinationURL: imgDest,
+                resolution: .dpi144,
+                format: .jpeg,
+                jpegQuality: 0.85,
+                totalPages: 4,
+                tagNames: ["MathNotes"]
+            )
+            let folder2 = try await PageExporter.writeMultiPageImages(
+                items: multiItems,
+                destinationURL: imgDest,
+                resolution: .dpi144,
+                format: .jpeg,
+                jpegQuality: 0.85,
+                totalPages: 4,
+                tagNames: []
+            )
+            let folder1Files = (try? FileManager.default.contentsOfDirectory(atPath: folder1.path).sorted()) ?? []
+            let folder1Tags = (try? folder1.resourceValues(forKeys: [.tagNamesKey]).tagNames) ?? []
+            check(folder1.lastPathComponent == "BatchOut"
+                  && folder2.lastPathComponent == "BatchOut 2"
+                  && folder1Files == ["BatchOut - 01.jpg", "BatchOut - 03.jpg", "BatchOut - 04.jpg"]
+                  && folder1Tags.contains("MathNotes"),
+                  "multi-page image export creates non-colliding ordered folders and applies Finder tags")
+
             let previousLanguage = L10n.currentLanguage
             defer { L10n.currentLanguage = previousLanguage }
             L10n.currentLanguage = .en
@@ -1853,7 +1914,9 @@ struct ReaderRegressionTests {
                   "the default name retains the document title and has a distinct export suffix")
             check(PageExporter.filename("My Notes v1.2", for: .png) == "My Notes v1.2.png"
                   && PageExporter.filename("My Notes v1.2.PDF", for: .png) == "My Notes v1.2.png"
-                  && PageExporter.filename("My Notes v1.2.png", for: .pdf) == "My Notes v1.2.pdf",
+                  && PageExporter.filename("My Notes v1.2.png", for: .pdf) == "My Notes v1.2.pdf"
+                  && PageExporter.filename("My Notes v1.2.png", for: .jpeg) == "My Notes v1.2.jpg"
+                  && PageExporter.filename("My Notes v1.2.jpeg", for: .pdf) == "My Notes v1.2.pdf",
                   "switching output formats replaces only a known export extension")
 
             // 9. Localization checks across all 10 non-zhHans/en catalog languages + dynamic helpers
@@ -1868,7 +1931,16 @@ struct ReaderRegressionTests {
                 ("页面：", "Pages:", []),
                 ("全部页面", "All Pages", []),
                 ("当前页", "Current Page", []),
+                ("奇数页", "Odd Pages", []),
+                ("偶数页", "Even Pages", []),
                 ("指定页码", "Page Range", []),
+                ("清晰度：", "Resolution:", []),
+                ("质量：", "Quality:", []),
+                ("144 DPI（标准）", "144 DPI (Standard)", ["fr", "de", "it"]),
+                ("216 DPI（高清）", "216 DPI (High)", []),
+                ("300 DPI（打印）", "300 DPI (Print)", []),
+                ("在 Finder 中显示", "Show in Finder", []),
+                ("关闭", "Close", []),
                 ("请输入有效的页码范围", "Enter a valid page range", []),
                 ("请输入有效页码", "Enter a valid page number", []),
                 ("取消选择", "Deselect All", []),
@@ -1886,6 +1958,10 @@ struct ReaderRegressionTests {
                 check(L10n.selectedPagesCount(3).contains("3")
                       && L10n.exportSelectedPages(3).contains("3")
                       && L10n.exportPageCountSummary(3).contains("3")
+                      && !L10n.exportImageSummary(count: 1, formatName: "PNG", pixelSize: CGSize(width: 800, height: 1000)).isEmpty
+                      && L10n.exportImageSummary(count: 3, formatName: "JPEG", pixelSize: nil).contains("3")
+                      && L10n.exportingProgressText(completed: 2, total: 5, formatName: "PNG").contains("2")
+                      && L10n.exportCompletedText(pageCount: 5, formatName: "JPEG", isFolder: true).contains("5")
                       && !L10n.undoMenuTitle("Test").isEmpty
                       && !L10n.redoMenuTitle("Test").isEmpty,
                       "dynamic export/undo localization helpers formatted for \(lang.rawValue)")

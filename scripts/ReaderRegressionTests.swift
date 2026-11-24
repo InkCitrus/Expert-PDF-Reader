@@ -1399,6 +1399,17 @@ struct ReaderRegressionTests {
             check(BookPageScanner.scan(sparse).printedNumbers == nil,
                   "compilations with low printed-page coverage fall back to physical PDF numbering")
 
+            let oneSidedFolios = drawPDF("OneSidedFolios", pages: 80) { i, _ in
+                if i >= 17, i % 2 == 1 {
+                    ("\(i - 15)" as NSString).draw(at: CGPoint(x: 510, y: 750),
+                        withAttributes: [.font: NSFont.systemFont(ofSize: 11)])
+                }
+            }
+            let oneSidedNumbers = BookPageScanner.scan(oneSidedFolios).printedNumbers
+            check(oneSidedNumbers?.number(at: 16) == 1 && oneSidedNumbers?.number(at: 17) == 2
+                  && oneSidedNumbers?.number(at: 79) == 64,
+                  "widely distributed folios on only one side still correct the whole book")
+
             let overlapBook = drawPDF("DuplicateSpreadBook", pages: 40) { i, _ in
                 let num = i < 20 ? (i + 1) : (i - 1)
                 ("\(num)" as NSString).draw(at: CGPoint(x: 295, y: 25), withAttributes: [.font: NSFont.systemFont(ofSize: 11)])

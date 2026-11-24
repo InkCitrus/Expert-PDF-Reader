@@ -1967,6 +1967,74 @@ struct ReaderRegressionTests {
                       "dynamic export/undo localization helpers formatted for \(lang.rawValue)")
             }
         }
+        do {
+            func indexedRow(_ text: String, x: Double, y: Double) -> RecognizedTextLine {
+                let characters = text.enumerated().map { offset, character in
+                    RecognizedTextCharacter(text: String(character), confidence: 0.99,
+                        x: x + Double(offset) * 18, y: y, width: 17, height: 24)
+                }
+                return .init(text: text, confidence: 0.99, x: x, y: y,
+                             width: Double(text.count) * 18, height: 24, characters: characters)
+            }
+            let ocr = OCRPageText(lines: [indexedRow("扫描页面中的关键术语", x: 40, y: 80)], vertical: false,
+                                  imageSize: CGSize(width: 600, height: 800),
+                                  cropBox: CGRect(x: 0, y: 0, width: 600, height: 800))
+            let matches = IndexedPageText(ocr).matches("关键术语", pageIndex: 2)
+            check(matches.count == 1 && matches[0].pageIndex == 2 && !matches[0].bounds.isEmpty,
+                  "OCR text index finds scanned-page terms and preserves highlight geometry")
+
+            let outlineURL = root.appendingPathComponent("GeneratedOutline.pdf")
+            var outlineBox = CGRect(x: 0, y: 0, width: 600, height: 800)
+            let outlineContext = CGContext(outlineURL as CFURL, mediaBox: &outlineBox, nil)!
+            for heading in ["第一章 基础", "1.1 核心概念", "第二章 应用"] {
+                outlineContext.beginPDFPage(nil)
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: outlineContext, flipped: false)
+                (heading as NSString).draw(at: CGPoint(x: 60, y: 700),
+                                           withAttributes: [.font: NSFont.boldSystemFont(ofSize: 22)])
+                ("正文内容用于自动目录回归测试。" as NSString).draw(at: CGPoint(x: 60, y: 650),
+                    withAttributes: [.font: NSFont.systemFont(ofSize: 14)])
+                NSGraphicsContext.restoreGraphicsState()
+                outlineContext.endPDFPage()
+            }
+            outlineContext.closePDF()
+            let generated = AutomaticOutlineGenerator.generate(document: PDFDocument(url: outlineURL)!,
+                                                                pageLabels: ["1": [0], "2": [1], "3": [2]])
+            check(generated.map(\.pageIndex) == [0, 1, 2]
+                  && generated.map(\.level) == [0, 1, 0],
+                  "documents without embedded bookmarks derive a hierarchical outline from headings")
+
+            let tocURL = root.appendingPathComponent("OCRStyleContents.pdf")
+            outlineBox = CGRect(x: 0, y: 0, width: 600, height: 800)
+            let tocContext = CGContext(tocURL as CFURL, mediaBox: &outlineBox, nil)!
+            let tocPages = [
+                ["目录", "高等数学(第三版)(上册)",
+                 "第一章函数与极限…………(1)§1 实数…………(2)",
+                 "1. 有理数与无理数…………(3)", "习题1.1…………(4)",
+                 "第一章总练习题第二章微积分基础…………(10)",
+                 "§2 连续函数", "1. 连续性的定义…………(11)"],
+                ["扉页"], ["第一章函数与极限"], ["§1 实数"], ["1. 有理数与无理数"]
+            ]
+            for lines in tocPages {
+                tocContext.beginPDFPage(nil)
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: tocContext, flipped: false)
+                for (offset, line) in lines.enumerated() {
+                    (line as NSString).draw(at: CGPoint(x: 60, y: 720 - offset * 38),
+                        withAttributes: [.font: NSFont.systemFont(ofSize: 17)])
+                }
+                NSGraphicsContext.restoreGraphicsState()
+                tocContext.endPDFPage()
+            }
+            tocContext.closePDF()
+            let toc = AutomaticOutlineGenerator.generate(document: PDFDocument(url: tocURL)!,
+                pageLabels: ["1": [2], "2": [3], "3": [4], "4": [4], "10": [4], "11": [4]])
+            check(toc.map(\.title) == ["第一章函数与极限", "§1 实数", "1. 有理数与无理数",
+                                       "第二章微积分基础", "§2 连续函数", "1. 连续性的定义"]
+                  && toc.map(\.pageIndex) == [2, 3, 4, 4, 4, 4]
+                  && toc.map(\.level) == [0, 1, 2, 0, 1, 2],
+                  "OCR-style contents split joined rows, discard noise, and use corrected page labels")
+        }
         if !failures.isEmpty {
             print("\(failures.count) regression checks failed")
             exit(1)

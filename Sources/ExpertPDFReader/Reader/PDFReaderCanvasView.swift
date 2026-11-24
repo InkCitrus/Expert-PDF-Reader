@@ -143,6 +143,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         context.coordinator.setupNotifications(for: pdfView)
         applyConfiguration(to: pdfView, coordinator: context.coordinator)
         pdfView.installOCRSelection()
+        pdfView.installSearchHighlights()
         return pdfView
     }
 
@@ -372,10 +373,13 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
             if pdfView.highlightedSelections != nil {
                 pdfView.highlightedSelections = nil
             }
+            themedView?.searchHighlightOverlay.update(matches: [], selectedIndex: 0,
+                                                       isNight: pdfTheme == .night)
         } else {
             let isNight = (pdfTheme == .night)
-            let selections = searchMatches.enumerated().map { idx, item -> PDFSelection in
-                let sel = item.selection.copy() as! PDFSelection
+            let selections = searchMatches.enumerated().compactMap { idx, item -> PDFSelection? in
+                guard let selection = item.selection else { return nil }
+                let sel = selection.copy() as! PDFSelection
                 if isNight {
                     // PDFKit multiplies highlights onto the page, so the text stays black underneath and the
                     // Night filter turns it into #BFBFBF ink. These warm colors become amber boxes there
@@ -392,12 +396,23 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                 return sel
             }
             pdfView.highlightedSelections = selections
+            themedView?.searchHighlightOverlay.update(matches: searchMatches,
+                                                       selectedIndex: selectedMatchIndex,
+                                                       isNight: isNight)
             if selectedMatchIndex >= 0 && selectedMatchIndex < searchMatches.count {
                 let activeMatch = searchMatches[selectedMatchIndex]
                 // Compare match IDs, not indices: a new search selects index 0 again
                 if coordinator.lastHighlightedMatchID != activeMatch.id {
                     coordinator.lastHighlightedMatchID = activeMatch.id
-                    pdfView.go(to: activeMatch.selection)
+                    if let selection = activeMatch.selection {
+                        pdfView.go(to: selection)
+                    } else if let page = pdfDocument.page(at: activeMatch.pageIndex) {
+                        if let first = activeMatch.ocrBounds.first {
+                            pdfView.go(to: PDFDestination(page: page, at: CGPoint(x: first.minX, y: first.maxY)))
+                        } else {
+                            pdfView.go(to: page)
+                        }
+                    }
                 }
             }
         }
@@ -646,6 +661,70 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
     }
 }
 
+/// PDFKit cannot create a `PDFSelection` for image-only pages. This transparent sibling paints OCR
+/// character rectangles without adding temporary annotations to the PDF.
+final class OCRSearchHighlightOverlay: NSView {
+    weak var pdfView: PDFView?
+    private var matches: [SearchMatchItem] = []
+    private var selectedIndex = 0
+    private var isNight = false
+    private var observers: [NSObjectProtocol] = []
+
+    init(pdfView: PDFView) {
+        self.pdfView = pdfView
+        super.init(frame: pdfView.bounds)
+        autoresizingMask = [.width, .height]
+        wantsLayer = false
+        if let scrollView = pdfView.subviews.compactMap({ $0 as? NSScrollView }).first {
+            scrollView.contentView.postsBoundsChangedNotifications = true
+            observers.append(NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main
+            ) { [weak self] _ in self?.needsDisplay = true })
+        }
+        for name in [Notification.Name.PDFViewScaleChanged, Notification.Name.PDFViewPageChanged] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: pdfView, queue: .main) {
+                [weak self] _ in self?.needsDisplay = true
+            })
+        }
+    }
+
+    required init?(coder: NSCoder) { nil }
+    deinit { observers.forEach(NotificationCenter.default.removeObserver) }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override var isOpaque: Bool { false }
+
+    func update(matches: [SearchMatchItem], selectedIndex: Int, isNight: Bool) {
+        self.matches = matches
+        self.selectedIndex = selectedIndex
+        self.isNight = isNight
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard let pdfView, let document = pdfView.document else { return }
+        for (index, match) in matches.enumerated() where !match.ocrBounds.isEmpty {
+            guard let page = document.page(at: match.pageIndex) else { continue }
+            let color: NSColor
+            if isNight {
+                color = index == selectedIndex
+                    ? NSColor(srgbRed: 0.81, green: 0.67, blue: 0.36, alpha: 0.72)
+                    : NSColor(srgbRed: 0.87, green: 0.78, blue: 0.58, alpha: 0.52)
+            } else {
+                color = index == selectedIndex
+                    ? NSColor.systemOrange.withAlphaComponent(0.58)
+                    : NSColor.systemYellow.withAlphaComponent(0.40)
+            }
+            color.setFill()
+            for bounds in match.ocrBounds {
+                let rect = pdfView.convert(bounds, from: page).insetBy(dx: -1.5, dy: -1)
+                guard rect.intersects(dirtyRect) else { continue }
+                NSBezierPath(roundedRect: rect, xRadius: 2, yRadius: 2).fill()
+            }
+        }
+    }
+}
+
 // MARK: - ThemedPDFView (Sharp Retina Viewport Shader Filtering + Arrow Key Navigation)
 
 final class ThemedPDFView: PDFView {
@@ -673,10 +752,17 @@ final class ThemedPDFView: PDFView {
     func preciseAccessibilityHit(at point: NSPoint) -> Any? { contentAccessibility.hitTest(point) }
 
     lazy var ocrSelectionOverlay = OCRTextSelectionOverlay(pdfView: self)
+    lazy var searchHighlightOverlay = OCRSearchHighlightOverlay(pdfView: self)
     private lazy var nativeSelectionTracker = NativePDFSelectionTracker(pdfView: self)
 
     func installOCRSelection() {
         if ocrSelectionOverlay.superview == nil { addSubview(ocrSelectionOverlay, positioned: .above, relativeTo: nil) }
+    }
+
+    func installSearchHighlights() {
+        if searchHighlightOverlay.superview == nil {
+            addSubview(searchHighlightOverlay, positioned: .above, relativeTo: ocrSelectionOverlay)
+        }
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {

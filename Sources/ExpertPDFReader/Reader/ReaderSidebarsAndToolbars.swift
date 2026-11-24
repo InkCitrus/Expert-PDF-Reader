@@ -1116,6 +1116,8 @@ struct PDFOutlinePanel: View {
     @State private var nodes: [PDFOutlineNode] = []
     @State private var expandedIDs: Set<UUID> = []
     @State private var hasLoaded = false
+    @State private var isGenerating = false
+    @State private var generationTask: Task<Void, Never>?
 
     private struct OutlineRow: Identifiable {
         let node: PDFOutlineNode
@@ -1125,7 +1127,15 @@ struct PDFOutlinePanel: View {
 
     var body: some View {
         Group {
-            if hasLoaded && nodes.isEmpty {
+            if isGenerating {
+                VStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text(L10n.tr("正在识别目录…", "Recognizing outline…"))
+                        .font(.system(size: 12))
+                        .foregroundColor(AppPalette.labelTertiary(isDark))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if hasLoaded && nodes.isEmpty {
                 PanelEmptyState(icon: "list.bullet.indent", title: L10n.tr("此文档不包含目录大纲", "This document has no outline"), subtitle: nil, isDark: isDark)
             } else {
                 let rows = visibleRows
@@ -1203,9 +1213,34 @@ struct PDFOutlinePanel: View {
     private func loadIfNeeded() {
         guard !hasLoaded else { return }
         hasLoaded = true
-        guard let root = tab.pdfDocument.outlineRoot else { return }
-        nodes = buildOutlineNodes(from: root)
+        if let root = tab.pdfDocument.outlineRoot {
+            nodes = buildOutlineNodes(from: root)
+            if !nodes.isEmpty {
+                configureExpansion()
+                return
+            }
+        }
 
+        isGenerating = true
+        var labels: [String: [Int]] = [:]
+        for index in 0..<tab.pageCount { labels[tab.displayPageNumber(at: index), default: []].append(index) }
+        let url = tab.documentID.url
+        let password = tab.password
+        generationTask = Task {
+            let generated = await Task.detached(priority: .utility) {
+                guard let document = PDFDocumentLoader.openCopy(of: url, password: password) else {
+                    return [GeneratedOutlineEntry]()
+                }
+                return AutomaticOutlineGenerator.generate(document: document, pageLabels: labels)
+            }.value
+            guard !Task.isCancelled else { return }
+            nodes = buildGeneratedNodes(generated)
+            isGenerating = false
+            configureExpansion()
+        }
+    }
+
+    private func configureExpansion() {
         // Short outlines open fully; long ones only reveal the branch holding the current page
         var parentIDs: [UUID] = []
         var nodeCount = 0
@@ -1220,6 +1255,31 @@ struct PDFOutlinePanel: View {
         }
         collect(nodes)
         expandedIDs = nodeCount <= 30 ? Set(parentIDs) : Set(ancestorIDs(ofPage: tab.currentPageIndex))
+    }
+
+    private func buildGeneratedNodes(_ entries: [GeneratedOutlineEntry]) -> [PDFOutlineNode] {
+        final class Builder {
+            let entry: GeneratedOutlineEntry
+            var children: [Builder] = []
+            init(_ entry: GeneratedOutlineEntry) { self.entry = entry }
+        }
+        var roots: [Builder] = []
+        var stack: [(level: Int, node: Builder)] = []
+        for entry in entries {
+            let level = max(0, entry.level)
+            while stack.last.map({ $0.level >= level }) == true { stack.removeLast() }
+            let node = Builder(entry)
+            if let parent = stack.last?.node { parent.children.append(node) }
+            else { roots.append(node) }
+            stack.append((level, node))
+        }
+        func freeze(_ builders: [Builder]) -> [PDFOutlineNode] {
+            builders.map {
+                PDFOutlineNode(title: $0.entry.title, pageIndex: $0.entry.pageIndex,
+                               point: nil, children: freeze($0.children))
+            }
+        }
+        return freeze(roots)
     }
 
     private func ancestorIDs(ofPage page: Int) -> [UUID] {

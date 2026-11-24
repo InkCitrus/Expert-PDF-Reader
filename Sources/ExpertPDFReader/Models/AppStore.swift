@@ -266,7 +266,16 @@ public struct SearchMatchItem: Identifiable {
     public let id = UUID()
     public let pageIndex: Int
     public let snippet: String
-    public let selection: PDFSelection
+    /// Native PDF text has a PDFKit selection; OCR-only pages instead carry page-space rectangles.
+    public let selection: PDFSelection?
+    public let ocrBounds: [CGRect]
+
+    public init(pageIndex: Int, snippet: String, selection: PDFSelection? = nil, ocrBounds: [CGRect] = []) {
+        self.pageIndex = pageIndex
+        self.snippet = snippet
+        self.selection = selection
+        self.ocrBounds = ocrBounds
+    }
 }
 
 // MARK: - PDFTextSearcher (Full-Text Search off the main thread)
@@ -1494,6 +1503,10 @@ public final class DocumentTabState: ObservableObject, Identifiable {
                 }
             }
             await self?.receiveSearchMatches(batch, generation: generation)
+            if !Task.isCancelled {
+                let recognized = HybridDocumentSearch.ocrMatches(query: trimmed, document: document)
+                await self?.receiveOCRSearchMatches(recognized, generation: generation)
+            }
             await self?.finishSearch(generation: generation)
         }
     }
@@ -1516,6 +1529,28 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         if isFirstBatch, let first = searchMatches.first {
             selectedMatchIndex = 0
             navigateToPage(first.pageIndex, recordHistory: false)
+        }
+    }
+
+    private func receiveOCRSearchMatches(_ matches: [OCRSearchMatch], generation: Int) {
+        guard generation == searchGeneration, !matches.isEmpty else { return }
+        let selectedID = searchMatches.indices.contains(selectedMatchIndex) ? searchMatches[selectedMatchIndex].id : nil
+        var existing = Set(searchMatches.map { "\($0.pageIndex):\($0.snippet.lowercased())" })
+        let additions = matches.compactMap { match -> SearchMatchItem? in
+            let key = "\(match.pageIndex):\(match.snippet.lowercased())"
+            guard existing.insert(key).inserted else { return nil }
+            return SearchMatchItem(pageIndex: match.pageIndex, snippet: match.snippet,
+                                   ocrBounds: match.bounds)
+        }
+        searchMatches.append(contentsOf: additions)
+        searchMatches.sort {
+            if $0.pageIndex != $1.pageIndex { return $0.pageIndex < $1.pageIndex }
+            return $0.snippet.localizedStandardCompare($1.snippet) == .orderedAscending
+        }
+        if let selectedID, let newIndex = searchMatches.firstIndex(where: { $0.id == selectedID }) {
+            selectedMatchIndex = newIndex
+        } else if selectedMatchIndex >= searchMatches.count {
+            selectedMatchIndex = max(0, searchMatches.count - 1)
         }
     }
 

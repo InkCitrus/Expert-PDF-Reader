@@ -1202,6 +1202,10 @@ struct ReaderRegressionTests {
             lastIndex = index
         }
         check(monotonic, "scrolling forward never makes the highlighted section jump backward")
+        let viewport = CGRect(x: 20, y: 40, width: 600, height: 800)
+        check(PDFReaderCanvasView.Coordinator.readingLinePoint(in: viewport, isFlipped: true) == CGPoint(x: 320, y: 240)
+              && PDFReaderCanvasView.Coordinator.readingLinePoint(in: viewport, isFlipped: false) == CGPoint(x: 320, y: 640),
+              "the outline reading line is measured directly inside either viewport orientation")
 
         let mixed = PDFDocument(url: try fixture("MixedNumbers", mixedNumbers: true))!
         let numbers = BookPageScanner.scan(mixed).printedNumbers

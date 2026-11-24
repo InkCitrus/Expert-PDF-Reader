@@ -622,11 +622,11 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         /// of the view already counts as the section being read
         func reportReadingLocation(of pdfView: PDFView) {
             guard Self.isLive(pdfView), let document = pdfView.document else { return }
-            if let handler = parent.onReadingLocationChange,
-               let destination = pdfView.currentDestination,
-               let page = destination.page {
-                let quarterView = pdfView.bounds.height / max(pdfView.scaleFactor, 0.01) / 4
-                handler(document.index(for: page), destination.point.y - quarterView)
+            if let handler = parent.onReadingLocationChange {
+                let readingLine = Self.readingLinePoint(in: pdfView.bounds, isFlipped: pdfView.isFlipped)
+                if let page = pdfView.page(for: readingLine, nearest: true) {
+                    handler(document.index(for: page), pdfView.convert(readingLine, to: page).y)
+                }
             }
             if let handler = parent.onReadingSpotChange {
                 let top = Self.topEdge(of: pdfView)
@@ -640,6 +640,11 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         static func topEdge(of pdfView: PDFView) -> CGPoint {
             let bounds = pdfView.bounds
             return CGPoint(x: bounds.midX, y: pdfView.isFlipped ? bounds.minY : bounds.maxY)
+        }
+
+        static func readingLinePoint(in bounds: CGRect, isFlipped: Bool) -> CGPoint {
+            CGPoint(x: bounds.midX,
+                    y: isFlipped ? bounds.minY + bounds.height / 4 : bounds.maxY - bounds.height / 4)
         }
 
         /// Scrolls vertically so `spot` is at the top of the view again; a spot in a margin the crop boxes now

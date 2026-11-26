@@ -400,6 +400,14 @@ public struct ShortcutsAndTipsSheetView: View {
                 chords: [["⌘", "O"]]
             ),
             ShortcutEntry(
+                id: "print",
+                category: .tabs,
+                icon: "printer",
+                title: L10n.tr("打印…", "Print…"),
+                subtitle: nil,
+                chords: [["⌘", "P"]]
+            ),
+            ShortcutEntry(
                 id: "new_home",
                 category: .tabs,
                 icon: "house",

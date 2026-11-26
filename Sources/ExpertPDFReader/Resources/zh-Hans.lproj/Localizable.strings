@@ -571,3 +571,14 @@
 "Generate an outline when bookmarks are missing" = "文档缺少内嵌书签时自动生成目录";
 "识别目录|||Recognize Outline" = "识别目录";
 "Recognize Outline" = "识别目录";
+
+"打印…|||Print…" = "打印…";
+"Print…" = "打印…";
+"搜索文档…|||Filter documents…" = "搜索文档…";
+"Filter documents…" = "搜索文档…";
+"按最近打开|||Recent" = "按最近打开";
+"Recent" = "按最近打开";
+"按名称|||Name" = "按名称";
+"Name" = "按名称";
+"按页数|||Page Count" = "按页数";
+"Page Count" = "按页数";

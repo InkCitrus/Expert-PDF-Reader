@@ -571,3 +571,14 @@
 "Generate an outline when bookmarks are missing" = "埋め込みしおりがない場合に目次を自動生成します";
 "识别目录|||Recognize Outline" = "目次を認識";
 "Recognize Outline" = "目次を認識";
+
+"打印…|||Print…" = "プリント…";
+"Print…" = "プリント…";
+"搜索文档…|||Filter documents…" = "ドキュメントを絞り込む…";
+"Filter documents…" = "ドキュメントを絞り込む…";
+"按最近打开|||Recent" = "最近開いた順";
+"Recent" = "最近開いた順";
+"按名称|||Name" = "名前順";
+"Name" = "名前順";
+"按页数|||Page Count" = "ページ数順";
+"Page Count" = "ページ数順";

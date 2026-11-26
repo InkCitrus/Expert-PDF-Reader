@@ -571,3 +571,14 @@
 "Generate an outline when bookmarks are missing" = "Gliederung erstellen, wenn Lesezeichen fehlen";
 "识别目录|||Recognize Outline" = "Gliederung erkennen";
 "Recognize Outline" = "Gliederung erkennen";
+
+"打印…|||Print…" = "Drucken…";
+"Print…" = "Drucken…";
+"搜索文档…|||Filter documents…" = "Dokumente filtern…";
+"Filter documents…" = "Dokumente filtern…";
+"按最近打开|||Recent" = "Zuletzt";
+"Recent" = "Zuletzt";
+"按名称|||Name" = "Nach Name";
+"Name" = "Nach Name";
+"按页数|||Page Count" = "Seitenzahl";
+"Page Count" = "Seitenzahl";

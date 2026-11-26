@@ -571,3 +571,14 @@
 "Generate an outline when bookmarks are missing" = "Створювати зміст за відсутності вбудованих закладок";
 "识别目录|||Recognize Outline" = "Розпізнати зміст";
 "Recognize Outline" = "Розпізнати зміст";
+
+"打印…|||Print…" = "Друкувати…";
+"Print…" = "Друкувати…";
+"搜索文档…|||Filter documents…" = "Фільтр документів…";
+"Filter documents…" = "Фільтр документів…";
+"按最近打开|||Recent" = "Нещодавні";
+"Recent" = "Нещодавні";
+"按名称|||Name" = "За назвою";
+"Name" = "За назвою";
+"按页数|||Page Count" = "За сторінками";
+"Page Count" = "За сторінками";

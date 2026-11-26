@@ -571,3 +571,14 @@
 "Generate an outline when bookmarks are missing" = "Generar un índice cuando faltan marcadores";
 "识别目录|||Recognize Outline" = "Reconocer índice";
 "Recognize Outline" = "Reconocer índice";
+
+"打印…|||Print…" = "Imprimir…";
+"Print…" = "Imprimir…";
+"搜索文档…|||Filter documents…" = "Filtrar documentos…";
+"Filter documents…" = "Filtrar documentos…";
+"按最近打开|||Recent" = "Recientes";
+"Recent" = "Recientes";
+"按名称|||Name" = "Por nombre";
+"Name" = "Por nombre";
+"按页数|||Page Count" = "Páginas";
+"Page Count" = "Páginas";

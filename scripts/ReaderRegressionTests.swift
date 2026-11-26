@@ -2015,6 +2015,11 @@ struct ReaderRegressionTests {
                 ("自动识别目录", "Auto-Recognize Outline", []),
                 ("文档缺少内嵌书签时自动生成目录", "Generate an outline when bookmarks are missing", []),
                 ("识别目录", "Recognize Outline", []),
+                ("打印…", "Print…", []),
+                ("搜索文档…", "Filter documents…", []),
+                ("按最近打开", "Recent", []),
+                ("按名称", "Name", []),
+                ("按页数", "Page Count", []),
             ]
             for lang in AppLanguage.allCases where lang != .system && lang != .zhHans && lang != .en {
                 L10n.currentLanguage = lang
@@ -2531,6 +2536,35 @@ struct ReaderRegressionTests {
             let reloadedOnStore = AppStore()
             check(reloadedOnStore.autoGenerateOutline == true,
                   "autoGenerateOutline=true persists via UserDefaults")
+
+            // 5. Native printing readiness & Home Recents/Favorites compact date and reading progress badge
+            let homePrintStore = freshStore()
+            let printTab = homePrintStore.openDocument(at: outlineURL, interactive: false)!
+            check(printTab.canPrintActiveDocument,
+                  "normal loaded PDF reports canPrintActiveDocument == true")
+            if let printOp = printTab.makePrintOperation() {
+                check(printOp.printInfo.horizontalPagination == .fit
+                      && printOp.printInfo.verticalPagination == .fit
+                      && printOp.jobTitle == printTab.title,
+                      "makePrintOperation configures fit pagination and document job title")
+            } else {
+                check(false, "makePrintOperation returns non-nil NSPrintOperation for printable PDF")
+            }
+
+            let outlineDocID = printTab.documentID
+            let recentDocItem = homePrintStore.documents.first(where: { $0.documentID == outlineDocID })
+            check(recentDocItem?.dateOpenedText.contains(":") == false,
+                  "dateOpenedText uses compact relative date without time-of-day truncation")
+
+            printTab.currentPageIndex = 1
+            let progressPageCount = printTab.pageCount
+            homePrintStore.closeTab(id: printTab.id)
+            if let docItemForProgress = homePrintStore.documents.first(where: { $0.documentID == outlineDocID }) {
+                check(homePrintStore.savedReadingPageLabel(for: docItemForProgress) == "2 / \(progressPageCount)",
+                      "savedReadingPageLabel formats active reading progress cleanly")
+            } else {
+                check(false, "document item available to check savedReadingPageLabel")
+            }
         }
         if !failures.isEmpty {
             print("\(failures.count) regression checks failed")

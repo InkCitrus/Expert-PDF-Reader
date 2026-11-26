@@ -571,3 +571,14 @@
 "Generate an outline when bookmarks are missing" = "Générer un sommaire en l'absence de signets intégrés";
 "识别目录|||Recognize Outline" = "Reconnaître le sommaire";
 "Recognize Outline" = "Reconnaître le sommaire";
+
+"打印…|||Print…" = "Imprimer…";
+"Print…" = "Imprimer…";
+"搜索文档…|||Filter documents…" = "Filtrer les documents…";
+"Filter documents…" = "Filtrer les documents…";
+"按最近打开|||Recent" = "Récents";
+"Recent" = "Récents";
+"按名称|||Name" = "Par nom";
+"Name" = "Par nom";
+"按页数|||Page Count" = "Nombre de pages";
+"Page Count" = "Nombre de pages";

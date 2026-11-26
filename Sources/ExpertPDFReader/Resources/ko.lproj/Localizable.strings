@@ -571,3 +571,14 @@
 "Generate an outline when bookmarks are missing" = "내장 책갈피가 없을 때 목차를 자동으로 생성합니다";
 "识别目录|||Recognize Outline" = "목차 인식";
 "Recognize Outline" = "목차 인식";
+
+"打印…|||Print…" = "프린트…";
+"Print…" = "프린트…";
+"搜索文档…|||Filter documents…" = "문서 필터링…";
+"Filter documents…" = "문서 필터링…";
+"按最近打开|||Recent" = "최근 항목순";
+"Recent" = "최근 항목순";
+"按名称|||Name" = "이름순";
+"Name" = "이름순";
+"按页数|||Page Count" = "페이지 수순";
+"Page Count" = "페이지 수순";

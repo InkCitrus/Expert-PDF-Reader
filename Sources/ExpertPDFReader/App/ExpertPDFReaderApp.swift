@@ -347,6 +347,14 @@ struct ReaderMenuCommands: Commands {
             .keyboardShortcut("w", modifiers: [.command, .shift])
         }
 
+        CommandGroup(replacing: .printItem) {
+            Button(L10n.tr("打印…", "Print…")) {
+                store.activeDocumentTab?.printActiveDocument(in: store.activeSession.nsWindow)
+            }
+            .keyboardShortcut("p", modifiers: [.command])
+            .disabled(store.activeDocumentTab?.canPrintActiveDocument != true)
+        }
+
         CommandGroup(replacing: .undoRedo) {
             let _ = store.undoMenuToken
             let textUndo = (NSApp.keyWindow?.firstResponder as? NSTextView).flatMap { $0.isEditable ? $0.undoManager : nil }

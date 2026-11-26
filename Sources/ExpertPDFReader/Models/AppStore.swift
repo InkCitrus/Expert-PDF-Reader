@@ -709,6 +709,40 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         PageImageClipboard.beginCopy(page, in: window)
     }
 
+    public var canPrintActiveDocument: Bool {
+        let doc = activeThumbnailSource.document
+        return doc.pageCount > 0 && doc.allowsPrinting
+    }
+
+    public func makePrintOperation() -> NSPrintOperation? {
+        let doc = activeThumbnailSource.document
+        guard doc.pageCount > 0, doc.allowsPrinting else { return nil }
+        let printInfo = (NSPrintInfo.shared.copy() as? NSPrintInfo) ?? NSPrintInfo()
+        printInfo.horizontalPagination = .fit
+        printInfo.verticalPagination = .fit
+        printInfo.isHorizontallyCentered = true
+        printInfo.isVerticallyCentered = true
+        guard let operation = doc.printOperation(for: printInfo, scalingMode: .pageScaleToFit, autoRotate: true) else {
+            return nil
+        }
+        operation.showsPrintPanel = true
+        operation.showsProgressPanel = true
+        let isSecondary = doc !== pdfDocument
+        operation.jobTitle = isSecondary
+            ? (secondaryDocumentURL?.deletingPathExtension().lastPathComponent ?? title)
+            : title
+        return operation
+    }
+
+    public func printActiveDocument(in window: NSWindow?) {
+        guard let operation = makePrintOperation() else { return }
+        if let targetWindow = window ?? NSApp.keyWindow ?? NSApp.mainWindow {
+            operation.runModal(for: targetWindow, delegate: nil, didRun: nil, contextInfo: nil)
+        } else {
+            operation.run()
+        }
+    }
+
     var activeThumbnailSource: ReaderThumbnailSource {
         if targetsSecondaryPane, let document = secondaryPDFDocument, let id = secondaryDocumentID {
             let password = document === pdfDocument ? self.password : secondaryDocumentPassword
@@ -2389,7 +2423,8 @@ public final class AppStore: ObservableObject {
         let formatter = DateFormatter()
         formatter.locale = lang.locale
         formatter.dateStyle = .short
-        formatter.timeStyle = .short
+        formatter.timeStyle = .none
+        formatter.doesRelativeDateFormatting = true
         self.dateFormatter = formatter
 
         let homeTabID = UUID()
@@ -2470,7 +2505,8 @@ public final class AppStore: ObservableObject {
         let newFormatter = DateFormatter()
         newFormatter.locale = appLanguage.locale
         newFormatter.dateStyle = .short
-        newFormatter.timeStyle = .short
+        newFormatter.timeStyle = .none
+        newFormatter.doesRelativeDateFormatting = true
         self.dateFormatter = newFormatter
 
         for idx in documents.indices {
@@ -2489,6 +2525,14 @@ public final class AppStore: ObservableObject {
 
     public var favoriteDocuments: [DocumentItem] {
         documents.filter { favoriteDocumentIDs.contains($0.documentID) }
+    }
+
+    public func savedReadingPageLabel(for item: DocumentItem) -> String? {
+        guard let pos = readingPositions[item.documentID.normalizedPath],
+              pos.pageIndex > 0,
+              item.pageCount > 1,
+              pos.pageIndex < item.pageCount else { return nil }
+        return "\(pos.pageIndex + 1) / \(item.pageCount)"
     }
 
     public var allOpenDocumentTabs: [DocumentTabState] {

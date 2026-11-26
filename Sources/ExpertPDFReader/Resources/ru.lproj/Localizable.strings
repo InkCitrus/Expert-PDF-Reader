@@ -571,3 +571,14 @@
 "Generate an outline when bookmarks are missing" = "Создавать оглавление при отсутствии встроенных закладок";
 "识别目录|||Recognize Outline" = "Распознать оглавление";
 "Recognize Outline" = "Распознать оглавление";
+
+"打印…|||Print…" = "Печать…";
+"Print…" = "Печать…";
+"搜索文档…|||Filter documents…" = "Фильтр документов…";
+"Filter documents…" = "Фильтр документов…";
+"按最近打开|||Recent" = "Недавние";
+"Recent" = "Недавние";
+"按名称|||Name" = "По имени";
+"Name" = "По имени";
+"按页数|||Page Count" = "По страницам";
+"Page Count" = "По страницам";

@@ -11,16 +11,34 @@ public struct HomeTabRootView: View {
     var onSelectDocumentInSplitPane: ((URL) -> Void)?
 
     @State private var isDropTargeted = false
+    @State private var librarySearchText: String = ""
+    @State private var librarySortOrder: LibrarySortOrder = .recent
     @Environment(\.colorScheme) private var colorScheme
     private var isDark: Bool { colorScheme == .dark }
+
+    private enum LibrarySortOrder: String, CaseIterable, Identifiable {
+        case recent
+        case name
+        case pageCount
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .recent:    return L10n.tr("按最近打开", "Recent")
+            case .name:      return L10n.tr("按名称", "Name")
+            case .pageCount: return L10n.tr("按页数", "Page Count")
+            }
+        }
+    }
 
     public static let sidebarWidth: CGFloat = 216
     public static let maxColumnWidth: CGFloat = 880
     public static let minimumGutter: CGFloat = 40
-    public static let cardMinWidth: CGFloat = 132
-    public static let cardMaxWidth: CGFloat = 156
-    /// Home shows one row's worth of documents; "查看全部" opens the full page
-    public static let homeSectionItemLimit = 6
+    public static let cardMinWidth: CGFloat = 168
+    public static let cardMaxWidth: CGFloat = 210
+    /// Home shows two clean 4-card rows; "查看全部" opens the full searchable library page
+    public static let homeSectionItemLimit = 8
 
     public init(
         store: AppStore,
@@ -42,6 +60,7 @@ public struct HomeTabRootView: View {
                 store.pruneMissingDocuments()
             }
             .onChange(of: session.homeCurrentPage) { _, _ in
+                librarySearchText = ""
                 store.pruneMissingDocuments()
             }
 
@@ -105,7 +124,7 @@ public struct HomeTabRootView: View {
             if !isStandaloneSplitPane {
                 VStack(alignment: .leading, spacing: 14) {
                     Text(L10n.tr("阅读主题", "Reading Theme"))
-                        .font(.system(size: 20, weight: .bold))
+                        .font(.system(size: 18, weight: .bold))
                         .foregroundColor(AppPalette.labelPrimary(isDark))
                     HStack(spacing: 12) {
                         ForEach(PDFReadingThemeMode.allCases) { mode in
@@ -129,15 +148,20 @@ public struct HomeTabRootView: View {
             // Recent Documents
             documentsSection(
                 title: L10n.tr("最近打开", "Recents"),
+                emptyIcon: "clock",
                 items: store.recentDocuments,
-                actions: isStandaloneSplitPane ? [] : [
-                    HomeSectionAction(title: L10n.tr("清除全部", "Clear All")) { store.confirmClearRecents(in: session.id) },
-                    HomeSectionAction(title: L10n.tr("查看全部", "See All")) {
-                        withAnimation(AppAnimation.panel) {
-                            session.homeCurrentPage = .recents
+                actions: isStandaloneSplitPane ? [] : (
+                    [HomeSectionAction(title: L10n.tr("清除全部", "Clear All"), isDestructive: true) {
+                        store.confirmClearRecents(in: session.id)
+                    }]
+                    + (store.recentDocuments.count > Self.homeSectionItemLimit ? [
+                        HomeSectionAction(title: L10n.tr("查看全部", "See All"), trailingIcon: "chevron.right") {
+                            withAnimation(AppAnimation.panel) {
+                                session.homeCurrentPage = .recents
+                            }
                         }
-                    }
-                ],
+                    ] : [])
+                ),
                 allowsRemoval: true,
                 emptyText: L10n.tr("打开过的 PDF 会显示在这里，方便随时继续阅读。", "Recently opened PDFs will appear here so you can pick up where you left off.")
             )
@@ -145,9 +169,10 @@ public struct HomeTabRootView: View {
             // Favorites
             documentsSection(
                 title: L10n.tr("收藏夹", "Favorites"),
+                emptyIcon: "star",
                 items: store.favoriteDocuments,
-                actions: isStandaloneSplitPane ? [] : [
-                    HomeSectionAction(title: L10n.tr("查看全部", "See All")) {
+                actions: isStandaloneSplitPane || store.favoriteDocuments.count <= Self.homeSectionItemLimit ? [] : [
+                    HomeSectionAction(title: L10n.tr("查看全部", "See All"), trailingIcon: "chevron.right") {
                         withAnimation(AppAnimation.panel) {
                             session.homeCurrentPage = .favorites
                         }
@@ -161,19 +186,45 @@ public struct HomeTabRootView: View {
 
     private func documentsSection(
         title: String,
+        emptyIcon: String,
         items: [DocumentItem],
         actions: [HomeSectionAction],
         allowsRemoval: Bool,
         emptyText: String
     ) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            HomeSectionHeader(title: title, actions: items.isEmpty ? [] : actions, isDark: isDark)
+            HomeSectionHeader(
+                title: title,
+                count: items.count,
+                actions: items.isEmpty ? [] : actions,
+                isDark: isDark
+            )
 
             if items.isEmpty {
-                Text(emptyText)
-                    .font(.system(size: 13))
-                    .foregroundColor(AppPalette.labelTertiary(isDark))
-                    .padding(.vertical, 4)
+                HStack(spacing: 12) {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(AppPalette.segmentedTrack(isDark))
+                        .frame(width: 32, height: 32)
+                        .overlay(
+                            Image(systemName: emptyIcon)
+                                .font(.system(size: 13.5, weight: .medium))
+                                .foregroundColor(AppPalette.labelTertiary(isDark))
+                        )
+                    Text(emptyText)
+                        .font(.system(size: 12.5))
+                        .foregroundColor(AppPalette.labelSecondary(isDark))
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(AppPalette.homeCardBackground(isDark))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(isDark ? Color.white.opacity(0.07) : Color.black.opacity(0.06), lineWidth: 0.5)
+                )
             } else {
                 documentsGrid(Array(items.prefix(Self.homeSectionItemLimit)), allowsRemoval: allowsRemoval)
             }
@@ -185,14 +236,16 @@ public struct HomeTabRootView: View {
     // MARK: - Recents Full Page
 
     private var recentsFullPage: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            HStack(alignment: .firstTextBaseline) {
+        let filtered = filteredAndSortedDocuments(from: store.recentDocuments)
+        return VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .center, spacing: 12) {
                 pageTitle(L10n.tr("最近打开", "Recents"))
                 Spacer()
                 if !store.recentDocuments.isEmpty {
-                    HomeLinkButton(title: L10n.tr("清除全部", "Clear All")) {
-                        store.confirmClearRecents(in: session.id)
-                    }
+                    libraryToolbar(
+                        destructiveTitle: L10n.tr("清除全部", "Clear All"),
+                        onDestructive: { store.confirmClearRecents(in: session.id) }
+                    )
                 }
             }
 
@@ -205,8 +258,10 @@ public struct HomeTabRootView: View {
                     isDark: isDark,
                     action: { store.openFilePicker(in: session.id) }
                 )
+            } else if filtered.isEmpty {
+                noMatchesState
             } else {
-                documentsGrid(store.recentDocuments, allowsRemoval: true)
+                documentsGrid(filtered, allowsRemoval: true)
             }
         }
     }
@@ -214,14 +269,16 @@ public struct HomeTabRootView: View {
     // MARK: - Favorites Full Page
 
     private var favoritesFullPage: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            HStack(alignment: .firstTextBaseline) {
+        let filtered = filteredAndSortedDocuments(from: store.favoriteDocuments)
+        return VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .center, spacing: 12) {
                 pageTitle(L10n.tr("收藏夹", "Favorites"))
                 Spacer()
                 if !store.favoriteDocuments.isEmpty {
-                    HomeLinkButton(title: L10n.tr("清空收藏夹", "Clear Favorites")) {
-                        store.confirmClearFavorites(in: session.id)
-                    }
+                    libraryToolbar(
+                        destructiveTitle: L10n.tr("清空收藏夹", "Clear Favorites"),
+                        onDestructive: { store.confirmClearFavorites(in: session.id) }
+                    )
                 }
             }
 
@@ -238,10 +295,116 @@ public struct HomeTabRootView: View {
                         }
                     }
                 )
+            } else if filtered.isEmpty {
+                noMatchesState
             } else {
-                documentsGrid(store.favoriteDocuments, allowsRemoval: false)
+                documentsGrid(filtered, allowsRemoval: false)
             }
         }
+    }
+
+    private func filteredAndSortedDocuments(from source: [DocumentItem]) -> [DocumentItem] {
+        let query = librarySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let filtered = query.isEmpty ? source : source.filter { $0.title.localizedCaseInsensitiveContains(query) }
+        switch librarySortOrder {
+        case .recent:
+            return filtered
+        case .name:
+            return filtered.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        case .pageCount:
+            return filtered.sorted {
+                if $0.pageCount != $1.pageCount { return $0.pageCount > $1.pageCount }
+                return $0.title.localizedStandardCompare($1.title) == .orderedAscending
+            }
+        }
+    }
+
+    private func libraryToolbar(destructiveTitle: String, onDestructive: @escaping () -> Void) -> some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11.5))
+                    .foregroundColor(AppPalette.labelTertiary(isDark))
+                TextField(L10n.tr("搜索文档…", "Filter documents…"), text: $librarySearchText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundColor(AppPalette.labelPrimary(isDark))
+                if !librarySearchText.isEmpty {
+                    Button {
+                        librarySearchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundColor(AppPalette.labelQuaternary(isDark))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 9)
+            .frame(width: 200, height: 28)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(AppPalette.homeCardBackground(isDark))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .strokeBorder(isDark ? Color.white.opacity(0.08) : Color.black.opacity(0.07), lineWidth: 0.5)
+            )
+
+            Menu {
+                ForEach(LibrarySortOrder.allCases) { order in
+                    Button {
+                        librarySortOrder = order
+                    } label: {
+                        if librarySortOrder == order {
+                            Label(order.title, systemImage: "checkmark")
+                        } else {
+                            Text(order.title)
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .font(.system(size: 10.5, weight: .medium))
+                    Text(librarySortOrder.title)
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .foregroundColor(AppPalette.labelSecondary(isDark))
+                .padding(.horizontal, 10)
+                .frame(height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(AppPalette.homeCardBackground(isDark))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(isDark ? Color.white.opacity(0.08) : Color.black.opacity(0.07), lineWidth: 0.5)
+                )
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+
+            HomeSubtleActionButton(
+                title: destructiveTitle,
+                isDestructive: true,
+                isDark: isDark,
+                action: onDestructive
+            )
+        }
+    }
+
+    private var noMatchesState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 24, weight: .light))
+                .foregroundColor(AppPalette.labelQuaternary(isDark))
+            Text(L10n.tr("没有匹配结果", "No Matches Found"))
+                .font(.system(size: 13.5, weight: .semibold))
+                .foregroundColor(AppPalette.labelSecondary(isDark))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 56)
     }
 
     // MARK: - Shared Pieces
@@ -261,13 +424,14 @@ public struct HomeTabRootView: View {
 
     private func documentsGrid(_ items: [DocumentItem], allowsRemoval: Bool) -> some View {
         LazyVGrid(
-            columns: [GridItem(.adaptive(minimum: Self.cardMinWidth, maximum: Self.cardMaxWidth), spacing: 14, alignment: .top)],
+            columns: [GridItem(.adaptive(minimum: Self.cardMinWidth, maximum: Self.cardMaxWidth), spacing: 12, alignment: .top)],
             alignment: .leading,
-            spacing: 18
+            spacing: 14
         ) {
             ForEach(items) { item in
                 DocumentCardView(
                     item: item,
+                    progressBadge: store.savedReadingPageLabel(for: item),
                     pdfTheme: store.resolvedPDFTheme(isDark: isDark),
                     isDark: isDark,
                     onOpen: { openURL(item.url) },
@@ -487,48 +651,85 @@ struct HomeSidebarRowLabel: View {
 
 struct HomeSectionAction: Identifiable {
     let title: String
+    var trailingIcon: String? = nil
+    var isDestructive: Bool = false
     let action: () -> Void
     var id: String { title }
 }
 
 struct HomeSectionHeader: View {
     let title: String
+    var count: Int = 0
     var actions: [HomeSectionAction] = []
     let isDark: Bool
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(title)
-                .font(.system(size: 20, weight: .bold))
-                .foregroundColor(AppPalette.labelPrimary(isDark))
-            Spacer()
-            ForEach(Array(actions.enumerated()), id: \.element.id) { idx, action in
-                if idx > 0 {
-                    Rectangle()
-                        .fill(AppPalette.separator(isDark))
-                        .frame(width: 1, height: 14)
+        HStack(alignment: .center, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                Text(title)
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(AppPalette.labelPrimary(isDark))
+                if count > 0 {
+                    Text("\(count)")
+                        .font(.system(size: 12, weight: .medium))
+                        .monospacedDigit()
+                        .foregroundColor(AppPalette.labelTertiary(isDark))
                 }
-                HomeLinkButton(title: action.title, action: action.action)
+            }
+            Spacer()
+            HStack(spacing: 6) {
+                ForEach(actions) { item in
+                    HomeSubtleActionButton(
+                        title: item.title,
+                        trailingIcon: item.trailingIcon,
+                        isDestructive: item.isDestructive,
+                        isDark: isDark,
+                        action: item.action
+                    )
+                }
             }
         }
     }
 }
 
-struct HomeLinkButton: View {
+struct HomeSubtleActionButton: View {
     let title: String
+    var trailingIcon: String? = nil
+    var isDestructive: Bool = false
+    let isDark: Bool
     let action: () -> Void
 
-    @Environment(\.appAccentColor) private var accent
     @State private var isHovered = false
 
     var body: some View {
         Button(action: action) {
-            Text(title)
-                .font(.system(size: 13.5))
-                .foregroundColor(accent.opacity(isHovered ? 0.75 : 1))
-                .animation(AppAnimation.micro, value: isHovered)
+            HStack(spacing: 4) {
+                Text(title)
+                if let trailingIcon {
+                    Image(systemName: trailingIcon)
+                        .font(.system(size: 9.5, weight: .semibold))
+                }
+            }
+            .font(.system(size: 12, weight: .medium))
+            .foregroundColor(
+                isHovered
+                    ? (isDestructive ? AppPalette.systemRed : AppPalette.labelPrimary(isDark))
+                    : AppPalette.labelSecondary(isDark)
+            )
+            .padding(.horizontal, 10)
+            .frame(height: 26)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(isHovered ? AppPalette.homeCardHover(isDark) : AppPalette.homeCardBackground(isDark))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .strokeBorder(isDark ? Color.white.opacity(0.08) : Color.black.opacity(0.06), lineWidth: 0.5)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .animation(AppAnimation.micro, value: isHovered)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(TactilePressButtonStyle())
         .onHover { isHovered = $0 }
     }
 }
@@ -747,6 +948,7 @@ struct HomeThemeModeCard: View {
 
 struct DocumentCardView: View {
     let item: DocumentItem
+    let progressBadge: String?
     let pdfTheme: PDFViewTheme
     let isDark: Bool
     let onOpen: () -> Void
@@ -769,55 +971,87 @@ struct DocumentCardView: View {
         if isHovered || item.isFavorite {
             Button(action: onToggleFavorite) {
                 Image(systemName: item.isFavorite ? "star.fill" : "star")
-                    .font(.system(size: 10.5, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .symbolEffect(.bounce, value: item.isFavorite)
-                    .foregroundColor(item.isFavorite ? AppPalette.systemYellow : .white)
-                    .frame(width: 22, height: 22)
-                    .background(Circle().fill(Color.black.opacity(0.5)))
+                    .foregroundColor(item.isFavorite ? AppPalette.systemYellow : AppPalette.labelSecondary(isDark))
+                    .frame(width: 24, height: 24)
+                    .background(
+                        Circle()
+                            .fill(isDark ? Color.white.opacity(0.10) : Color.white.opacity(0.90))
+                    )
+                    .overlay(
+                        Circle()
+                            .strokeBorder(isDark ? Color.white.opacity(0.14) : Color.black.opacity(0.08), lineWidth: 0.5)
+                    )
             }
             .buttonStyle(.plain)
             .help(item.isFavorite ? L10n.tr("取消收藏", "Remove from Favorites") : L10n.tr("添加到收藏", "Add to Favorites"))
-            .padding(5)
+            .padding(6)
             .transition(.opacity.combined(with: .scale(scale: 0.85)))
         }
     }
 
     private var coverThumbnail: some View {
-        Image(nsImage: PDFThumbnailCache.shared.themedCover(for: item, theme: pdfTheme))
-            .resizable()
-            .interpolation(.high)
-            .aspectRatio(contentMode: .fit)
-            .accessibilityHidden(true)
-            .frame(maxWidth: 112, maxHeight: 142)
-            .overlay(
-                Rectangle()
-                    .stroke(Color.black.opacity(isDark ? 0.35 : 0.10), lineWidth: 0.5)
-            )
-            .overlay(alignment: .topTrailing) {
-                favoriteBadge
+        ZStack {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isDark ? Color.black.opacity(0.28) : Color(hex: 0xEAEAEF))
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color.black.opacity(isDark ? 0.22 : 0.04), lineWidth: 0.5)
+
+            Image(nsImage: PDFThumbnailCache.shared.themedCover(for: item, theme: pdfTheme))
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .accessibilityHidden(true)
+                .frame(maxWidth: 98, maxHeight: 126)
+                .overlay(
+                    Rectangle()
+                        .stroke(Color.black.opacity(isDark ? 0.35 : 0.12), lineWidth: 0.5)
+                )
+                .scaleEffect(isHovered ? 1.02 : 1.0)
+                .shadow(
+                    color: Color.black.opacity(isDark ? 0.45 : 0.14),
+                    radius: isHovered ? 5 : 3,
+                    x: 0,
+                    y: isHovered ? 2.5 : 1.5
+                )
+        }
+        .frame(height: 148)
+        .overlay(alignment: .topTrailing) {
+            favoriteBadge
+        }
+        .overlay(alignment: .bottomLeading) {
+            if let progressBadge {
+                Text(progressBadge)
+                    .font(.system(size: 9.5, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.black.opacity(isDark ? 0.58 : 0.55)))
+                    .padding(6)
             }
-            .scaleEffect(isHovered ? 1.02 : 1.0)
-            .offset(y: isHovered ? -2 : 0)
-            .shadow(color: Color.black.opacity(isDark ? 0.5 : 0.16), radius: isHovered ? 7 : 3.5, x: 0, y: isHovered ? 3.5 : 1.5)
-            .frame(height: 150)
+        }
     }
 
     private var titleLabels: some View {
-        VStack(spacing: 2) {
+        VStack(alignment: .leading, spacing: 3) {
             Text(item.title)
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: 12.5, weight: .semibold))
                 .foregroundColor(AppPalette.labelPrimary(isDark))
                 .lineLimit(2)
-                .multilineTextAlignment(.center)
+                .multilineTextAlignment(.leading)
                 .truncationMode(.middle)
-                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .frame(height: 32, alignment: .topLeading)
 
             Text(subtitleText)
-                .font(.system(size: 10.5))
+                .font(.system(size: 11))
                 .foregroundColor(AppPalette.labelTertiary(isDark))
                 .lineLimit(1)
         }
-        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(ViewAnchorRepresentable(anchor: filenameAnchor).allowsHitTesting(false))
         .onHover { hovering in
             if hovering { filenamePreview.show(item.url, near: filenameAnchor, isDark: isDark) }
@@ -827,16 +1061,28 @@ struct DocumentCardView: View {
     }
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             coverThumbnail
             titleLabels
         }
-        .padding(8)
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(isHovered ? AppPalette.homeCardHover(isDark) : Color.clear)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(isHovered ? AppPalette.homeCardHover(isDark) : AppPalette.homeCardBackground(isDark))
         )
-        .contentShape(Rectangle())
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(isDark ? Color.white.opacity(0.07) : Color.black.opacity(0.06), lineWidth: 0.5)
+        )
+        .offset(y: isHovered ? -1.5 : 0)
+        .shadow(
+            color: Color.black.opacity(isHovered ? (isDark ? 0.28 : 0.07) : 0),
+            radius: 6,
+            x: 0,
+            y: 3
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Text(item.title))
         .accessibilityAddTraits(.isButton)

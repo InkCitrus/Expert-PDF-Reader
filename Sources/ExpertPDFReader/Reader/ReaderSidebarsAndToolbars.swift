@@ -562,40 +562,37 @@ struct BookmarkRowView: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "bookmark.fill")
-                .font(.system(size: 11))
-                .foregroundColor(isCurrent ? accent : accent.opacity(0.82))
+                .font(.system(size: 11.5))
+                .foregroundColor(isCurrent ? accent : AppPalette.labelSecondary(isDark))
 
             Text(bookmark.title)
                 .font(.system(size: 12.5, weight: isCurrent ? .semibold : .regular))
-                .foregroundColor(isCurrent ? accent : AppPalette.labelPrimary(isDark))
+                .foregroundColor(AppPalette.labelPrimary(isDark))
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Text(pageLabel)
                 .font(.system(size: 11, weight: isCurrent ? .semibold : .regular))
                 .monospacedDigit()
-                .foregroundColor(isCurrent ? accent : AppPalette.labelTertiary(isDark))
+                .foregroundColor(isCurrent ? AppPalette.labelSecondary(isDark) : AppPalette.labelTertiary(isDark))
         }
-        .padding(.leading, 10)
-        .padding(.trailing, 8)
+        .padding(.horizontal, 10)
         .padding(.vertical, 6.5)
         .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .fill(
                     isCurrent
-                        ? AppPalette.sidebarRowActive(accent, isDark)
+                        ? AppPalette.sidebarRowSelected(isDark)
                         : (isHovered ? AppPalette.sidebarRowHover(isDark) : Color.clear)
                 )
         )
-        .overlay(alignment: .leading) {
+        .overlay {
             if isCurrent {
-                Capsule(style: .continuous)
-                    .fill(accent)
-                    .frame(width: 2.5, height: 14)
-                    .padding(.leading, 2.5)
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .strokeBorder(AppPalette.sidebarRowSelectedBorder(isDark), lineWidth: 0.5)
             }
         }
-        .padding(.horizontal, 6)
+        .padding(.horizontal, 8)
         .contentShape(Rectangle())
         .animation(AppAnimation.micro, value: isHovered)
         .animation(AppAnimation.micro, value: isCurrent)

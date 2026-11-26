@@ -758,7 +758,7 @@ private struct ReadingThemeOptionCard: View {
                         SplitMiniPagePreview(leftTheme: lightPreviewTheme, rightTheme: .night)
                             .frame(width: 30, height: 40)
                     } else {
-                        previewTheme.documentBackgroundColor(isDarkUI: isDark)
+                        previewTheme.documentBackgroundColor(isDarkUI: previewTheme == .night)
                         MiniPagePreview(theme: previewTheme)
                             .frame(width: 30, height: 40)
                     }

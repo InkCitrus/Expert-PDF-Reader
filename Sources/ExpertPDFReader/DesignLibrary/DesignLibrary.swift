@@ -452,13 +452,17 @@ public enum AppPalette {
         Color(hex: isDark ? 0x36363B : 0xF3F3F6)
     }
 
-    // Unified Sidebar Row Highlights (Outline / Bookmarks / Search)
-    public static func sidebarRowActive(_ accent: Color, _ isDark: Bool) -> Color {
-        accent.opacity(isDark ? 0.18 : 0.11)
+    // Unified Sidebar Row Highlights (Outline / Bookmarks / Search — matching Settings & Home sidebars)
+    public static func sidebarRowSelected(_ isDark: Bool) -> Color {
+        isDark ? Color.white.opacity(0.11) : Color.black.opacity(0.07)
+    }
+
+    public static func sidebarRowSelectedBorder(_ isDark: Bool) -> Color {
+        isDark ? Color.white.opacity(0.06) : Color.black.opacity(0.035)
     }
 
     public static func sidebarRowHover(_ isDark: Bool) -> Color {
-        isDark ? Color.white.opacity(0.06) : Color.black.opacity(0.045)
+        isDark ? Color.white.opacity(0.05) : Color.black.opacity(0.035)
     }
 
     // Unified Sheet & Settings Chrome

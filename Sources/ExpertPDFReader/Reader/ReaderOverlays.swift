@@ -190,26 +190,23 @@ struct SearchResultRow: View {
                 .lineLimit(3)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 10)
-                .padding(.trailing, 9)
+                .padding(.horizontal, 10)
                 .padding(.vertical, 7)
                 .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
                         .fill(
                             isSelected
-                                ? AppPalette.sidebarRowActive(accent, isDark)
+                                ? AppPalette.sidebarRowSelected(isDark)
                                 : (isHovered ? AppPalette.sidebarRowHover(isDark) : Color.clear)
                         )
                 )
-                .overlay(alignment: .leading) {
+                .overlay {
                     if isSelected {
-                        Capsule(style: .continuous)
-                            .fill(accent)
-                            .frame(width: 2.5, height: 16)
-                            .padding(.leading, 2.5)
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .strokeBorder(AppPalette.sidebarRowSelectedBorder(isDark), lineWidth: 0.5)
                     }
                 }
-                .padding(.horizontal, 6)
+                .padding(.horizontal, 8)
                 .padding(.vertical, 1)
                 .contentShape(Rectangle())
         }

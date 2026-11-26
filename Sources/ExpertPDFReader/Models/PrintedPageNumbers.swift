@@ -8,7 +8,7 @@ import Vision
 /// digital books carry page labels numbered in file order, or none at all, and a book bound on the right
 /// (vertical Chinese and Japanese) may be stored in reading order or, as the Internet Archive scans it, with
 /// each spread's left page first.
-public struct BookPageScan: Codable, Equatable {
+public struct BookPageScan: Codable, Equatable, Sendable {
     public static let currentVersion = 5
 
     public var version: Int? = Self.currentVersion
@@ -27,10 +27,10 @@ public struct BookPageScan: Codable, Equatable {
     }
 }
 
-public struct PrintedPageNumbers: Codable, Equatable {
+public struct PrintedPageNumbers: Codable, Equatable, Sendable {
     /// A run of pages numbered consecutively: printed number = page index + offset. Unnumbered inserts (plates,
     /// blank leaves) start a new run with a smaller offset
-    public struct Run: Codable, Equatable {
+    public struct Run: Codable, Equatable, Sendable {
         public var firstIndex: Int
         public var lastIndex: Int
         public var offset: Int

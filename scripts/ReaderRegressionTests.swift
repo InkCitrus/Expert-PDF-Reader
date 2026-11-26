@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import Foundation
 import PDFKit
+import UniformTypeIdentifiers
 
 @main
 struct ReaderRegressionTests {
@@ -1202,6 +1203,15 @@ struct ReaderRegressionTests {
             lastIndex = index
         }
         check(monotonic, "scrolling forward never makes the highlighted section jump backward")
+        let pinned = PDFOutlinePanel.PinnedSelection(nodeID: inner.id, pageIndex: 50, settledLineY: nil)
+        let settledPin = PDFOutlinePanel.reconciledPinnedSelection(pinned, locationPage: 50, readingLineY: 600, currentPage: 50)
+        check(settledPin?.settledLineY == 600, "clicking a section pins it once the target reading line settles")
+        check(PDFOutlinePanel.reconciledPinnedSelection(settledPin, locationPage: 50, readingLineY: 610, currentPage: 50)?.nodeID == inner.id,
+              "small layout shifts after clicking keep the clicked section pinned")
+        check(PDFOutlinePanel.reconciledPinnedSelection(settledPin, locationPage: 50, readingLineY: 560, currentPage: 50) == nil,
+              "manual scrolling clears the pinned outline section")
+        check(PDFOutlinePanel.reconciledPinnedSelection(settledPin, locationPage: 51, readingLineY: 700, currentPage: 51) == nil,
+              "leaving the page clears the pinned outline section")
         let viewport = CGRect(x: 20, y: 40, width: 600, height: 800)
         check(PDFReaderCanvasView.Coordinator.readingLinePoint(in: viewport, isFlipped: true) == CGPoint(x: 320, y: 240)
               && PDFReaderCanvasView.Coordinator.readingLinePoint(in: viewport, isFlipped: false) == CGPoint(x: 320, y: 640),
@@ -1283,6 +1293,17 @@ struct ReaderRegressionTests {
             await ScannedPageCache.prefetch(url: url, pages: [request], scale: 4.5).value
             check(tile(a, scale: 4.5, at: .init(x: 30, y: 40)) == tile(b, scale: 4.5, at: .init(x: 30, y: 40)),
                   "private prefetch copies share valid scan pixels with the visible document")
+            // Live PDFView tiles render through layer contexts whose CGBitmapContext width is 0;
+            // verify drawing through a layer-backed NSView/PDFView hits the cache without error.
+            let scanWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 500),
+                                      styleMask: [.titled], backing: .buffered, defer: false)
+            let scanPDFView = PDFView(frame: NSRect(x: 0, y: 0, width: 400, height: 500))
+            scanPDFView.displayBox = .cropBox
+            scanPDFView.document = cached
+            scanWindow.contentView = scanPDFView
+            scanWindow.layoutIfNeeded()
+            scanPDFView.displayIfNeeded()
+            check(scanPDFView.currentPage === b, "live PDFView renders cached scan page cleanly")
             let identity = ScannedPageCache.identity(of: cached)
             try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(2)], ofItemAtPath: url.path)
             let changed = PDFDocument(url: url)!
@@ -1593,6 +1614,34 @@ struct ReaderRegressionTests {
             let nonPDF = root.appendingPathComponent("note.txt")
             check(PDFFileDrop.resolvedPDFURL(from: nonPDF) == nil,
                   "PDF drop ignores non-PDF file URLs")
+
+            var openedFromProviders: [URL] = []
+            if let fileURLProvider = NSItemProvider(contentsOf: alpha) {
+                let acceptedFileDrop = PDFFileDrop.open([fileURLProvider]) { url in
+                    openedFromProviders.append(url)
+                }
+                check(acceptedFileDrop, "PDFFileDrop.open accepts fileURL NSItemProvider")
+            } else {
+                check(false, "Failed to create fileURL NSItemProvider for PDF drop test")
+            }
+
+            let linkProvider = NSItemProvider()
+            let linkData = alpha.absoluteString.data(using: .utf8)!
+            linkProvider.registerDataRepresentation(forTypeIdentifier: UTType.url.identifier, visibility: .all) { completion in
+                completion(linkData, nil)
+                return nil
+            }
+            let acceptedURLDrop = PDFFileDrop.open([linkProvider]) { url in
+                openedFromProviders.append(url)
+            }
+            check(acceptedURLDrop, "PDFFileDrop.open accepts public.url NSItemProvider")
+
+            let deadline = Date().addingTimeInterval(2.0)
+            while openedFromProviders.count < 2 && Date() < deadline {
+                try await Task.sleep(nanoseconds: 20_000_000)
+            }
+            check(openedFromProviders == [alpha.standardizedFileURL, alpha.standardizedFileURL],
+                  "PDFFileDrop.open delivers resolved fileURL and public.url drops on MainActor (got \(openedFromProviders))")
         }
         do {
             let store = freshStore()
@@ -1961,6 +2010,7 @@ struct ReaderRegressionTests {
                 ("取消选择", "Deselect All", []),
                 ("撤销", "Undo", []),
                 ("重做", "Redo", []),
+                ("正在识别目录…", "Recognizing outline…", []),
             ]
             for lang in AppLanguage.allCases where lang != .system && lang != .zhHans && lang != .en {
                 L10n.currentLanguage = lang
@@ -1991,12 +2041,289 @@ struct ReaderRegressionTests {
                 return .init(text: text, confidence: 0.99, x: x, y: y,
                              width: Double(text.count) * 18, height: 24, characters: characters)
             }
-            let ocr = OCRPageText(lines: [indexedRow("扫描页面中的关键术语", x: 40, y: 80)], vertical: false,
+            let ocr = OCRPageText(lines: [
+                indexedRow("扫描页面中的关键术语", x: 40, y: 80),
+                indexedRow("再次出现的关键术语在下方", x: 40, y: 180)
+            ], vertical: false,
                                   imageSize: CGSize(width: 600, height: 800),
                                   cropBox: CGRect(x: 0, y: 0, width: 600, height: 800))
             let matches = IndexedPageText(ocr).matches("关键术语", pageIndex: 2)
-            check(matches.count == 1 && matches[0].pageIndex == 2 && !matches[0].bounds.isEmpty,
-                  "OCR text index finds scanned-page terms and preserves highlight geometry")
+            check(matches.count == 2 && matches[0].pageIndex == 2 && matches[1].pageIndex == 2
+                  && !matches[0].bounds.isEmpty && !matches[1].bounds.isEmpty
+                  && matches[0].bounds[0].minY > matches[1].bounds[0].minY,
+                  "OCR text index preserves repeated matches on a page in reading order with geometry")
+
+            let englishTocURL = root.appendingPathComponent("EnglishContents.pdf")
+            var engBox = CGRect(x: 0, y: 0, width: 600, height: 800)
+            let engContext = CGContext(englishTocURL as CFURL, mediaBox: &engBox, nil)!
+            let engPages = [
+                ["Table of Contents",
+                 "Chapter 1 Foundations ...... 1",
+                 "1.1 Core Ideas ...... 2",
+                 "Exercises 1.1 ...... 3",
+                 "Language Focus: Dealing with Unexpected Outcomes or “Problems” ...... 4",
+                 "Appendix A Notes ...... 4"],
+                ["Chapter 1 Foundations"], ["1.1 Core Ideas"], ["Exercises"], ["Language Focus\nAppendix A Notes"]
+            ]
+            for lines in engPages {
+                engContext.beginPDFPage(nil)
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: engContext, flipped: false)
+                for (offset, line) in lines.enumerated() {
+                    (line as NSString).draw(at: CGPoint(x: 50, y: 720 - offset * 38),
+                        withAttributes: [.font: NSFont.systemFont(ofSize: 13)])
+                }
+                NSGraphicsContext.restoreGraphicsState()
+                engContext.endPDFPage()
+            }
+            engContext.closePDF()
+            let engToc = AutomaticOutlineGenerator.generate(document: PDFDocument(url: englishTocURL)!,
+                pageLabels: ["1": [1], "2": [2], "3": [3], "4": [4]])
+            check(engToc.map(\.title) == ["Table of Contents", "Chapter 1 Foundations", "1.1 Core Ideas",
+                                          "Language Focus: Dealing with Unexpected Outcomes or “Problems”", "Appendix A Notes"]
+                  && engToc.map(\.pageIndex) == [0, 1, 2, 4, 4]
+                  && engToc.map(\.level) == [0, 0, 1, 1, 0],
+                  "English contents include Contents header, keep quoted Problems titles, and exclude exercises")
+
+            let ieeeURL = root.appendingPathComponent("IEEEPaper.pdf")
+            var ieeeBox = CGRect(x: 0, y: 0, width: 600, height: 800)
+            let ieeeContext = CGContext(ieeeURL as CFURL, mediaBox: &ieeeBox, nil)!
+            let ieeePages: [[(String, CGFloat, CGFloat)]] = [
+                [("Unit One", 60, 720), ("An Approach to Academic Writing", 60, 682), ("Body prose explaining the unit.", 60, 644)],
+                [("I. INTRODUCTION", 60, 720), ("2.56 GHz carrier frequency", 60, 682),
+                 ("II. RELATED WORK", 60, 210), ("III. TERAHERTZ DEVICE TECHNOLOGIES", 330, 260),
+                 ("A. Hardware Building Blocks", 330, 120), ("R. Elschner, A. Katsiotis, et al.", 330, 80)],
+                [("REFERENCES", 60, 720), ("A. Should Be Ignored In References", 60, 682), ("B. Another Reference Entry", 60, 644)]
+            ]
+            for items in ieeePages {
+                ieeeContext.beginPDFPage(nil)
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: ieeeContext, flipped: false)
+                for item in items {
+                    (item.0 as NSString).draw(at: CGPoint(x: item.1, y: item.2),
+                        withAttributes: [.font: NSFont.systemFont(ofSize: 14)])
+                }
+                NSGraphicsContext.restoreGraphicsState()
+                ieeeContext.endPDFPage()
+            }
+            ieeeContext.closePDF()
+            let ieeeGenerated = AutomaticOutlineGenerator.generate(document: PDFDocument(url: ieeeURL)!, pageLabels: [:])
+            let iiEntry = ieeeGenerated.first(where: { $0.title == "II. RELATED WORK" })
+            let iiiEntry = ieeeGenerated.first(where: { $0.title == "III. TERAHERTZ DEVICE TECHNOLOGIES" })
+            check(Set(ieeeGenerated.map(\.title)) == Set([
+                "Unit One: An Approach to Academic Writing",
+                "I. INTRODUCTION",
+                "II. RELATED WORK",
+                "III. TERAHERTZ DEVICE TECHNOLOGIES",
+                "A. Hardware Building Blocks",
+                "REFERENCES"
+            ]) && ieeeGenerated.count == 6
+              && ieeeGenerated.allSatisfy { $0.destinationPoint != nil }
+              && iiEntry?.pageIndex == 1 && iiiEntry?.pageIndex == 1
+              && (iiEntry?.destinationPoint?.y ?? 0) < (iiiEntry?.destinationPoint?.y ?? 0),
+                  "two-column IEEE headings preserve exact destination points even when right column is higher than left")
+
+            let leaderlessURL = root.appendingPathComponent("LeaderlessContents.pdf")
+            var leaderlessBox = CGRect(x: 0, y: 0, width: 600, height: 800)
+            let leaderlessContext = CGContext(leaderlessURL as CFURL, mediaBox: &leaderlessBox, nil)!
+            let leaderlessPages = [
+                ["Contents",
+                 "vii Introduction to the Edition",
+                 "Preface viii",
+                 "UNIT THREE: Problem, Process, and Solution 2",
+                 "The Structure of Problem-Solution Texts 3",
+                 "第 10 章 提纲挈领…………4"],
+                ["UNIT THREE"], ["Problem-Solution Texts"], ["第 10 章 提纲挈领"]
+            ]
+            for lines in leaderlessPages {
+                leaderlessContext.beginPDFPage(nil)
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: leaderlessContext, flipped: false)
+                for (offset, line) in lines.enumerated() {
+                    (line as NSString).draw(at: CGPoint(x: 60, y: 720 - offset * 38),
+                        withAttributes: [.font: NSFont.systemFont(ofSize: 16)])
+                }
+                NSGraphicsContext.restoreGraphicsState()
+                leaderlessContext.endPDFPage()
+            }
+            leaderlessContext.closePDF()
+            let leaderlessGenerated = AutomaticOutlineGenerator.generate(document: PDFDocument(url: leaderlessURL)!, pageLabels: [:])
+            check(leaderlessGenerated.map(\.title) == [
+                "Contents",
+                "UNIT THREE: Problem, Process, and Solution",
+                "The Structure of Problem-Solution Texts",
+                "第 10 章提纲挈领"
+            ] && leaderlessGenerated.map(\.pageIndex) == [0, 1, 2, 3]
+              && leaderlessGenerated.map(\.level) == [0, 0, 1, 0],
+                  "leaderless explicit contents preserve Contents header, Problem titles and spaced CJK chapter numbers")
+
+            let romanURL = root.appendingPathComponent("RomanFrontMatter.pdf")
+            var romanBox = CGRect(x: 0, y: 0, width: 600, height: 800)
+            let romanContext = CGContext(romanURL as CFURL, mediaBox: &romanBox, nil)!
+            let romanPages = [
+                ["Cover"],
+                ["Contents", "Introduction vii", "Chapter 1 Basics 1"],
+                ["iv CONTENTS"],
+                ["CONTENTS v"],
+                ["Introduction prose"],
+                ["viii INTRODUCTION"],
+                ["ix INTRODUCTION"],
+                ["Body Page 1"]
+            ]
+            for lines in romanPages {
+                romanContext.beginPDFPage(nil)
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: romanContext, flipped: false)
+                for (offset, line) in lines.enumerated() {
+                    (line as NSString).draw(at: CGPoint(x: 60, y: 720 - offset * 38),
+                        withAttributes: [.font: NSFont.systemFont(ofSize: 16)])
+                }
+                NSGraphicsContext.restoreGraphicsState()
+                romanContext.endPDFPage()
+            }
+            romanContext.closePDF()
+            let romanGenerated = AutomaticOutlineGenerator.generate(
+                document: PDFDocument(url: romanURL)!,
+                pageLabels: ["1": [7]]
+            )
+            check(romanGenerated.map(\.title) == ["Contents", "Introduction", "Chapter 1 Basics"]
+                  && romanGenerated.map(\.pageIndex) == [1, 4, 7]
+                  && romanGenerated.map(\.level) == [0, 0, 0],
+                  "Roman front-matter TOC entries map via nearest front-matter Roman anchor")
+
+            let geomTocURL = root.appendingPathComponent("GeometricContents.pdf")
+            var geomBox = CGRect(x: 0, y: 0, width: 500, height: 700)
+            let geomContext = CGContext(geomTocURL as CFURL, mediaBox: &geomBox, nil)!
+            let geomPages: [[(String, CGFloat, CGFloat, CGFloat)]] = [
+                // Page 0: TOC page without dot leaders, right-aligned at x=420 (margin shift on next page)
+                [
+                    ("Imprint metadata", 36, 660, 7),
+                    ("Contents", 60, 610, 22),
+                    ("Part I Foundations", 60, 560, 11),
+                    ("Background Ideas", 76, 535, 11),
+                    ("Further Remarks on Large", 76, 510, 11),
+                    ("Software Systems", 90, 494, 11),
+                    ("Part II Applications", 60, 462, 11),
+                    ("Case Study", 76, 437, 11)
+                ],
+                // Body pages starting at PDF page index 1 == printed page 1
+                [("Part I Foundations", 60, 620, 18), ("Opening prose.", 60, 580, 11)],
+                [("Background Ideas", 60, 620, 14)],
+                [("Further Remarks", 60, 620, 14)],
+                [("Part II Applications", 60, 620, 18)],
+                [("Case Study", 60, 620, 14)]
+            ]
+            for (pIdx, items) in geomPages.enumerated() {
+                geomContext.beginPDFPage(nil)
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: geomContext, flipped: false)
+                if pIdx == 0 {
+                    // Draw TOC entries with right-aligned page numbers at x ≈ 420
+                    let rightNumbers: [Int: String] = [2: "1", 3: "2", 4: "3", 6: "4", 7: "5"]
+                    for (idx, item) in items.enumerated() {
+                        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: item.3)]
+                        (item.0 as NSString).draw(at: CGPoint(x: item.1, y: item.2), withAttributes: attrs)
+                        if let num = rightNumbers[idx] {
+                            let numWidth = (num as NSString).size(withAttributes: attrs).width
+                            (num as NSString).draw(at: CGPoint(x: 420 - numWidth, y: item.2), withAttributes: attrs)
+                        }
+                    }
+                } else {
+                    for item in items {
+                        (item.0 as NSString).draw(at: CGPoint(x: item.1, y: item.2),
+                            withAttributes: [.font: NSFont.systemFont(ofSize: item.3)])
+                    }
+                }
+                NSGraphicsContext.restoreGraphicsState()
+                geomContext.endPDFPage()
+            }
+            geomContext.closePDF()
+            let geomGenerated = AutomaticOutlineGenerator.generate(document: PDFDocument(url: geomTocURL)!, pageLabels: [:])
+            check(geomGenerated.map(\.title) == [
+                "Contents",
+                "Part I Foundations",
+                "Background Ideas",
+                "Further Remarks on Large Software Systems",
+                "Part II Applications",
+                "Case Study"
+            ] && geomGenerated.map(\.pageIndex) == [0, 1, 2, 3, 4, 5]
+              && geomGenerated.map(\.level) == [0, 0, 1, 1, 0, 1],
+                  "leaderless TOC recovers hierarchy and wrapped titles purely from 2D PDF geometry")
+
+            // 2D vertical-column TOC with left-first spread order (oddIndexShift = 2):
+            // PDF index 2 (logical 2) is the right TOC page; PDF index 1 (logical 3) is the left continuation page.
+            let vtocURL = root.appendingPathComponent("VerticalColumnTOC.pdf")
+            var vtocBox = CGRect(x: 0, y: 0, width: 600, height: 900)
+            let vtocContext = CGContext(vtocURL as CFURL, mediaBox: &vtocBox, nil)!
+            let vtocPages: [[(String, CGFloat, CGFloat)]] = [
+                [("Cover", 60, 700)],
+                // PDF index 1 (logical 3, left TOC continuation page)
+                [("第三章", 460, 740), ("性與奴隸", 460, 620), ("94", 460, 100),
+                 ("第四章", 340, 720), ("好奴隸是怎樣煉成的？", 340, 600), ("106", 340, 110),
+                 ("結語", 220, 700), ("再會！", 220, 630), ("250", 220, 102),
+                 ("深入閱讀", 100, 680), ("252", 100, 112)],
+                // PDF index 2 (logical 2, right TOC opening page)
+                [("目錄", 500, 480),
+                 ("推薦序", 400, 740), ("翁嘉聲", 400, 640), ("6", 400, 100),
+                 ("序文", 300, 750), ("我是主人", 300, 630), ("18", 300, 112),
+                 ("第一章", 200, 720), ("如何購買奴隸", 200, 600), ("34", 200, 110),
+                 ("第二章", 100, 700), ("如何使奴隸鞠躬盡瘁", 100, 580), ("60", 100, 102)]
+            ]
+            for pageIndex in 0..<260 {
+                vtocContext.beginPDFPage(nil)
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: vtocContext, flipped: false)
+                let vtocAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 13)]
+                if pageIndex < vtocPages.count {
+                    for item in vtocPages[pageIndex] {
+                        let w = (item.0 as NSString).size(withAttributes: vtocAttrs).width
+                        (item.0 as NSString).draw(at: CGPoint(x: item.1 - w / 2, y: item.2),
+                            withAttributes: vtocAttrs)
+                    }
+                } else {
+                    ("Page \(pageIndex + 1)" as NSString).draw(at: CGPoint(x: 60, y: 700),
+                        withAttributes: vtocAttrs)
+                }
+                NSGraphicsContext.restoreGraphicsState()
+                vtocContext.endPDFPage()
+            }
+            vtocContext.closePDF()
+            let vtocGenerated = AutomaticOutlineGenerator.generate(
+                document: PDFDocument(url: vtocURL)!,
+                pageLabels: ["6": [10], "18": [22], "34": [38], "60": [64], "94": [98], "106": [110], "250": [254], "252": [256]],
+                oddIndexShift: 2
+            )
+            check(vtocGenerated.first?.title == "目錄" && vtocGenerated.first?.pageIndex == 2
+                  && vtocGenerated.contains(where: { $0.title == "推薦序 翁嘉聲" && $0.pageIndex == 10 })
+                  && vtocGenerated.contains(where: { $0.title == "第一章 如何購買奴隸" && $0.pageIndex == 38 })
+                  && vtocGenerated.contains(where: { $0.title == "結語 再會！" && $0.pageIndex == 254 && $0.level == 0 })
+                  && vtocGenerated.contains(where: { $0.title == "深入閱讀" && $0.pageIndex == 256 && $0.level == 0 }),
+                  "2D vertical-column TOC resolves right-bound spreads and preserves back-matter level 0")
+
+            // Repeated running headers across pages (including Simplified/Traditional variants) must not duplicate chapters.
+            let repeatHeaderURL = root.appendingPathComponent("RepeatedRunningHeaders.pdf")
+            var rhBox = CGRect(x: 0, y: 0, width: 600, height: 800)
+            let rhContext = CGContext(repeatHeaderURL as CFURL, mediaBox: &rhBox, nil)!
+            let rhPages: [[(String, CGFloat, CGFloat)]] = [
+                [("第一章 如何買奴隸", 60, 760), ("這裡是第一章第一頁正文内容，說明如何購買奴隸。", 60, 680)],
+                [("第一章 如何買奴隸", 60, 760), ("這裡是第一章第二頁正文內容，繼續補充說明細節。", 60, 680)],
+                [("第二章 如何使奴隸鞠躬盡瘁", 60, 760), ("這裡是第二章第一頁正文內容，說明訓練與管理方式。", 60, 680)],
+                [("第二章 如何使奴隶鞠躬尽瘁", 60, 760), ("這裡是第二章第二頁正文內容，簡繁異體不應產生重複大綱。", 60, 680)]
+            ]
+            for items in rhPages {
+                rhContext.beginPDFPage(nil)
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: rhContext, flipped: false)
+                for item in items {
+                    (item.0 as NSString).draw(at: CGPoint(x: item.1, y: item.2),
+                        withAttributes: [.font: NSFont.systemFont(ofSize: 15)])
+                }
+                NSGraphicsContext.restoreGraphicsState()
+                rhContext.endPDFPage()
+            }
+            rhContext.closePDF()
+            let rhGenerated = AutomaticOutlineGenerator.generate(document: PDFDocument(url: repeatHeaderURL)!, pageLabels: [:])
+            check(rhGenerated.isEmpty, "repeated top-margin running headers (including script variants) never produce duplicate outline rows")
 
             let outlineURL = root.appendingPathComponent("GeneratedOutline.pdf")
             var outlineBox = CGRect(x: 0, y: 0, width: 600, height: 800)
@@ -2044,11 +2371,139 @@ struct ReaderRegressionTests {
             tocContext.closePDF()
             let toc = AutomaticOutlineGenerator.generate(document: PDFDocument(url: tocURL)!,
                 pageLabels: ["1": [2], "2": [3], "3": [4], "4": [4], "10": [4], "11": [4]])
-            check(toc.map(\.title) == ["第一章函数与极限", "§1 实数", "1. 有理数与无理数",
+            check(toc.map(\.title) == ["目录", "第一章函数与极限", "§1 实数", "1. 有理数与无理数",
                                        "第二章微积分基础", "§2 连续函数", "1. 连续性的定义"]
-                  && toc.map(\.pageIndex) == [2, 3, 4, 4, 4, 4]
-                  && toc.map(\.level) == [0, 1, 2, 0, 1, 2],
+                  && toc.map(\.pageIndex) == [0, 2, 3, 4, 4, 4, 4]
+                  && toc.map(\.level) == [0, 0, 1, 2, 0, 1, 2],
                   "OCR-style contents split joined rows, discard noise, and use corrected page labels")
+
+            // 1. LaTeX spaced dot-leader TOC (`1.1 Section . . . . . 4`)
+            let spacedLeaderURL = root.appendingPathComponent("SpacedLeaderTOC.pdf")
+            var slBox = CGRect(x: 0, y: 0, width: 600, height: 800)
+            let slContext = CGContext(spacedLeaderURL as CFURL, mediaBox: &slBox, nil)!
+            let slPages = [
+                ["Contents",
+                 "1 Graph Theory . . . . . . . . . . . . . . . 2",
+                 "1.1 Topological Sort . . . . . . . . . . . . . 3",
+                 "2 Dynamic Programming . . . . . . . . . . . . 4"],
+                ["Graph Theory"],
+                ["Topological Sort"],
+                ["Dynamic Programming"]
+            ]
+            for lines in slPages {
+                slContext.beginPDFPage(nil)
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: slContext, flipped: false)
+                for (offset, line) in lines.enumerated() {
+                    (line as NSString).draw(at: CGPoint(x: 60, y: 720 - offset * 32),
+                        withAttributes: [.font: NSFont.systemFont(ofSize: 13)])
+                }
+                NSGraphicsContext.restoreGraphicsState()
+                slContext.endPDFPage()
+            }
+            slContext.closePDF()
+            let slGenerated = AutomaticOutlineGenerator.generate(document: PDFDocument(url: spacedLeaderURL)!, pageLabels: [:])
+            check(slGenerated.map(\.title) == ["Contents", "1 Graph Theory", "1.1 Topological Sort", "2 Dynamic Programming"]
+                  && slGenerated.map(\.pageIndex) == [0, 1, 2, 3]
+                  && slGenerated.map(\.level) == [0, 0, 1, 0],
+                  "LaTeX spaced dot-leader TOC preserves parent chapters and nested subsections")
+
+            // 2. Late appendix TOC on page 15 of a 20-page document must not hijack main body headings
+            let lateTOCURL = root.appendingPathComponent("LateAppendixTOC.pdf")
+            var lateBox = CGRect(x: 0, y: 0, width: 600, height: 800)
+            let lateContext = CGContext(lateTOCURL as CFURL, mediaBox: &lateBox, nil)!
+            for pIdx in 0..<20 {
+                lateContext.beginPDFPage(nil)
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: lateContext, flipped: false)
+                let bodyFont = NSFont.systemFont(ofSize: 10.5)
+                let headingFont = NSFont.boldSystemFont(ofSize: 14)
+                if pIdx == 0 {
+                    ("1. Introduction" as NSString).draw(at: CGPoint(x: 60, y: 720), withAttributes: [.font: headingFont])
+                    ("Main body starts here." as NSString).draw(at: CGPoint(x: 60, y: 690), withAttributes: [.font: bodyFont])
+                } else if pIdx == 3 {
+                    ("2. Method" as NSString).draw(at: CGPoint(x: 60, y: 720), withAttributes: [.font: headingFont])
+                    ("Details of the method." as NSString).draw(at: CGPoint(x: 60, y: 690), withAttributes: [.font: bodyFont])
+                } else if pIdx == 7 {
+                    ("3. Results" as NSString).draw(at: CGPoint(x: 60, y: 720), withAttributes: [.font: headingFont])
+                    ("Experimental evaluation." as NSString).draw(at: CGPoint(x: 60, y: 690), withAttributes: [.font: bodyFont])
+                } else if pIdx == 15 {
+                    ("Table of Contents" as NSString).draw(at: CGPoint(x: 60, y: 720), withAttributes: [.font: headingFont])
+                    ("Appendix A Extra Details 17" as NSString).draw(at: CGPoint(x: 60, y: 685), withAttributes: [.font: bodyFont])
+                    ("Appendix B Additional Proofs 19" as NSString).draw(at: CGPoint(x: 60, y: 660), withAttributes: [.font: bodyFont])
+                } else {
+                    ("Standard body prose paragraph on page \(pIdx + 1)." as NSString).draw(at: CGPoint(x: 60, y: 690), withAttributes: [.font: bodyFont])
+                }
+                NSGraphicsContext.restoreGraphicsState()
+                lateContext.endPDFPage()
+            }
+            lateContext.closePDF()
+            let lateGenerated = AutomaticOutlineGenerator.generate(document: PDFDocument(url: lateTOCURL)!, pageLabels: [:])
+            check(lateGenerated.map(\.title) == ["1. Introduction", "2. Method", "3. Results"]
+                  && lateGenerated.map(\.pageIndex) == [0, 3, 7],
+                  "late appendix TOC in the second half does not suppress main document headings")
+
+            // 3. Unnumbered typographic paper fallback + prose/caption/step rejection
+            let typoURL = root.appendingPathComponent("TypographicPaper.pdf")
+            var typoBox = CGRect(x: 0, y: 0, width: 600, height: 800)
+            let typoContext = CGContext(typoURL as CFURL, mediaBox: &typoBox, nil)!
+            let typoPages: [[(String, CGFloat, CGFloat)]] = [
+                [
+                    ("Repeated Journal Masthead", 740, 11.0),
+                    ("Theoretical Framework", 690, 11.0),
+                    ("This opening sentence introduces the methodology and references", 660, 10.0),
+                    ("section C.4). For each direction, we validate robustness here.", 645, 10.0),
+                    ("Empirical evidence demonstrates consistent performance gains across benchmarks.", 630, 10.0),
+                    ("Research Site and Participants", 605, 10.5),
+                    ("1. Collect the primary dataset across every experimental fold and validate;", 580, 10.0)
+                ],
+                [
+                    ("Repeated Journal Masthead", 740, 11.0),
+                    ("Materials and Methods", 690, 11.0),
+                    ("Fig. 1 Overview of experimental workflow", 660, 11.0),
+                    ("Detailed experimental configuration and validation narrative spans", 635, 10.0),
+                    ("multiple longitudinal observations recorded throughout the study period.", 620, 10.0),
+                    ("Data Collection Procedures", 595, 10.5),
+                    ("Additional prose explaining data collection across sites.", 570, 10.0)
+                ],
+                [
+                    ("Repeated Journal Masthead", 740, 11.0),
+                    ("Results and Analysis", 690, 11.0),
+                    ("Key findings observed during benchmark trials indicate substantial", 660, 10.0),
+                    ("improvements over prior baselines under identical evaluation criteria.", 645, 10.0),
+                    ("Primary Experimental Findings", 620, 10.5),
+                    ("More body text continuing the results section cleanly.", 595, 10.0)
+                ],
+                [
+                    ("Repeated Journal Masthead", 740, 11.0),
+                    ("Discussion", 690, 11.0),
+                    ("Final body text discussing broader implications and future work.", 660, 10.0),
+                    ("These results establish a clear foundation for subsequent studies.", 645, 10.0)
+                ]
+            ]
+            for items in typoPages {
+                typoContext.beginPDFPage(nil)
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: typoContext, flipped: false)
+                for item in items {
+                    (item.0 as NSString).draw(at: CGPoint(x: 60, y: item.1),
+                        withAttributes: [.font: NSFont.systemFont(ofSize: item.2)])
+                }
+                NSGraphicsContext.restoreGraphicsState()
+                typoContext.endPDFPage()
+            }
+            typoContext.closePDF()
+            let typoGenerated = AutomaticOutlineGenerator.generate(document: PDFDocument(url: typoURL)!, pageLabels: [:])
+            check(typoGenerated.map(\.title) == [
+                "Theoretical Framework",
+                "Research Site and Participants",
+                "Materials and Methods",
+                "Data Collection Procedures",
+                "Results and Analysis",
+                "Primary Experimental Findings",
+                "Discussion"
+            ] && typoGenerated.map(\.level) == [0, 1, 0, 1, 0, 1, 0],
+                  "typographic fallback recovers hierarchical unnumbered headings and rejects prose wraps, captions and steps")
         }
         if !failures.isEmpty {
             print("\(failures.count) regression checks failed")

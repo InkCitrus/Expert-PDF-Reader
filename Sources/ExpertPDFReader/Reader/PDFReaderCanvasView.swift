@@ -307,6 +307,11 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                 } else if pdfView.currentPage !== targetPage {
                     pdfView.go(to: targetPage)
                 }
+                coordinator.reportReadingLocation(of: pdfView)
+                DispatchQueue.main.async {
+                    guard Coordinator.isLive(pdfView) else { return }
+                    coordinator.reportReadingLocation(of: pdfView)
+                }
             }
         } else if let current = pdfView.currentPage, Coordinator.isLive(pdfView) {
             let actualIdx = pdfDocument.index(for: current)
@@ -476,7 +481,9 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
 
         private func prefetchAdjacentPages(in pdfView: PDFView) {
             guard Self.isLive(pdfView), let document = pdfView.document, !document.isEncrypted,
-                  let url = document.documentURL, let page = pdfView.currentPage, page.hasFullPageScanImage else { return }
+                  let url = document.documentURL,
+                  let page = pdfView.page(for: Self.topEdge(of: pdfView), nearest: true) ?? pdfView.currentPage,
+                  page.hasFullPageScanImage else { return }
             let index = document.index(for: page)
             let scale = pdfView.scaleFactor * (pdfView.window?.backingScaleFactor ?? 2)
             let key = "\(ObjectIdentifier(document)):\(index):\(ScannedPageCache.resolution(for: scale)):\(parent.layoutToken):\(pdfView.displayMode.rawValue)"
@@ -485,8 +492,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
             lastPrefetchKey = key
             lastPrefetchPage = index
             scanPrefetchTask?.cancel()
-            let count = pdfView.displayMode == .twoUpContinuous ? 2 : 1
-            let pages = (0...count).compactMap { offset -> ScannedPageCache.PrefetchPage? in
+            let pages = [0, 1, 2, -1].compactMap { offset -> ScannedPageCache.PrefetchPage? in
                 let next = index + direction * offset
                 guard (0..<document.pageCount).contains(next), let page = document.page(at: next) else { return nil }
                 return .init(index: next, mediaBox: page.bounds(for: .mediaBox), cropBox: page.bounds(for: .cropBox), rotation: page.rotation)
@@ -564,6 +570,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                     guard let pdfView else { return }
                     (pdfView as? ThemedPDFView)?.applyThemeLayers()
                     self?.reportReadingLocation(of: pdfView)
+                    self?.prefetchAdjacentPages(in: pdfView)
                     if Self.isLive(pdfView) {
                         self?.lastDestination = pdfView.currentDestination
                     }
@@ -708,8 +715,10 @@ final class OCRSearchHighlightOverlay: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard let pdfView, let document = pdfView.document else { return }
+        let visiblePages = Set(pdfView.visiblePages.map(ObjectIdentifier.init))
         for (index, match) in matches.enumerated() where !match.ocrBounds.isEmpty {
-            guard let page = document.page(at: match.pageIndex) else { continue }
+            guard let page = document.page(at: match.pageIndex),
+                  visiblePages.contains(ObjectIdentifier(page)) else { continue }
             let color: NSColor
             if isNight {
                 color = index == selectedIndex

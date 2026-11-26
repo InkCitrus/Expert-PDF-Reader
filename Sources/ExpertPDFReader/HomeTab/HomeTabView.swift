@@ -35,27 +35,34 @@ public struct HomeTabRootView: View {
     }
 
     public var body: some View {
-        pageContent
+        let base = pageContent
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(AppPalette.homeContentBackground(isDark), ignoresSafeAreaEdges: [])
-            .overlay {
-                // Drag-and-Drop Overlay (DropOverlayView)
-                if isDropTargeted {
-                    DropOverlayView(isDark: isDark)
-                        .padding(14)
-                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                }
-            }
-            .animation(AppAnimation.snappy, value: isDropTargeted)
             .onAppear {
                 store.pruneMissingDocuments()
             }
             .onChange(of: session.homeCurrentPage) { _, _ in
                 store.pruneMissingDocuments()
             }
-            .onDrop(of: [.fileURL, .pdf], isTargeted: $isDropTargeted) { providers in
-                handleDrop(providers: providers)
-            }
+
+        // Only the split-pane document picker handles drops locally; the Home tab delegates to MainWindowView
+        // so Finder drops do not hit an inner duplicate _PlatformDraggingDestinationView.
+        if isStandaloneSplitPane {
+            base
+                .overlay {
+                    if isDropTargeted {
+                        DropOverlayView(isDark: isDark)
+                            .padding(14)
+                            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    }
+                }
+                .animation(AppAnimation.snappy, value: isDropTargeted)
+                .onDrop(of: [.fileURL, .url], isTargeted: $isDropTargeted) { providers in
+                    handleDrop(providers: providers)
+                }
+        } else {
+            base
+        }
     }
 
     private var pageContent: some View {
@@ -322,12 +329,16 @@ enum PDFFileDrop {
         return url
     }
 
-    /// Hands every dropped PDF file to `open` on the main actor; returns whether the drop carried file URLs.
+    /// Hands every dropped PDF file URL or file-link URL to `open` on the main actor.
     static func open(_ providers: [NSItemProvider], with open: @escaping @MainActor (URL) -> Void) -> Bool {
+        let supportedTypes = [UTType.fileURL.identifier, UTType.url.identifier]
         var handled = false
-        for provider in providers where provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+        for provider in providers {
+            guard let matchedType = supportedTypes.first(where: { provider.hasItemConformingToTypeIdentifier($0) }) else {
+                continue
+            }
             handled = true
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+            provider.loadItem(forTypeIdentifier: matchedType, options: nil) { item, _ in
                 guard let url = resolvedPDFURL(from: item) else { return }
                 Task { @MainActor in
                     open(url)

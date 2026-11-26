@@ -439,8 +439,12 @@ struct PageIndicatorOverlay: View {
     /// Show book numbers above PDF positions only when they differ; front matter uses "n / total".
     private var primaryLine: String {
         guard usesBookNumbers else { return positionLine }
-        let printed = pages.compactMap { tab.printedNumber(at: $0) }
-        if !printed.isEmpty, printed != pages.map({ "\($0 + 1)" }) {
+        let shift = tab.pageScan?.printedNumbers?.oddIndexShift ?? 0
+        let orderedPages = shift == 0 ? pages : pages.sorted {
+            ($0 + ($0 % 2 == 1 ? shift : 0)) < ($1 + ($1 % 2 == 1 ? shift : 0))
+        }
+        let printed = orderedPages.compactMap { tab.printedNumber(at: $0) }
+        if !printed.isEmpty, printed != orderedPages.map({ "\($0 + 1)" }) {
             return printed.joined(separator: ", ")
         }
         return positionLine

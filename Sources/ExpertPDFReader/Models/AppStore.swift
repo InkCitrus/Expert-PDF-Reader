@@ -530,7 +530,7 @@ extension PDFPage {
 /// Clear Margins for one document: the crop boxes it came with, the content boxes found for it, and the work
 /// finding them on a private copy of the document off the main thread
 /// Restoring several scanned tabs must not run a Vision scan for each of them at the same time.
-private actor BookPageScanQueue {
+actor BookPageScanQueue {
     static let shared = BookPageScanQueue()
     func scan(url: URL, password: String?) -> BookPageScan? {
         guard !Task.isCancelled, let document = PDFDocumentLoader.openCopy(of: url, password: password) else { return nil }
@@ -651,8 +651,14 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     @Published public var pageDirection: PageDirection = .automatic
     /// What the book's pages show (printed page numbers, reading direction); `nil` until they have been read
     @Published public private(set) var pageScan: BookPageScan? {
-        didSet { cachedPageIndicesByLabel = nil }
+        didSet {
+            cachedPageIndicesByLabel = nil
+            if cachedGeneratedOutline?.scan != pageScan {
+                cachedGeneratedOutline = nil
+            }
+        }
     }
+    var cachedGeneratedOutline: (scan: BookPageScan?, entries: [GeneratedOutlineEntry])?
     @Published public var isClearMarginsEnabled: Bool = false
 
     // Left Sidebar state
@@ -951,6 +957,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         }
         pageScanTask?.cancel()
         pageScanTask = nil
+        cachedGeneratedOutline = nil
         scanPagesIfNeeded()
         if isSearching { performSearch() }
     }
@@ -985,6 +992,12 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     private func finishPageScan(_ scan: BookPageScan) {
         pageScanTask = nil
         pageScan = scan
+    }
+
+    func applyPageScanIfNeeded(_ scan: BookPageScan) {
+        if pageScan == nil {
+            pageScan = scan
+        }
     }
 
     /// The number printed on a page: read from the page itself where the PDF's labels are wrong or missing,
@@ -1504,8 +1517,9 @@ public final class DocumentTabState: ObservableObject, Identifiable {
             }
             await self?.receiveSearchMatches(batch, generation: generation)
             if !Task.isCancelled {
-                let recognized = HybridDocumentSearch.ocrMatches(query: trimmed, document: document)
-                await self?.receiveOCRSearchMatches(recognized, generation: generation)
+                await HybridDocumentSearch.enumerateOCRMatches(query: trimmed, document: document) { batch in
+                    await self?.receiveOCRSearchMatches(batch, generation: generation)
+                }
             }
             await self?.finishSearch(generation: generation)
         }
@@ -1534,20 +1548,33 @@ public final class DocumentTabState: ObservableObject, Identifiable {
 
     private func receiveOCRSearchMatches(_ matches: [OCRSearchMatch], generation: Int) {
         guard generation == searchGeneration, !matches.isEmpty else { return }
+        let wasEmpty = searchMatches.isEmpty
         let selectedID = searchMatches.indices.contains(selectedMatchIndex) ? searchMatches[selectedMatchIndex].id : nil
-        var existing = Set(searchMatches.map { "\($0.pageIndex):\($0.snippet.lowercased())" })
+        let nativeKeys = Set(searchMatches.filter { $0.selection != nil }.map { "\($0.pageIndex):\($0.snippet.lowercased())" })
+        var seenOCRKeys = Set(
+            searchMatches
+                .filter { $0.selection == nil }
+                .map { "\($0.pageIndex):\($0.ocrBounds.map { "\($0.origin.x.rounded()),\($0.origin.y.rounded())" }.joined(separator: ";"))" }
+        )
         let additions = matches.compactMap { match -> SearchMatchItem? in
-            let key = "\(match.pageIndex):\(match.snippet.lowercased())"
-            guard existing.insert(key).inserted else { return nil }
+            let nativeKey = "\(match.pageIndex):\(match.snippet.lowercased())"
+            guard !nativeKeys.contains(nativeKey) else { return nil }
+            let boundsKey = "\(match.pageIndex):\(match.bounds.map { "\($0.origin.x.rounded()),\($0.origin.y.rounded())" }.joined(separator: ";"))"
+            guard seenOCRKeys.insert(boundsKey).inserted else { return nil }
             return SearchMatchItem(pageIndex: match.pageIndex, snippet: match.snippet,
                                    ocrBounds: match.bounds)
         }
+        guard !additions.isEmpty else { return }
         searchMatches.append(contentsOf: additions)
-        searchMatches.sort {
-            if $0.pageIndex != $1.pageIndex { return $0.pageIndex < $1.pageIndex }
-            return $0.snippet.localizedStandardCompare($1.snippet) == .orderedAscending
-        }
-        if let selectedID, let newIndex = searchMatches.firstIndex(where: { $0.id == selectedID }) {
+        searchMatches.sort { $0.pageIndex < $1.pageIndex }
+        if wasEmpty, let first = searchMatches.first {
+            selectedMatchIndex = 0
+            navigateToPage(
+                first.pageIndex,
+                point: first.ocrBounds.first.map { CGPoint(x: $0.minX, y: $0.maxY) },
+                recordHistory: false
+            )
+        } else if let selectedID, let newIndex = searchMatches.firstIndex(where: { $0.id == selectedID }) {
             selectedMatchIndex = newIndex
         } else if selectedMatchIndex >= searchMatches.count {
             selectedMatchIndex = max(0, searchMatches.count - 1)
@@ -1967,7 +1994,7 @@ public final class PDFThumbnailCache: ObservableObject {
         }
     }
 
-    private nonisolated static let renderQueue = DispatchQueue(label: "io.github.inkcitrus.expertpdfreader.thumbnails", qos: .userInitiated)
+    private nonisolated static let renderQueue = DispatchQueue(label: "io.github.inkcitrus.expertpdfreader.thumbnails", qos: .utility)
     /// Document copies for rendering, used only on `renderQueue`
     private nonisolated(unsafe) static var renderDocuments: [String: PDFDocument] = [:]
 

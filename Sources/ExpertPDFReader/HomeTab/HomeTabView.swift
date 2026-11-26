@@ -147,48 +147,18 @@ public struct HomeTabRootView: View {
             // Drop Area Section (HomeSection.dropArea)
             HomeDropAreaCard(isDark: isDark, isCompact: isStandaloneSplitPane, onOpenFilePicker: openFilePicker)
 
-            // Reading Themes card row
-            if !isStandaloneSplitPane {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text(L10n.tr("阅读主题", "Reading Theme"))
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundColor(AppPalette.labelPrimary(isDark))
-                    HStack(spacing: 12) {
-                        ForEach(PDFReadingThemeMode.allCases) { mode in
-                            HomeThemeModeCard(
-                                mode: mode,
-                                useSepiaInLight: store.useSepiaForLightSystemTheme,
-                                isSelected: store.readingThemeMode == mode,
-                                isDark: isDark
-                            ) {
-                                withAnimation(AppAnimation.snappy) {
-                                    store.readingThemeMode = mode
-                                }
-                            }
-                        }
-                    }
-                }
-                .accessibilityElement(children: .contain)
-                .accessibilityLabel(Text(L10n.tr("阅读主题", "Reading Theme")))
-            }
-
             // Recent Documents
             documentsSection(
                 title: L10n.tr("最近打开", "Recents"),
                 emptyIcon: "clock",
                 items: store.recentDocuments,
-                actions: isStandaloneSplitPane ? [] : (
-                    [HomeSectionAction(title: L10n.tr("清除全部", "Clear All"), leadingIcon: "trash", isDestructive: true) {
-                        store.confirmClearRecents(in: session.id)
-                    }]
-                    + (store.recentDocuments.count > Self.homeSectionItemLimit ? [
-                        HomeSectionAction(title: L10n.tr("查看全部", "See All"), trailingIcon: "chevron.right") {
-                            withAnimation(AppAnimation.panel) {
-                                session.homeCurrentPage = .recents
-                            }
+                actions: isStandaloneSplitPane ? [] : [
+                    HomeSectionAction(title: L10n.tr("查看全部", "See All"), trailingIcon: "chevron.right") {
+                        withAnimation(AppAnimation.panel) {
+                            session.homeCurrentPage = .recents
                         }
-                    ] : [])
-                ),
+                    }
+                ],
                 allowsRemoval: true,
                 emptyText: L10n.tr("打开过的 PDF 会显示在这里，方便随时继续阅读。", "Recently opened PDFs will appear here so you can pick up where you left off.")
             )
@@ -198,7 +168,7 @@ public struct HomeTabRootView: View {
                 title: L10n.tr("收藏夹", "Favorites"),
                 emptyIcon: "star",
                 items: store.favoriteDocuments,
-                actions: isStandaloneSplitPane || store.favoriteDocuments.count <= Self.homeSectionItemLimit ? [] : [
+                actions: isStandaloneSplitPane ? [] : [
                     HomeSectionAction(title: L10n.tr("查看全部", "See All"), trailingIcon: "chevron.right") {
                         withAnimation(AppAnimation.panel) {
                             session.homeCurrentPage = .favorites
@@ -335,19 +305,33 @@ public struct HomeTabRootView: View {
         destructiveTitle: String,
         onDestructive: @escaping () -> Void
     ) -> some View {
-        let titleBadge = HStack(alignment: .firstTextBaseline, spacing: 9) {
-            pageTitle(title)
-            if count > 0 {
-                Text("\(count)")
-                    .font(.system(size: 12, weight: .semibold))
-                    .monospacedDigit()
-                    .foregroundColor(AppPalette.labelTertiary(isDark))
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(isDark ? Color.white.opacity(0.07) : Color.black.opacity(0.055))
-                    )
+        let titleBadge = HStack(alignment: .center, spacing: 10) {
+            if !session.isHomeSidebarVisible {
+                HomeSubtleActionButton(
+                    title: L10n.tr("主页", "Home"),
+                    leadingIcon: "chevron.backward",
+                    isDark: isDark
+                ) {
+                    withAnimation(AppAnimation.snappy) {
+                        session.homeCurrentPage = .home
+                    }
+                }
+            }
+
+            HStack(alignment: .firstTextBaseline, spacing: 9) {
+                pageTitle(title)
+                if count > 0 {
+                    Text("\(count)")
+                        .font(.system(size: 12, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundColor(AppPalette.labelTertiary(isDark))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(isDark ? Color.white.opacity(0.07) : Color.black.opacity(0.055))
+                        )
+                }
             }
         }
         .fixedSize(horizontal: true, vertical: false)
@@ -1092,94 +1076,6 @@ struct PDFStackIllustration: View {
                 }
             }
             .shadow(color: Color.black.opacity(isDark ? 0.4 : 0.08), radius: 3, x: 0, y: 1)
-    }
-}
-
-// MARK: - HomeThemeModeCard (Follow System / Day / Sepia / Night)
-
-struct HomeThemeModeCard: View {
-    let mode: PDFReadingThemeMode
-    let useSepiaInLight: Bool
-    let isSelected: Bool
-    let isDark: Bool
-    let action: () -> Void
-
-    @Environment(\.appAccentColor) private var accent
-    @State private var isHovered = false
-
-    var body: some View {
-        let previewTheme = mode.resolvedTheme(isDark: isDark, useSepiaInLight: useSepiaInLight)
-        let lightPreviewTheme: PDFViewTheme = useSepiaInLight ? .sepia : .day
-
-        Button(action: action) {
-            VStack(spacing: 9) {
-                ZStack {
-                    if mode == .system {
-                        HStack(spacing: 0) {
-                            lightPreviewTheme.documentBackgroundColor(isDarkUI: false)
-                            PDFViewTheme.night.documentBackgroundColor(isDarkUI: true)
-                        }
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-
-                        SplitMiniPagePreview(leftTheme: lightPreviewTheme, rightTheme: .night)
-                            .frame(width: 36, height: 46)
-                    } else {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(previewTheme.documentBackgroundColor(isDarkUI: isDark))
-                        MiniPagePreview(theme: previewTheme)
-                            .frame(width: 36, height: 46)
-                    }
-                }
-                .frame(height: 62)
-
-                HStack(spacing: 6) {
-                    Image(systemName: mode.toolbarIconName)
-                        .font(.system(size: 12, weight: .medium))
-                    Text(mode.title)
-                        .font(.system(size: 12.5, weight: .medium))
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                    if isSelected {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 13))
-                            .foregroundColor(accent)
-                            .transition(.scale.combined(with: .opacity))
-                    }
-                }
-                .foregroundColor(AppPalette.labelPrimary(isDark))
-                .padding(.horizontal, 2)
-            }
-            .padding(9)
-            .frame(maxWidth: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(
-                        isSelected
-                            ? accent.opacity(isDark ? 0.12 : 0.06)
-                            : (isHovered ? AppPalette.homeCardHover(isDark) : AppPalette.homeCardBackground(isDark))
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(
-                        isSelected
-                            ? accent
-                            : (isDark ? Color.white.opacity(0.08) : Color.black.opacity(0.07)),
-                        lineWidth: isSelected ? 1.5 : 1
-                    )
-            )
-            .offset(y: isHovered ? -1.5 : 0)
-            .shadow(color: Color.black.opacity(isHovered ? (isDark ? 0.30 : 0.07) : 0), radius: 6, x: 0, y: 3)
-            .contentShape(Rectangle())
-            .animation(AppAnimation.snappy, value: isHovered)
-            .animation(AppAnimation.snappy, value: isSelected)
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text(mode.title))
-        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : [.isButton])
-        .help("\(L10n.tr("阅读主题", "Reading Theme")): \(mode.title)")
-        .onHover { isHovered = $0 }
     }
 }
 

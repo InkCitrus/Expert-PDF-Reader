@@ -121,6 +121,7 @@ struct SearchResultsPanel: View {
                                         isDark: isDark
                                     ) {
                                         tab.selectedMatchIndex = entry.index
+                                        tab.isPageOverviewVisible = false
                                         tab.navigateToPage(entry.item.pageIndex, recordHistory: false)
                                     }
                                     .id(entry.id)
@@ -190,13 +191,24 @@ struct SearchResultRow: View {
                 .lineLimit(3)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
                 .background(
-                    isSelected
-                        ? accent.opacity(isDark ? 0.22 : 0.12)
-                        : (isHovered ? AppPalette.rowHover(isDark) : Color.clear)
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(
+                            isSelected
+                                ? AppPalette.sidebarRowSelected(isDark)
+                                : (isHovered ? AppPalette.sidebarRowHover(isDark) : Color.clear)
+                        )
                 )
+                .overlay {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .strokeBorder(AppPalette.sidebarRowSelectedBorder(isDark), lineWidth: 0.5)
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 1)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -225,9 +237,9 @@ struct SearchResultRow: View {
 
 // MARK: - PageIndicatorOverlay (bottom-right page counter)
 
-/// Non-blocking tracking area in the bottom-right canvas corner so hovering reveals the faded page counter
+/// Non-blocking tracking area in the canvas corner so hovering reveals faded canvas HUDs
 /// without intercepting clicks, drags, or text selection on the PDF underneath.
-private struct PageIndicatorRevealArea: NSViewRepresentable {
+struct PageIndicatorRevealArea: NSViewRepresentable {
     let onHover: (Bool) -> Void
 
     func makeNSView(context: Context) -> PageIndicatorRevealView { PageIndicatorRevealView() }
@@ -236,7 +248,7 @@ private struct PageIndicatorRevealArea: NSViewRepresentable {
     }
 }
 
-private final class PageIndicatorRevealView: NSView {
+final class PageIndicatorRevealView: NSView {
     var onHover: ((Bool) -> Void)?
     // Omit .enabledDuringMouseDrag so dragging a text selection across the corner never pops the pill up.
     private lazy var hoverArea = NSTrackingArea(
@@ -496,114 +508,97 @@ struct PageIndicatorOverlay: View {
     }
 }
 
-// MARK: - JumpBackBanner (bottom-left return toast after link / page jumps)
+// MARK: - JumpBackBanner (bottom-left navigation history HUD)
 
-/// Floating pill surfaced in the bottom-left corner after clicking an internal PDF link or jumping across
-/// pages, giving one-click return (`⌘[`) back to the exact spot the reader jumped from.
+/// Floating navigation history HUD in the bottom-left corner matching `PageIndicatorOverlay` 1:1.
+/// Flashes briefly after internal link or multi-page jumps and reveals on corner hover whenever back/forward history exists.
 struct JumpBackBanner: View {
     @ObservedObject var store: AppStore
     @ObservedObject var tab: DocumentTabState
+    var forceVisible: Bool = false
 
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.appAccentColor) private var accent
     @State private var isVisible = false
     @State private var isHovered = false
+    @State private var isInRevealZone = false
     @State private var hideTask: Task<Void, Never>?
 
     var body: some View {
         let isDark = colorScheme == .dark
         let pdfTheme = store.resolvedPDFTheme(isDark: isDark)
-        let shown = isVisible && tab.canGoBack && tab.jumpBackDestination != nil
+        let foreground = AppPalette.pageIndicatorForeground(pdfTheme: pdfTheme, isDarkUI: isDark)
+        let activeJumpBack = tab.canGoBack && tab.jumpBackDestination != nil
+        let shown = forceVisible || (activeJumpBack && (isVisible || isHovered || isInRevealZone))
+        let targetIndex = tab.jumpBackDestination?.pageIndex ?? (forceVisible ? tab.backDestinationPageIndex : nil)
 
-        Group {
-            if let dest = tab.jumpBackDestination, tab.canGoBack {
-                HStack(spacing: 6) {
+        ZStack(alignment: .bottomLeading) {
+            PageIndicatorRevealArea { isInRevealZone = $0 }
+                .frame(width: 148, height: 76)
+
+            Group {
+                if let backIdx = targetIndex {
+                    let bannerLabel = backIdx == tab.currentPageIndex
+                        ? L10n.tr("返回", "Back")
+                        : L10n.backToPage(tab.cleanPageLabel(at: backIdx))
                     Button {
                         hideTask?.cancel()
-                        withAnimation(AppAnimation.snappy) {
-                            isVisible = false
-                            tab.goBack()
-                        }
+                        isVisible = false
+                        tab.goBack()
                     } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "arrow.uturn.backward")
+                        HStack(spacing: 5) {
+                            Image(systemName: "chevron.backward")
                                 .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(accent)
-
-                            Text(L10n.backToPage(tab.displayPageNumber(at: dest.pageIndex)))
-                                .font(.system(size: 12.5, weight: .medium))
-
-                            Text("⌘[")
-                                .font(.system(size: 10.5, weight: .medium, design: .rounded))
-                                .monospacedDigit()
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 1.5)
-                                .background(
-                                    Capsule(style: .continuous)
-                                        .fill(AppPalette.pageIndicatorForeground(pdfTheme: pdfTheme, isDarkUI: isDark).opacity(0.12))
-                                )
                                 .opacity(0.82)
+                            Text(bannerLabel)
+                                .font(.system(size: 12.5, weight: .semibold))
+                                .monospacedDigit()
+                                .lineLimit(1)
                         }
                         .padding(.leading, 11)
-                        .padding(.trailing, 4)
+                        .padding(.trailing, 12)
                         .padding(.vertical, 6)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-
-                    Button {
-                        hideTask?.cancel()
-                        withAnimation(AppAnimation.snappy) {
-                            isVisible = false
-                            tab.dismissJumpBackPrompt()
+                    .fixedSize(horizontal: true, vertical: false)
+                    .help(L10n.parenthetical(L10n.tr("返回", "Back"), "⌘["))
+                    .accessibilityLabel(Text(bannerLabel))
+                    .foregroundColor(foreground)
+                    .background(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(AppPalette.pageIndicatorBackground(pdfTheme: pdfTheme, isDarkUI: isDark, isHovered: isHovered))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                    .strokeBorder(AppPalette.pageIndicatorBorder(pdfTheme: pdfTheme, isDarkUI: isDark, isHovered: isHovered), lineWidth: 1)
+                            )
+                            .shadow(color: Color.black.opacity(pdfTheme == .night || isDark ? 0.45 : 0.18), radius: 6, x: 0, y: 2)
+                    )
+                    .animation(AppAnimation.micro, value: pdfTheme)
+                    .onHover { hovering in
+                        isHovered = hovering
+                        if hovering {
+                            hideTask?.cancel()
+                        } else if activeJumpBack {
+                            flash()
                         }
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 9.5, weight: .semibold))
-                            .frame(width: 18, height: 18)
-                            .contentShape(Circle())
-                            .opacity(0.68)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.trailing, 7)
-                    .help(L10n.tr("关闭", "Close"))
-                    .accessibilityLabel(Text(L10n.tr("关闭", "Close")))
-                }
-                .foregroundColor(AppPalette.pageIndicatorForeground(pdfTheme: pdfTheme, isDarkUI: isDark))
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(AppPalette.pageIndicatorBackground(pdfTheme: pdfTheme, isDarkUI: isDark, isHovered: isHovered))
-                        .overlay(
-                            Capsule(style: .continuous)
-                                .strokeBorder(AppPalette.pageIndicatorBorder(pdfTheme: pdfTheme, isDarkUI: isDark, isHovered: isHovered), lineWidth: 1)
-                        )
-                        .shadow(color: Color.black.opacity(pdfTheme == .night || isDark ? 0.45 : 0.18), radius: 8, x: 0, y: 2)
-                )
-                .animation(AppAnimation.micro, value: pdfTheme)
-                .onHover { hovering in
-                    isHovered = hovering
-                    if hovering {
-                        hideTask?.cancel()
-                    } else if shown {
-                        scheduleHide(delaySeconds: 2.5)
                     }
                 }
             }
+            .opacity(shown ? 1 : 0)
+            .allowsHitTesting(shown)
+            .accessibilityHidden(!shown)
+            .scaleEffect(shown ? 1.0 : 0.96)
+            .offset(y: shown ? 0 : 4)
+            .animation(AppAnimation.snappy, value: shown)
+            .animation(AppAnimation.micro, value: isHovered)
+            .padding(16)
         }
-        .opacity(shown ? 1 : 0)
-        .scaleEffect(shown ? 1.0 : 0.96)
-        .offset(y: shown ? 0 : 6)
-        .allowsHitTesting(shown)
-        .accessibilityHidden(!shown)
-        .animation(AppAnimation.snappy, value: shown)
-        .animation(AppAnimation.micro, value: isHovered)
         .onChange(of: tab.jumpBackToken) { _, _ in
             guard tab.canGoBack, tab.jumpBackDestination != nil else { return }
-            isVisible = true
-            scheduleHide(delaySeconds: 5.5)
+            flash()
         }
-        .onChange(of: tab.canGoBack) { _, canGoBack in
-            if !canGoBack {
+        .onChange(of: activeJumpBack) { _, active in
+            if !active {
                 hideTask?.cancel()
                 isVisible = false
             }
@@ -611,13 +606,13 @@ struct JumpBackBanner: View {
         .onDisappear {
             hideTask?.cancel()
         }
-        .padding(16)
     }
 
-    private func scheduleHide(delaySeconds: Double) {
+    private func flash() {
+        isVisible = true
         hideTask?.cancel()
         hideTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
             guard !Task.isCancelled else { return }
             isVisible = false
         }
@@ -871,13 +866,13 @@ struct ExportActivityToast: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(AppPalette.pageIndicatorBackground(pdfTheme: pdfTheme, isDarkUI: isDarkUI, isHovered: isHovered))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
                         .strokeBorder(AppPalette.pageIndicatorBorder(pdfTheme: pdfTheme, isDarkUI: isDarkUI, isHovered: isHovered), lineWidth: 1)
                 )
-                .shadow(color: Color.black.opacity(pdfTheme == .night || isDarkUI ? 0.48 : 0.20), radius: 8, x: 0, y: 3)
+                .shadow(color: Color.black.opacity(pdfTheme == .night || isDarkUI ? 0.45 : 0.18), radius: 6, x: 0, y: 2)
         )
         .animation(AppAnimation.micro, value: isHovered)
         .onHover { hovering in

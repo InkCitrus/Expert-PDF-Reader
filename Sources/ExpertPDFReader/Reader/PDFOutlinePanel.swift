@@ -59,46 +59,56 @@ struct PDFOutlinePanel: View {
     var body: some View {
         Group {
             if isGenerating {
-                VStack(spacing: 10) {
-                    ProgressView().controlSize(.small)
-                    Text(L10n.tr("正在识别目录…", "Recognizing outline…"))
-                        .font(.system(size: 12))
-                        .foregroundColor(AppPalette.labelTertiary(isDark))
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if hasLoaded && nodes.isEmpty {
-                if !store.autoGenerateOutline && tab.pdfDocument.outlineRoot == nil {
-                    VStack(spacing: 12) {
-                        Image(systemName: "list.bullet.indent")
-                            .font(.system(size: 26, weight: .light))
-                            .foregroundColor(AppPalette.labelQuaternary(isDark))
-                        Text(L10n.tr("此文档不包含目录大纲", "This document has no outline"))
-                            .font(.system(size: 12.5, weight: .medium))
-                            .foregroundColor(AppPalette.labelSecondary(isDark))
-                        Button {
-                            hasLoaded = false
-                            loadIfNeeded(forceGenerate: true)
-                        } label: {
-                            Text(L10n.tr("识别目录", "Recognize Outline"))
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(AppPalette.labelPrimary(isDark))
-                                .padding(.horizontal, 12)
-                                .frame(height: 26)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                        .fill(AppPalette.toolbarControlFill(isDark))
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                        .strokeBorder(AppPalette.panelSeparator(isDark), lineWidth: 1)
-                                )
-                        }
-                        .buttonStyle(TactilePressButtonStyle())
+                VStack(spacing: 0) {
+                    Rectangle()
+                        .fill(AppPalette.panelSeparator(isDark))
+                        .frame(height: 1)
+                    VStack(spacing: 10) {
+                        ProgressView().controlSize(.small)
+                        Text(L10n.tr("正在识别目录…", "Recognizing outline…"))
+                            .font(.system(size: 12))
+                            .foregroundColor(AppPalette.labelTertiary(isDark))
                     }
-                    .padding(20)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    PanelEmptyState(icon: "list.bullet.indent", title: L10n.tr("此文档不包含目录大纲", "This document has no outline"), subtitle: nil, isDark: isDark)
+                }
+            } else if hasLoaded && nodes.isEmpty {
+                VStack(spacing: 0) {
+                    Rectangle()
+                        .fill(AppPalette.panelSeparator(isDark))
+                        .frame(height: 1)
+                    if !store.autoGenerateOutline && tab.pdfDocument.outlineRoot == nil {
+                        VStack(spacing: 12) {
+                            Image(systemName: "list.bullet.indent")
+                                .font(.system(size: 26, weight: .light))
+                                .foregroundColor(AppPalette.labelQuaternary(isDark))
+                            Text(L10n.tr("此文档不包含目录大纲", "This document has no outline"))
+                                .font(.system(size: 12.5, weight: .medium))
+                                .foregroundColor(AppPalette.labelSecondary(isDark))
+                            Button {
+                                hasLoaded = false
+                                loadIfNeeded(forceGenerate: true)
+                            } label: {
+                                Text(L10n.tr("识别目录", "Recognize Outline"))
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(AppPalette.labelPrimary(isDark))
+                                    .padding(.horizontal, 12)
+                                    .frame(height: 26)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                            .fill(AppPalette.toolbarControlFill(isDark))
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                            .strokeBorder(AppPalette.panelSeparator(isDark), lineWidth: 1)
+                                    )
+                            }
+                            .buttonStyle(TactilePressButtonStyle())
+                        }
+                        .padding(20)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        PanelEmptyState(icon: "list.bullet.indent", title: L10n.tr("此文档不包含目录大纲", "This document has no outline"), subtitle: nil, isDark: isDark)
+                    }
                 }
             } else {
                 let rows = visibleRows
@@ -296,7 +306,7 @@ struct PDFOutlinePanel: View {
             }
         }
         .padding(.horizontal, 10)
-        .padding(.top, 2)
+        .padding(.top, 6)
         .padding(.bottom, 8)
     }
 
@@ -622,30 +632,29 @@ struct PDFOutlineRowView: View {
         if level == 0 {
             return .system(size: 12.5, weight: .semibold)
         } else if level == 1 {
-            return .system(size: 12, weight: isActive ? .medium : .regular)
+            return .system(size: 12, weight: isActive ? .semibold : .regular)
         } else {
-            return .system(size: 11.5, weight: isActive ? .medium : .regular)
+            return .system(size: 11.5, weight: isActive ? .semibold : .regular)
         }
     }
 
     private var titleColor: Color {
-        if isActive { return accent }
-        if level == 0 || isHovered { return AppPalette.labelPrimary(isDark) }
+        if isActive || level == 0 || isHovered { return AppPalette.labelPrimary(isDark) }
         return AppPalette.labelSecondary(isDark)
     }
 
     private var pillBackground: Color {
         if isActive {
-            return accent.opacity(isDark ? 0.18 : 0.11)
+            return AppPalette.sidebarRowSelected(isDark)
         }
         if isHovered {
-            return isDark ? Color.white.opacity(0.06) : Color.black.opacity(0.045)
+            return AppPalette.sidebarRowHover(isDark)
         }
         return .clear
     }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 5) {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
             if hasExpandableNodes {
                 Group {
                     if node.children.isEmpty {
@@ -653,17 +662,17 @@ struct PDFOutlineRowView: View {
                     } else {
                         Button(action: onToggle) {
                             Image(systemName: "chevron.right")
-                                .font(.system(size: 8.5, weight: .bold))
-                                .foregroundColor(isActive ? accent.opacity(0.85) : AppPalette.labelTertiary(isDark))
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundColor(isActive ? AppPalette.labelSecondary(isDark) : AppPalette.labelTertiary(isDark))
                                 .rotationEffect(.degrees(isExpanded ? 90 : 0))
                                 .animation(AppAnimation.snappy, value: isExpanded)
-                                .frame(width: 14, height: 14)
+                                .frame(width: 16, height: 16)
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                     }
                 }
-                .frame(width: 14, height: 14)
+                .frame(width: 16, height: 16)
                 .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 3.5 }
             }
 
@@ -679,26 +688,24 @@ struct PDFOutlineRowView: View {
                 Text(label)
                     .font(.system(size: 11, weight: isActive ? .semibold : .regular))
                     .monospacedDigit()
-                    .foregroundColor(isActive ? accent : AppPalette.labelTertiary(isDark))
+                    .foregroundColor(isActive ? AppPalette.labelSecondary(isDark) : AppPalette.labelTertiary(isDark))
                     .accessibilityHidden(true)
             }
         }
-        .padding(.leading, 8 + CGFloat(level) * 13)
-        .padding(.trailing, 8)
-        .padding(.vertical, level == 0 ? 6 : 4.5)
+        .padding(.leading, (hasExpandableNodes ? 7 : 10) + CGFloat(level) * 13)
+        .padding(.trailing, 9)
+        .padding(.vertical, level == 0 ? 6 : 5)
         .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .fill(pillBackground)
         )
-        .overlay(alignment: .leading) {
+        .overlay {
             if isActive {
-                Capsule(style: .continuous)
-                    .fill(accent)
-                    .frame(width: 2.5, height: 14)
-                    .padding(.leading, 2.5)
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .strokeBorder(AppPalette.sidebarRowSelectedBorder(isDark), lineWidth: 0.5)
             }
         }
-        .padding(.horizontal, 6)
+        .padding(.horizontal, 8)
         .padding(.top, showsChapterTopSpacing ? 6 : 1)
         .padding(.bottom, 1)
         .contentShape(Rectangle())

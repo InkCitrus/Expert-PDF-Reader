@@ -40,7 +40,7 @@ struct SettingsView: View {
 
     private var isDark: Bool { colorScheme == .dark }
     private var accent: Color { store.accentColor.color(isDark: isDark) }
-    private var detailCanvasColor: Color { isDark ? Color(hex: 0x1D1D20) : Color(hex: 0xF5F5F7) }
+    private var detailCanvasColor: Color { AppPalette.sheetBackground(isDark) }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -482,11 +482,11 @@ private struct SettingsCard<Content: View>: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .fill(isDark ? Color(hex: 0x27272B) : Color.white)
+                .fill(AppPalette.sheetCardBackground(isDark))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .strokeBorder(isDark ? Color.white.opacity(0.10) : Color.black.opacity(0.08), lineWidth: 0.5)
+                .strokeBorder(AppPalette.sheetCardBorder(isDark), lineWidth: 0.5)
         )
         .shadow(color: Color.black.opacity(isDark ? 0 : 0.03), radius: 2, x: 0, y: 1)
     }
@@ -498,7 +498,7 @@ private struct SettingsCardDivider: View {
 
     var body: some View {
         Rectangle()
-            .fill(isDark ? Color.white.opacity(0.08) : Color.black.opacity(0.07))
+            .fill(AppPalette.sheetCardDivider(isDark))
             .frame(height: 0.5)
             .padding(.leading, leadingInset)
     }
@@ -758,7 +758,7 @@ private struct ReadingThemeOptionCard: View {
                         SplitMiniPagePreview(leftTheme: lightPreviewTheme, rightTheme: .night)
                             .frame(width: 30, height: 40)
                     } else {
-                        previewTheme.documentBackgroundColor(isDarkUI: isDark)
+                        previewTheme.documentBackgroundColor(isDarkUI: previewTheme == .night)
                         MiniPagePreview(theme: previewTheme)
                             .frame(width: 30, height: 40)
                     }

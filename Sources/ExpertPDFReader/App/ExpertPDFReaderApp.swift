@@ -420,56 +420,95 @@ struct ReaderMenuCommands: Commands {
             }
             .keyboardShortcut("b", modifiers: [.command])
 
-            Button(store.activeDocumentTab?.isPageOverviewVisible == true ? L10n.tr("关闭页面概览", "Close Page Overview") : L10n.tr("页面概览", "Page Overview")) {
-                withAnimation(AppAnimation.panel) {
-                    store.activeDocumentTab?.isPageOverviewVisible.toggle()
+            Toggle(L10n.tr("页面概览", "Page Overview"), isOn: Binding(
+                get: { store.activeDocumentTab?.isPageOverviewVisible ?? false },
+                set: { newValue in
+                    withAnimation(AppAnimation.panel) {
+                        store.activeDocumentTab?.isPageOverviewVisible = newValue
+                    }
                 }
-            }
+            ))
             .keyboardShortcut("1", modifiers: [.control, .command])
             .disabled(store.activeDocumentTab == nil)
 
-            Button(L10n.tr("缩略图", "Thumbnails")) {
-                withAnimation(AppAnimation.panel) {
-                    store.showSidebarTab(.thumbnails)
+            Toggle(L10n.tr("缩略图", "Thumbnails"), isOn: Binding(
+                get: {
+                    guard let tab = store.activeDocumentTab else { return false }
+                    return tab.isLeftSidebarVisible && tab.activeSidebarTab == .thumbnails
+                },
+                set: { _ in
+                    withAnimation(AppAnimation.panel) {
+                        store.showSidebarTab(.thumbnails)
+                    }
                 }
-            }
+            ))
             .keyboardShortcut("2", modifiers: [.control, .command])
             .disabled(store.activeDocumentTab == nil)
 
-            Button(L10n.tr("大纲", "Outline")) {
-                withAnimation(AppAnimation.panel) {
-                    store.showSidebarTab(.outline)
+            Toggle(L10n.tr("大纲", "Outline"), isOn: Binding(
+                get: {
+                    guard let tab = store.activeDocumentTab else { return false }
+                    return tab.isLeftSidebarVisible && tab.activeSidebarTab == .outline
+                },
+                set: { _ in
+                    withAnimation(AppAnimation.panel) {
+                        store.showSidebarTab(.outline)
+                    }
                 }
-            }
+            ))
             .keyboardShortcut("3", modifiers: [.control, .command])
             .disabled(store.activeDocumentTab == nil)
 
-            Button(L10n.tr("书签", "Bookmarks")) {
-                withAnimation(AppAnimation.panel) {
-                    store.showSidebarTab(.bookmarks)
+            Toggle(L10n.tr("书签", "Bookmarks"), isOn: Binding(
+                get: {
+                    guard let tab = store.activeDocumentTab else { return false }
+                    return tab.isLeftSidebarVisible && tab.activeSidebarTab == .bookmarks
+                },
+                set: { _ in
+                    withAnimation(AppAnimation.panel) {
+                        store.showSidebarTab(.bookmarks)
+                    }
                 }
-            }
+            ))
             .keyboardShortcut("4", modifiers: [.control, .command])
             .disabled(store.activeDocumentTab == nil)
 
             Divider()
 
             // Page Layout Modes
-            Button(L10n.tr("单页", "Single Page")) {
-                store.activeDocumentTab?.showReadingLayout(.singlePage)
-            }
+            Toggle(L10n.tr("单页", "Single Page"), isOn: Binding(
+                get: {
+                    guard let tab = store.activeDocumentTab else { return false }
+                    return !tab.isPageOverviewVisible && tab.layoutMode == .singlePage
+                },
+                set: { _ in
+                    store.activeDocumentTab?.showReadingLayout(.singlePage)
+                }
+            ))
             .keyboardShortcut("1", modifiers: [.command])
             .disabled(store.activeDocumentTab == nil)
 
-            Button(L10n.tr("双页", "Two Pages")) {
-                store.activeDocumentTab?.showReadingLayout(.twoPages)
-            }
+            Toggle(L10n.tr("双页", "Two Pages"), isOn: Binding(
+                get: {
+                    guard let tab = store.activeDocumentTab else { return false }
+                    return !tab.isPageOverviewVisible && tab.layoutMode == .twoPages
+                },
+                set: { _ in
+                    store.activeDocumentTab?.showReadingLayout(.twoPages)
+                }
+            ))
             .keyboardShortcut("2", modifiers: [.command])
             .disabled(store.activeDocumentTab == nil)
 
-            Button(L10n.tr("双页（首屏单页显示）", "Two Pages (Single Cover)")) {
-                store.activeDocumentTab?.showReadingLayout(.twoPagesCover)
-            }
+            Toggle(L10n.tr("双页（首屏单页显示）", "Two Pages (Single Cover)"), isOn: Binding(
+                get: {
+                    guard let tab = store.activeDocumentTab else { return false }
+                    return !tab.isPageOverviewVisible && tab.layoutMode == .twoPagesCover
+                },
+                set: { _ in
+                    store.activeDocumentTab?.showReadingLayout(.twoPagesCover)
+                }
+            ))
             .keyboardShortcut("3", modifiers: [.command])
             .disabled(store.activeDocumentTab == nil)
 
@@ -486,33 +525,42 @@ struct ReaderMenuCommands: Commands {
             .id("pageDirection.\(store.appLanguage.rawValue)")
             .disabled(store.activeDocumentTab == nil)
 
-            Button(store.activeDocumentTab?.isClearMarginsEnabled == true ? L10n.tr("恢复页面空白边", "Restore Page Margins") : L10n.tr("清除空白边", "Clear Margins")) {
-                guard let tab = store.activeDocumentTab else { return }
-                tab.isClearMarginsEnabled.toggle()
-                tab.applyClearMarginsIfNeeded()
-            }
+            Toggle(L10n.tr("清除空白边", "Clear Margins"), isOn: Binding(
+                get: { store.activeDocumentTab?.isClearMarginsEnabled ?? false },
+                set: { newValue in
+                    guard let tab = store.activeDocumentTab, tab.isClearMarginsEnabled != newValue else { return }
+                    tab.isClearMarginsEnabled = newValue
+                    tab.applyClearMarginsIfNeeded()
+                }
+            ))
             .keyboardShortcut("m", modifiers: [.shift, .command])
             .disabled(store.activeDocumentTab == nil)
 
             // Split View Submenu
             Menu(L10n.tr("分屏视图", "Split View")) {
-                Button(L10n.tr("禁用分屏视图", "Disable Split View")) {
-                    store.activeDocumentTab?.showSplitMode(.disabled)
-                }
-                Button(L10n.tr("垂直分屏（左右）", "Vertical Split (Left/Right)")) {
-                    store.activeDocumentTab?.showSplitMode(.vertical)
-                }
-                Button(L10n.tr("水平分屏（上下）", "Horizontal Split (Top/Bottom)")) {
-                    store.activeDocumentTab?.showSplitMode(.horizontal)
-                }
+                Toggle(L10n.tr("禁用分屏视图", "Disable Split View"), isOn: Binding(
+                    get: { store.activeDocumentTab?.splitMode == .disabled },
+                    set: { _ in store.activeDocumentTab?.showSplitMode(.disabled) }
+                ))
+                Toggle(L10n.tr("垂直分屏（左右）", "Vertical Split (Left/Right)"), isOn: Binding(
+                    get: { store.activeDocumentTab?.splitMode == .vertical },
+                    set: { _ in store.activeDocumentTab?.showSplitMode(.vertical) }
+                ))
+                Toggle(L10n.tr("水平分屏（上下）", "Horizontal Split (Top/Bottom)"), isOn: Binding(
+                    get: { store.activeDocumentTab?.splitMode == .horizontal },
+                    set: { _ in store.activeDocumentTab?.showSplitMode(.horizontal) }
+                ))
                 Divider()
                 Button(L10n.tr("对调位置", "Swap Panes")) {
                     store.activeDocumentTab?.isSplitSwapped.toggle()
                 }
                 .disabled(store.activeDocumentTab?.splitMode == .disabled)
-                Button(store.activeDocumentTab?.syncScrollAndZoom == true ? L10n.tr("取消同步滚动和缩放", "Disable Sync Scroll & Zoom") : L10n.tr("同步滚动和缩放", "Sync Scroll & Zoom")) {
-                    store.activeDocumentTab?.syncScrollAndZoom.toggle()
-                }
+                Toggle(L10n.tr("同步滚动和缩放", "Sync Scroll & Zoom"), isOn: Binding(
+                    get: { store.activeDocumentTab?.syncScrollAndZoom ?? false },
+                    set: { newValue in
+                        store.activeDocumentTab?.syncScrollAndZoom = newValue
+                    }
+                ))
                 .disabled(store.activeDocumentTab?.splitMode == .disabled)
             }
             .disabled(store.activeDocumentTab == nil)
@@ -613,7 +661,7 @@ struct ReaderMenuCommands: Commands {
             .disabled(store.activeDocumentTab == nil)
 
             Button(L10n.tr("前往页码…", "Go to Page…")) {
-                store.activeDocumentTab?.goToPageRequestToken &+= 1
+                store.activeDocumentTab?.requestGoToPage()
             }
             .keyboardShortcut("g", modifiers: [.option, .command])
             .disabled(store.activeDocumentTab == nil)
@@ -636,7 +684,7 @@ struct ReaderMenuCommands: Commands {
 
             Button(L10n.tr("为当前页添加/移除书签", "Toggle Bookmark for Current Page")) {
                 guard let tab = store.activeDocumentTab else { return }
-                store.toggleBookmark(pageIndex: tab.currentPageIndex, in: tab.documentID)
+                store.toggleActiveBookmark(in: tab)
             }
             .keyboardShortcut("d", modifiers: [.command])
             .disabled(store.activeDocumentTab == nil)

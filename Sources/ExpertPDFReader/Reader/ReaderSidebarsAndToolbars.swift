@@ -46,7 +46,7 @@ public struct ReaderLeftSidebarView: View {
             }
             .animation(AppAnimation.sidebarSwitch, value: tab.activeSidebarTab)
             .padding(.horizontal, 14)
-            .frame(height: tab.activeSidebarTab == .outline ? 30 : 34)
+            .frame(height: 34)
 
             if tab.activeSidebarTab != .outline {
                 Rectangle()
@@ -90,8 +90,16 @@ public struct ReaderLeftSidebarView: View {
                 .contentTransition(.numericText())
                 .animation(AppAnimation.micro, value: selectedCount)
                 .foregroundColor(AppPalette.labelTertiary(isDark))
-        case .outline, .bookmarks:
+        case .outline:
             EmptyView()
+        case .bookmarks:
+            let count = store.bookmarks(for: tab.documentID).count
+            if count > 0 {
+                Text("\(count)")
+                    .font(.system(size: 11))
+                    .monospacedDigit()
+                    .foregroundColor(AppPalette.labelTertiary(isDark))
+            }
         }
     }
 }
@@ -522,7 +530,7 @@ struct PDFBookmarksPanel: View {
             )
         } else {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
+                LazyVStack(alignment: .leading, spacing: 2) {
                     ForEach(items) { bm in
                         BookmarkRowView(
                             bookmark: bm,
@@ -534,7 +542,7 @@ struct PDFBookmarksPanel: View {
                         )
                     }
                 }
-                .background(AppPalette.panelListBackground(isDark))
+                .padding(.vertical, 6)
             }
         }
     }
@@ -554,33 +562,37 @@ struct BookmarkRowView: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "bookmark.fill")
-                .font(.system(size: 11))
-                .foregroundColor(accent)
+                .font(.system(size: 11.5))
+                .foregroundColor(isCurrent ? accent : AppPalette.labelSecondary(isDark))
 
             Text(bookmark.title)
-                .font(.system(size: 12.5, weight: isCurrent ? .medium : .regular))
-                .foregroundColor(isCurrent ? accent : AppPalette.labelPrimary(isDark))
+                .font(.system(size: 12.5, weight: isCurrent ? .semibold : .regular))
+                .foregroundColor(AppPalette.labelPrimary(isDark))
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Text(pageLabel)
-                .font(.system(size: 11))
+                .font(.system(size: 11, weight: isCurrent ? .semibold : .regular))
                 .monospacedDigit()
-                .foregroundColor(AppPalette.labelTertiary(isDark))
+                .foregroundColor(isCurrent ? AppPalette.labelSecondary(isDark) : AppPalette.labelTertiary(isDark))
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6.5)
         .background(
-            isCurrent
-                ? accent.opacity(isDark ? 0.20 : 0.10)
-                : (isHovered ? AppPalette.rowHover(isDark) : Color.clear)
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(
+                    isCurrent
+                        ? AppPalette.sidebarRowSelected(isDark)
+                        : (isHovered ? AppPalette.sidebarRowHover(isDark) : Color.clear)
+                )
         )
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(AppPalette.panelSeparator(isDark))
-                .frame(height: 1)
-                .padding(.leading, 33)
+        .overlay {
+            if isCurrent {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .strokeBorder(AppPalette.sidebarRowSelectedBorder(isDark), lineWidth: 0.5)
+            }
         }
+        .padding(.horizontal, 8)
         .contentShape(Rectangle())
         .animation(AppAnimation.micro, value: isHovered)
         .animation(AppAnimation.micro, value: isCurrent)

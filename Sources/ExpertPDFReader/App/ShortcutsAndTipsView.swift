@@ -122,25 +122,25 @@ public struct ShortcutsAndTipsSheetView: View {
             headerBar
 
             Rectangle()
-                .fill(AppPalette.panelSeparator(isDark))
-                .frame(height: 1)
+                .fill(AppPalette.sheetCardDivider(isDark))
+                .frame(height: 0.5)
 
             categoryStrip
 
             Rectangle()
-                .fill(AppPalette.panelSeparator(isDark))
-                .frame(height: 1)
+                .fill(AppPalette.sheetCardDivider(isDark))
+                .frame(height: 0.5)
 
             entriesScrollArea
 
             Rectangle()
-                .fill(AppPalette.panelSeparator(isDark))
-                .frame(height: 1)
+                .fill(AppPalette.sheetCardDivider(isDark))
+                .frame(height: 0.5)
 
             footerBar
         }
         .frame(width: 720, height: 556)
-        .background(AppPalette.homeContentBackground(isDark))
+        .background(AppPalette.sheetBackground(isDark))
         .onAppear {
             selectedCategory = session.shortcutsInitialCategory
         }
@@ -203,15 +203,33 @@ public struct ShortcutsAndTipsSheetView: View {
             .frame(width: 220, height: 28)
             .background(
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(AppPalette.homeCardBackground(isDark))
+                    .fill(isDark ? Color.white.opacity(0.06) : Color.black.opacity(0.045))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .strokeBorder(AppPalette.panelSeparator(isDark), lineWidth: 1)
+                    .strokeBorder(AppPalette.sheetCardBorder(isDark), lineWidth: 0.5)
             )
+
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(AppPalette.labelSecondary(isDark))
+                    .frame(width: 26, height: 26)
+                    .background(
+                        Circle()
+                            .fill(isDark ? Color.white.opacity(0.08) : Color.black.opacity(0.055))
+                    )
+                    .contentShape(Circle())
+            }
+            .buttonStyle(TactilePressButtonStyle())
+            .help(L10n.tr("关闭", "Close"))
+            .accessibilityLabel(Text(L10n.tr("关闭", "Close")))
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
+        .background(AppPalette.sheetHeaderBackground(isDark))
     }
 
     // MARK: Category Strip
@@ -242,7 +260,11 @@ public struct ShortcutsAndTipsSheetView: View {
                                     .matchedGeometryEffect(id: "shortcutCategoryPill", in: categoryNamespace)
                             } else {
                                 Capsule()
-                                    .fill(AppPalette.homeCardBackground(isDark))
+                                    .fill(AppPalette.sheetCardBackground(isDark))
+                                    .overlay(
+                                        Capsule()
+                                            .strokeBorder(AppPalette.sheetCardBorder(isDark), lineWidth: 0.5)
+                                    )
                             }
                         }
                         .contentShape(Capsule())
@@ -253,7 +275,7 @@ public struct ShortcutsAndTipsSheetView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 9)
         }
-        .background(AppPalette.panelBackground(isDark).opacity(isDark ? 0.55 : 0.65))
+        .background(AppPalette.sheetBackground(isDark))
     }
 
     // MARK: Entries List
@@ -291,20 +313,21 @@ public struct ShortcutsAndTipsSheetView: View {
                                     ShortcutEntryRow(entry: entry, isDark: isDark)
                                     if idx < group.items.count - 1 {
                                         Rectangle()
-                                            .fill(AppPalette.panelSeparator(isDark))
-                                            .frame(height: 1)
-                                            .padding(.leading, 38)
+                                            .fill(AppPalette.sheetCardDivider(isDark))
+                                            .frame(height: 0.5)
+                                            .padding(.leading, 48)
                                     }
                                 }
                             }
                             .background(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(AppPalette.homeCardBackground(isDark))
+                                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                    .fill(AppPalette.sheetCardBackground(isDark))
                             )
                             .overlay(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .strokeBorder(AppPalette.panelSeparator(isDark), lineWidth: 1)
+                                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                    .strokeBorder(AppPalette.sheetCardBorder(isDark), lineWidth: 0.5)
                             )
+                            .shadow(color: Color.black.opacity(isDark ? 0 : 0.03), radius: 2, x: 0, y: 1)
                             .accessibilityElement(children: .contain)
                             .accessibilityLabel(Text(group.category.title))
                         }
@@ -356,7 +379,7 @@ public struct ShortcutsAndTipsSheetView: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
-        .background(AppPalette.panelBackground(isDark).opacity(isDark ? 0.45 : 0.55))
+        .background(AppPalette.sheetHeaderBackground(isDark))
     }
 
     // MARK: Catalog Data
@@ -406,6 +429,14 @@ public struct ShortcutsAndTipsSheetView: View {
                 title: L10n.tr("打印…", "Print…"),
                 subtitle: nil,
                 chords: [["⌘", "P"]]
+            ),
+            ShortcutEntry(
+                id: "export",
+                category: .tabs,
+                icon: "square.and.arrow.up",
+                title: L10n.tr("导出…", "Export…"),
+                subtitle: nil,
+                chords: [["⇧", "⌘", "E"]]
             ),
             ShortcutEntry(
                 id: "document_info",
@@ -653,7 +684,7 @@ private struct ShortcutEntryRow: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
-        .background(isHovered ? AppPalette.homeCardHover(isDark) : Color.clear)
+        .background(isHovered ? (isDark ? Color.white.opacity(0.03) : Color.black.opacity(0.02)) : Color.clear)
         .accessibilityElement(children: .combine)
         .animation(AppAnimation.micro, value: isHovered)
         .onHover { isHovered = $0 }

@@ -28,6 +28,8 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
     public let pageJumpToken: Int
     /// Page-space destination for the jump (outline entries); `nil` lands on the page top
     public let pageJumpPoint: CGPoint?
+    /// Top-of-viewport spot restored by Back/Forward navigation jumps
+    public let pageJumpScrollSpot: DocumentTabState.ReadingSpot?
     public let zoomCommandToken: Int
     public let pendingZoomAction: DocumentTabState.ZoomAction?
     /// Initial zoom mode: `false` opens at `zoomScale` instead of fitting the width
@@ -65,6 +67,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         selectedMatchIndex: Int = 0,
         pageJumpToken: Int = 0,
         pageJumpPoint: CGPoint? = nil,
+        pageJumpScrollSpot: DocumentTabState.ReadingSpot? = nil,
         zoomCommandToken: Int = 0,
         pendingZoomAction: DocumentTabState.ZoomAction? = nil,
         isAutoScaling: Bool = true,
@@ -94,6 +97,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         self.selectedMatchIndex = selectedMatchIndex
         self.pageJumpToken = pageJumpToken
         self.pageJumpPoint = pageJumpPoint
+        self.pageJumpScrollSpot = pageJumpScrollSpot
         self.zoomCommandToken = zoomCommandToken
         self.pendingZoomAction = pendingZoomAction
         self.isAutoScaling = isAutoScaling
@@ -307,18 +311,32 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
 
         // 3. Page Navigation Jump
         if coordinator.lastPageJumpToken != pageJumpToken {
-            coordinator.lastPageJumpToken = pageJumpToken
+            let token = pageJumpToken
+            coordinator.lastPageJumpToken = token
             if let targetPage = pdfDocument.page(at: currentPageIndex) {
-                if let point = pageJumpPoint {
-                    // Outline entry: scroll to the exact destination, even within the current page
-                    pdfView.go(to: PDFDestination(page: targetPage, at: point))
-                } else if pdfView.currentPage !== targetPage {
-                    pdfView.go(to: targetPage)
-                }
-                coordinator.reportReadingLocation(of: pdfView)
-                DispatchQueue.main.async {
-                    guard Coordinator.isLive(pdfView) else { return }
+                if let scrollSpot = pageJumpScrollSpot {
+                    if pdfView.currentPage !== targetPage {
+                        pdfView.go(to: targetPage)
+                    }
+                    Coordinator.scroll(pdfView, toTop: scrollSpot)
                     coordinator.reportReadingLocation(of: pdfView)
+                    DispatchQueue.main.async {
+                        guard Coordinator.isLive(pdfView), coordinator.lastPageJumpToken == token else { return }
+                        Coordinator.scroll(pdfView, toTop: scrollSpot)
+                        coordinator.reportReadingLocation(of: pdfView)
+                    }
+                } else {
+                    if let point = pageJumpPoint {
+                        // Outline entry: scroll to the exact destination, even within the current page
+                        pdfView.go(to: PDFDestination(page: targetPage, at: point))
+                    } else if pdfView.currentPage !== targetPage {
+                        pdfView.go(to: targetPage)
+                    }
+                    coordinator.reportReadingLocation(of: pdfView)
+                    DispatchQueue.main.async {
+                        guard Coordinator.isLive(pdfView), coordinator.lastPageJumpToken == token else { return }
+                        coordinator.reportReadingLocation(of: pdfView)
+                    }
                 }
             }
         } else if let current = pdfView.currentPage, Coordinator.isLive(pdfView) {

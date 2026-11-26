@@ -136,6 +136,7 @@ public struct PDFReaderView: View {
             selectedMatchIndex: tab.selectedMatchIndex,
             pageJumpToken: tab.pageJumpToken,
             pageJumpPoint: tab.pageJumpPoint,
+            pageJumpScrollSpot: tab.pageJumpScrollSpot,
             zoomCommandToken: tab.zoomCommandToken,
             pendingZoomAction: tab.pendingZoomAction,
             isAutoScaling: tab.isAutoScaling,

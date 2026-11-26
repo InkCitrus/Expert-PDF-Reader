@@ -617,6 +617,11 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         return pageIndicesByLabel.isEmpty ? "\(index + 1)" : "(\(index + 1))"
     }
 
+    /// Page label without parenthetical wrapping for navigation HUDs ("Page 2" instead of "Page (2)").
+    public func cleanPageLabel(at index: Int) -> String {
+        printedNumber(at: index) ?? "\(index + 1)"
+    }
+
     /// The page printed with this number; when numbering restarts per part, choose the nearest match.
     public func pageIndex(forLabel label: String, near pageIndex: Int? = nil) -> Int? {
         guard let number = PageNumberLabel.positiveNumber(label) else { return nil }
@@ -778,6 +783,8 @@ public final class DocumentTabState: ObservableObject, Identifiable {
 
     public var canGoBack: Bool { !backEntries.isEmpty }
     public var canGoForward: Bool { !forwardEntries.isEmpty }
+    public var backDestinationPageIndex: Int? { backEntries.last?.pageIndex }
+    public var forwardDestinationPageIndex: Int? { forwardEntries.last?.pageIndex }
 
     public func goBack() {
         guard let prev = backEntries.popLast() else { return }

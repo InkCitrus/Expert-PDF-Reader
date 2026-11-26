@@ -184,8 +184,8 @@ public struct DocumentInfoSheetView: View {
             header(info: info)
 
             Rectangle()
-                .fill(AppPalette.panelSeparator(isDark))
-                .frame(height: 1)
+                .fill(AppPalette.sheetCardDivider(isDark))
+                .frame(height: 0.5)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
@@ -215,8 +215,8 @@ public struct DocumentInfoSheetView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(width: 480)
-        .frame(minHeight: 380, maxHeight: 560)
-        .background(AppPalette.systemBackground(isDark))
+        .frame(minHeight: 400, idealHeight: 540, maxHeight: 620)
+        .background(AppPalette.sheetBackground(isDark))
         .onDisappear {
             copiedResetTask?.cancel()
         }
@@ -287,7 +287,7 @@ public struct DocumentInfoSheetView: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
-        .background(AppPalette.panelBackground(isDark))
+        .background(AppPalette.sheetHeaderBackground(isDark))
     }
 
     private func sectionCard<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -301,20 +301,21 @@ public struct DocumentInfoSheetView: View {
                 content()
             }
             .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(AppPalette.panelBackground(isDark))
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .fill(AppPalette.sheetCardBackground(isDark))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(AppPalette.panelSeparator(isDark), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .strokeBorder(AppPalette.sheetCardBorder(isDark), lineWidth: 0.5)
             )
+            .shadow(color: Color.black.opacity(isDark ? 0 : 0.03), radius: 2, x: 0, y: 1)
         }
     }
 
     private var rowDivider: some View {
         Rectangle()
-            .fill(AppPalette.panelSeparator(isDark))
-            .frame(height: 1)
+            .fill(AppPalette.sheetCardDivider(isDark))
+            .frame(height: 0.5)
             .padding(.leading, 14)
     }
 
@@ -372,8 +373,12 @@ public struct DocumentInfoSheetView: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
                     .background(
-                        RoundedRectangle(cornerRadius: 5, style: .continuous)
-                            .fill(AppPalette.toolbarControlFill(isDark))
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(isDark ? Color(hex: 0x36363C) : Color(hex: 0xF5F5F8))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .strokeBorder(AppPalette.sheetCardBorder(isDark), lineWidth: 0.5)
                     )
                 }
                 .buttonStyle(.plain)

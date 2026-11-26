@@ -452,6 +452,36 @@ public enum AppPalette {
         Color(hex: isDark ? 0x36363B : 0xF3F3F6)
     }
 
+    // Unified Sidebar Row Highlights (Outline / Bookmarks / Search)
+    public static func sidebarRowActive(_ accent: Color, _ isDark: Bool) -> Color {
+        accent.opacity(isDark ? 0.18 : 0.11)
+    }
+
+    public static func sidebarRowHover(_ isDark: Bool) -> Color {
+        isDark ? Color.white.opacity(0.06) : Color.black.opacity(0.045)
+    }
+
+    // Unified Sheet & Settings Chrome
+    public static func sheetBackground(_ isDark: Bool) -> Color {
+        Color(hex: isDark ? 0x1D1D20 : 0xF5F5F7)
+    }
+
+    public static func sheetHeaderBackground(_ isDark: Bool) -> Color {
+        Color(hex: isDark ? 0x242428 : 0xFFFFFF)
+    }
+
+    public static func sheetCardBackground(_ isDark: Bool) -> Color {
+        Color(hex: isDark ? 0x27272B : 0xFFFFFF)
+    }
+
+    public static func sheetCardBorder(_ isDark: Bool) -> Color {
+        isDark ? Color.white.opacity(0.10) : Color.black.opacity(0.08)
+    }
+
+    public static func sheetCardDivider(_ isDark: Bool) -> Color {
+        isDark ? Color.white.opacity(0.08) : Color.black.opacity(0.07)
+    }
+
     // Home Tab (opaque sidebar + white page)
     public static func homeSidebarBackground(_ isDark: Bool) -> Color {
         Color(hex: isDark ? 0x1F1F22 : 0xF1F3F5)
@@ -491,7 +521,7 @@ public enum AppPalette {
 
     // Tactile Keycap Badges (Shortcuts & Tips Guide)
     public static func keycapBackground(_ isDark: Bool) -> Color {
-        Color(hex: isDark ? 0x323238 : 0xFFFFFF)
+        Color(hex: isDark ? 0x35353C : 0xF5F5F8)
     }
 
     public static func keycapBorder(_ isDark: Bool) -> Color {

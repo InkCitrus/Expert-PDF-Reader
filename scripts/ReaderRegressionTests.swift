@@ -2653,14 +2653,20 @@ struct ReaderRegressionTests {
                   && navTab.jumpBackDestination?.point == CGPoint(x: 90, y: 540)
                   && navTab.jumpBackToken == tokenBeforeLink + 1,
                   "internal link jump records exact pre-jump reading spot and triggers jump-back banner")
+            check(navTab.cleanPageLabel(at: 1) == "2"
+                  && navTab.cleanPageLabel(at: 3) == navTab.displayPageNumber(at: 3)
+                  && navTab.backDestinationPageIndex == 2
+                  && navTab.forwardDestinationPageIndex == nil,
+                  "cleanPageLabel omits parenthetical front-matter wrapping and navigation helpers report back destination")
             navTab.goBack()
             check(navTab.currentPageIndex == 2
                   && navTab.pageJumpPoint == CGPoint(x: 90, y: 540)
                   && navTab.jumpBackDestination == nil
-                  && navTab.canGoForward,
+                  && navTab.canGoForward
+                  && navTab.forwardDestinationPageIndex == 5,
                   "going back after an internal link click restores exact page coordinates and clears jump-back pill")
             navTab.goForward()
-            check(navTab.currentPageIndex == 5 && navTab.canGoBack,
+            check(navTab.currentPageIndex == 5 && navTab.canGoBack && navTab.forwardDestinationPageIndex == nil,
                   "going forward after returning restores the link destination page")
 
             let metaURL = try fixture("InspectorMetadata")

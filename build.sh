@@ -59,8 +59,14 @@ mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources" "$MODULE_
 
 PLIST="$APP_BUNDLE/Contents/Info.plist"
 cp Support/Info.plist "$PLIST"
-if [[ -n "${VERSION:-}" ]]; then
-    /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST"
+DEFAULT_VERSION="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+DEFAULT_VERSION="${DEFAULT_VERSION#v}"
+RESOLVED_VERSION="${VERSION:-}"
+if [[ -z "$RESOLVED_VERSION" && "$DEFAULT_VERSION" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+    RESOLVED_VERSION="$DEFAULT_VERSION"
+fi
+if [[ -n "$RESOLVED_VERSION" ]]; then
+    /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $RESOLVED_VERSION" "$PLIST"
 fi
 if [[ -n "${BUILD_NUMBER:-}" ]]; then
     /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$PLIST"

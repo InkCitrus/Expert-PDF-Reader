@@ -2011,6 +2011,44 @@ struct ReaderRegressionTests {
                 ("撤销", "Undo", []),
                 ("重做", "Redo", []),
                 ("正在识别目录…", "Recognizing outline…", []),
+                ("阅读", "Reading", []),
+                ("自动识别目录", "Auto-Recognize Outline", []),
+                ("文档缺少内嵌书签时自动生成目录", "Generate an outline when bookmarks are missing", []),
+                ("识别目录", "Recognize Outline", []),
+                ("打印…", "Print…", []),
+                ("搜索文档…", "Filter documents…", []),
+                ("按最近打开", "Recent", []),
+                ("按名称", "Name", []),
+                ("按页数", "Page Count", []),
+                ("筛选目录…", "Filter outline…", []),
+                ("没有匹配的章节", "No Matching Sections", []),
+                ("文档信息…", "Document Info…", []),
+                ("文档信息", "Document Info", []),
+                ("元数据", "Metadata", []),
+                ("文件与规格", "File & Specifications", []),
+                ("标题", "Title", []),
+                ("作者", "Author", []),
+                ("主题", "Subject", []),
+                ("关键词", "Keywords", []),
+                ("创建工具", "Creator", []),
+                ("PDF 生成器", "PDF Producer", []),
+                ("页数", "Pages", []),
+                ("PDF 版本", "PDF Version", []),
+                ("页面尺寸", "Page Size", []),
+                ("文件大小", "File Size", []),
+                ("创建时间", "Created", []),
+                ("修改时间", "Modified", []),
+                ("安全性", "Security", []),
+                ("位置", "Where", []),
+                ("复制路径", "Copy Path", []),
+                ("已复制", "Copied", []),
+                ("密码保护（已解锁）", "Password Protected (Unlocked)", []),
+                ("标准（无加密）", "Standard (Unencrypted)", []),
+                ("文库", "Library", []),
+                ("网格视图", "Grid View", []),
+                ("列表视图", "List View", []),
+                ("展开全部", "Expand All", []),
+                ("折叠全部", "Collapse All", []),
             ]
             for lang in AppLanguage.allCases where lang != .system && lang != .zhHans && lang != .en {
                 L10n.currentLanguage = lang
@@ -2023,6 +2061,7 @@ struct ReaderRegressionTests {
                 check(L10n.selectedPagesCount(3).contains("3")
                       && L10n.exportSelectedPages(3).contains("3")
                       && L10n.exportPageCountSummary(3).contains("3")
+                      && L10n.backToPage("5").contains("5")
                       && !L10n.exportImageSummary(count: 1, formatName: "PNG", pixelSize: CGSize(width: 800, height: 1000)).isEmpty
                       && L10n.exportImageSummary(count: 3, formatName: "JPEG", pixelSize: nil).contains("3")
                       && L10n.exportingProgressText(completed: 2, total: 5, formatName: "PNG").contains("2")
@@ -2504,6 +2543,190 @@ struct ReaderRegressionTests {
                 "Discussion"
             ] && typoGenerated.map(\.level) == [0, 1, 0, 1, 0, 1, 0],
                   "typographic fallback recovers hierarchical unnumbered headings and rejects prose wraps, captions and steps")
+
+            // 4. Auto-recognize outline setting defaults on and persists across stores
+            let autoOutlineKey = "expertPDFReader.autoGenerateOutline"
+            let savedAutoOutline = UserDefaults.standard.object(forKey: autoOutlineKey)
+            defer {
+                if let savedAutoOutline {
+                    UserDefaults.standard.set(savedAutoOutline, forKey: autoOutlineKey)
+                } else {
+                    UserDefaults.standard.removeObject(forKey: autoOutlineKey)
+                }
+            }
+            UserDefaults.standard.removeObject(forKey: autoOutlineKey)
+            let defaultStore = freshStore()
+            check(defaultStore.autoGenerateOutline == true,
+                  "autoGenerateOutline defaults to true when unset")
+            defaultStore.autoGenerateOutline = false
+            let reloadedOffStore = AppStore()
+            check(reloadedOffStore.autoGenerateOutline == false,
+                  "autoGenerateOutline=false persists via UserDefaults")
+            reloadedOffStore.autoGenerateOutline = true
+            let reloadedOnStore = AppStore()
+            check(reloadedOnStore.autoGenerateOutline == true,
+                  "autoGenerateOutline=true persists via UserDefaults")
+
+            // 5. Native printing readiness & Home Recents/Favorites compact date and reading progress badge
+            let homePrintStore = freshStore()
+            let printTab = homePrintStore.openDocument(at: outlineURL, interactive: false)!
+            check(printTab.canPrintActiveDocument,
+                  "normal loaded PDF reports canPrintActiveDocument == true")
+            if let printOp = printTab.makePrintOperation() {
+                check(printOp.printInfo.horizontalPagination == .fit
+                      && printOp.printInfo.verticalPagination == .fit
+                      && printOp.jobTitle == printTab.title,
+                      "makePrintOperation configures fit pagination and document job title")
+            } else {
+                check(false, "makePrintOperation returns non-nil NSPrintOperation for printable PDF")
+            }
+
+            let outlineDocID = printTab.documentID
+            let recentDocItem = homePrintStore.documents.first(where: { $0.documentID == outlineDocID })
+            check(recentDocItem?.dateOpenedText.contains(":") == false,
+                  "dateOpenedText uses compact relative date without time-of-day truncation")
+
+            printTab.currentPageIndex = 1
+            let progressPageCount = printTab.pageCount
+            homePrintStore.closeTab(id: printTab.id)
+            if let docItemForProgress = homePrintStore.documents.first(where: { $0.documentID == outlineDocID }) {
+                check(homePrintStore.savedReadingPageLabel(for: docItemForProgress) == "2 / \(progressPageCount)",
+                      "savedReadingPageLabel formats active reading progress cleanly")
+                if let inProgress = homePrintStore.inProgressReadingState(for: docItemForProgress) {
+                    check(inProgress.label == "2 / \(progressPageCount)" && abs(inProgress.fraction - (2.0 / Double(progressPageCount))) < 0.001,
+                          "inProgressReadingState returns label and fraction only when mid-document")
+                } else {
+                    check(false, "inProgressReadingState returns value when stopped mid-document")
+                }
+            } else {
+                check(false, "document item available to check savedReadingPageLabel")
+            }
+            if let reopenEnd = homePrintStore.openDocument(at: outlineURL, interactive: false) {
+                reopenEnd.currentPageIndex = progressPageCount - 1
+                homePrintStore.closeTab(id: reopenEnd.id)
+                if let finishedDoc = homePrintStore.documents.first(where: { $0.documentID == outlineDocID }) {
+                    check(homePrintStore.inProgressReadingState(for: finishedDoc) == nil,
+                          "inProgressReadingState hides overlay badge when finished on the last page")
+                }
+            }
+
+            // 6. Outline filtering helper, internal link jump-back history, DocumentMetadataSnapshot, and page rotation persistence
+            let childSection = PDFOutlineNode(title: "1.2 Methodology", pageIndex: 4, point: nil, children: [])
+            let parentChapter = PDFOutlineNode(title: "1 Introduction", pageIndex: 1, point: nil, children: [childSection])
+            let appendixChapter = PDFOutlineNode(title: "Appendix A", pageIndex: 12, point: nil, children: [])
+            let sampleNodes = [parentChapter, appendixChapter]
+            let filteredByChild = PDFOutlinePanel.filteredRows(
+                nodes: sampleNodes,
+                query: "method",
+                expandedIDs: [],
+                pageLabel: { "\($0 + 1)" }
+            )
+            check(filteredByChild.map(\.node.id) == [parentChapter.id, childSection.id]
+                  && filteredByChild.map(\.level) == [0, 1],
+                  "outline filter reveals collapsed parent chapters containing matching subsections")
+            let filteredByPage = PDFOutlinePanel.filteredRows(
+                nodes: sampleNodes,
+                query: "13",
+                expandedIDs: [],
+                pageLabel: { "\($0 + 1)" }
+            )
+            check(filteredByPage.map(\.node.id) == [appendixChapter.id],
+                  "outline filter matches display page numbers")
+            check(PDFOutlinePanel.filteredRows(nodes: sampleNodes, query: "nonexistent", expandedIDs: [], pageLabel: { "\($0 + 1)" }).isEmpty,
+                  "outline filter returns empty array when no sections match")
+
+            let navURL = try fixture("NavHistory", mixedNumbers: true)
+            let navStore = freshStore()
+            let navTab = navStore.openDocument(at: navURL, interactive: false)!
+            navTab.undoManager.groupsByEvent = false
+            navTab.stepPage(by: 1)
+            check(navTab.canGoBack && navTab.jumpBackDestination == nil,
+                  "sequential page step records history without popping up the jump-back pill")
+            navTab.navigateToPage(3)
+            check(navTab.jumpBackDestination?.pageIndex == 1 && navTab.jumpBackDestination?.point == nil,
+                  "multi-page direct jump surfaces the jump-back banner for the origin page")
+            let originSpot = DocumentTabState.ReadingSpot(pageIndex: 2, point: CGPoint(x: 90, y: 540))
+            let tokenBeforeLink = navTab.jumpBackToken
+            navTab.recordInternalLinkJump(from: originSpot, to: 5)
+            check(navTab.currentPageIndex == 5
+                  && navTab.jumpBackDestination?.pageIndex == 2
+                  && navTab.jumpBackDestination?.point == CGPoint(x: 90, y: 540)
+                  && navTab.jumpBackToken == tokenBeforeLink + 1,
+                  "internal link jump records exact pre-jump reading spot and triggers jump-back banner")
+            navTab.goBack()
+            check(navTab.currentPageIndex == 2
+                  && navTab.pageJumpPoint == CGPoint(x: 90, y: 540)
+                  && navTab.jumpBackDestination == nil
+                  && navTab.canGoForward,
+                  "going back after an internal link click restores exact page coordinates and clears jump-back pill")
+            navTab.goForward()
+            check(navTab.currentPageIndex == 5 && navTab.canGoBack,
+                  "going forward after returning restores the link destination page")
+
+            let metaURL = try fixture("InspectorMetadata")
+            if let metaDoc = PDFDocument(url: metaURL) {
+                metaDoc.documentAttributes = [
+                    PDFDocumentAttribute.titleAttribute: "Spec Sheet",
+                    PDFDocumentAttribute.authorAttribute: "Ada Lovelace",
+                    PDFDocumentAttribute.keywordsAttribute: ["PDF", "macOS"]
+                ]
+                if let page0 = metaDoc.page(at: 0) {
+                    let a4Rect = CGRect(x: 0, y: 0, width: 595.28, height: 841.89)
+                    page0.setBounds(a4Rect, for: .mediaBox)
+                    page0.setBounds(a4Rect, for: .cropBox)
+                }
+                let snap = DocumentMetadataSnapshot.extract(from: metaDoc, url: metaURL, pageIndex: 0)
+                check(snap.displayTitle == "Spec Sheet"
+                      && snap.author == "Ada Lovelace"
+                      && snap.keywords == "PDF, macOS"
+                      && snap.hasMetadata
+                      && snap.pageSizeText == "210 × 297 mm (A4)",
+                      "DocumentMetadataSnapshot extracts document attributes and detects A4 paper size")
+            } else {
+                check(false, "created PDF document loads for metadata snapshot inspection")
+            }
+
+            let rotURL = try fixture("RotationPersistence")
+            let rotStore = freshStore()
+            let rotTab = rotStore.openDocument(at: rotURL, interactive: false)!
+            rotTab.undoManager.groupsByEvent = false
+            rotTab.undoManager.beginUndoGrouping()
+            rotTab.rotatePage(at: 1, clockwise: true)
+            rotTab.undoManager.endUndoGrouping()
+            rotTab.undoManager.beginUndoGrouping()
+            rotTab.rotatePage(at: 2, clockwise: false)
+            rotTab.undoManager.endUndoGrouping()
+            check(rotTab.customPageRotations == [1: 90, 2: 270],
+                  "rotating pages tracks normalized custom page rotations")
+            rotStore.closeTab(id: rotTab.id)
+
+            let reloadedRotStore = AppStore()
+            if let reopenedRot = reloadedRotStore.openDocument(at: rotURL, interactive: false) {
+                check(reopenedRot.pdfDocument.page(at: 1)?.rotation == 90
+                      && reopenedRot.pdfDocument.page(at: 2)?.rotation == 270
+                      && reopenedRot.customPageRotations == [1: 90, 2: 270],
+                      "saved page rotations persist across AppStore reloads")
+                reopenedRot.undoManager.groupsByEvent = false
+                reopenedRot.undoManager.beginUndoGrouping()
+                reopenedRot.rotatePage(at: 1, clockwise: false)
+                reopenedRot.undoManager.endUndoGrouping()
+                check(reopenedRot.customPageRotations[1] == nil && reopenedRot.customPageRotations[2] == 270,
+                      "rotating a page back to original angle removes its custom rotation override")
+                reloadedRotStore.closeTab(id: reopenedRot.id)
+
+                let renamedRotURL = root.appendingPathComponent("RotationRenamed.pdf")
+                try FileManager.default.moveItem(at: rotURL, to: renamedRotURL)
+                reloadedRotStore.pruneMissingDocuments()
+                if let afterRename = reloadedRotStore.openDocument(at: renamedRotURL, interactive: false) {
+                    check(afterRename.pdfDocument.page(at: 2)?.rotation == 270
+                          && afterRename.pdfDocument.page(at: 1)?.rotation == 0,
+                          "saved page rotations follow Finder file renames")
+                } else {
+                    check(false, "reopening renamed PDF preserves rotation state")
+                }
+            } else {
+                check(false, "reopening rotated PDF restores saved page rotations")
+            }
         }
         if !failures.isEmpty {
             print("\(failures.count) regression checks failed")

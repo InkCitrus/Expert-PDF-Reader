@@ -48,6 +48,8 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
     public let onReadingLocationChange: ((Int, CGFloat) -> Void)?
     /// The text at the top of the view while scrolling, to return to after the crop boxes change
     public let onReadingSpotChange: ((DocumentTabState.ReadingSpot) -> Void)?
+    /// Called when the user clicks an internal PDF link that moves the viewport (page change or >= 80pt scroll)
+    public let onInternalLinkJump: ((DocumentTabState.ReadingSpot, Int) -> Void)?
 
     public init(
         pdfDocument: PDFDocument,
@@ -76,7 +78,8 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         onAutoScalesChange: ((Bool) -> Void)? = nil,
         onStepPage: ((Int) -> Void)? = nil,
         onReadingLocationChange: ((Int, CGFloat) -> Void)? = nil,
-        onReadingSpotChange: ((DocumentTabState.ReadingSpot) -> Void)? = nil
+        onReadingSpotChange: ((DocumentTabState.ReadingSpot) -> Void)? = nil,
+        onInternalLinkJump: ((DocumentTabState.ReadingSpot, Int) -> Void)? = nil
     ) {
         self.pdfDocument = pdfDocument
         self._currentPageIndex = currentPageIndex
@@ -105,6 +108,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         self.onStepPage = onStepPage
         self.onReadingLocationChange = onReadingLocationChange
         self.onReadingSpotChange = onReadingSpotChange
+        self.onInternalLinkJump = onInternalLinkJump
     }
 
     private static let pageBreakMargins = NSEdgeInsets(top: 10, left: 12, bottom: 10, right: 12)
@@ -246,7 +250,10 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                 coordinator.reportReadingLocation(of: pdfView)
                 // Auto scaling settles on the next pass; return to the same spot once more
                 if let savedDestination {
+                    let themed = pdfView as? ThemedPDFView
+                    themed?.isApplyingConfiguration = true
                     pdfView.go(to: savedDestination)
+                    themed?.isApplyingConfiguration = false
                 }
                 if refitsWidth {
                     self.onAutoScalesChange?(true)
@@ -287,6 +294,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         if let themed = pdfView as? ThemedPDFView {
             themed.onStepPage = onStepPage
             themed.onPaneActivation = onPaneActivation
+            themed.onInternalLinkJump = onInternalLinkJump
             themed.isInteractive = isInteractive
             themed.handlesUnfocusedArrowKeys = handlesUnfocusedArrowKeys
             themed.readsRightToLeft = readsRightToLeft
@@ -529,7 +537,10 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                 if let spot = self.pendingReadingSpot {
                     Self.scroll(pdfView, toTop: spot)
                 } else if let pending = self.pendingDestination {
+                    let themed = pdfView as? ThemedPDFView
+                    themed?.isApplyingConfiguration = true
                     pdfView.go(to: pending)
+                    themed?.isApplyingConfiguration = false
                 }
             }
 
@@ -816,6 +827,8 @@ final class ThemedPDFView: PDFView {
     var currentAccentColor: AppAccentColor = .blue
     var onStepPage: ((Int) -> Void)?
     var onPaneActivation: (() -> Void)?
+    var onInternalLinkJump: ((DocumentTabState.ReadingSpot, Int) -> Void)?
+    private var isTrackingInternalLink = false
     var handlesUnfocusedArrowKeys = true
     var isInteractive = true
     var readsRightToLeft = false
@@ -823,6 +836,41 @@ final class ThemedPDFView: PDFView {
     var isApplyingConfiguration = false
     var onAutoScalesDidChange: ((Bool) -> Void)?
     var onDidSettleLiveLayout: (() -> Void)?
+
+    private func currentTopSpot() -> DocumentTabState.ReadingSpot? {
+        guard let doc = document else { return nil }
+        let top = PDFReaderCanvasView.Coordinator.topEdge(of: self)
+        guard let p = page(for: top, nearest: true) ?? currentPage else { return nil }
+        let idx = doc.index(for: p)
+        guard idx >= 0 && idx < doc.pageCount else { return nil }
+        return DocumentTabState.ReadingSpot(pageIndex: idx, point: convert(top, to: p))
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let overLink = !isApplyingConfiguration && !isRestoringInitialState
+            && areaOfInterest(forMouse: event).contains(.linkArea)
+        let beforeSpot = overLink ? currentTopSpot() : nil
+        isTrackingInternalLink = overLink
+        super.mouseDown(with: event)
+        isTrackingInternalLink = false
+        if let beforeSpot, let afterSpot = currentTopSpot(),
+           (afterSpot.pageIndex != beforeSpot.pageIndex || abs(afterSpot.point.y - beforeSpot.point.y) > 80) {
+            onInternalLinkJump?(beforeSpot, afterSpot.pageIndex)
+        }
+    }
+
+    override func perform(_ action: PDFAction) {
+        guard !isTrackingInternalLink && !isApplyingConfiguration && !isRestoringInitialState else {
+            super.perform(action)
+            return
+        }
+        let beforeSpot = currentTopSpot()
+        super.perform(action)
+        if let beforeSpot, let afterSpot = currentTopSpot(),
+           (afterSpot.pageIndex != beforeSpot.pageIndex || abs(afterSpot.point.y - beforeSpot.point.y) > 80) {
+            onInternalLinkJump?(beforeSpot, afterSpot.pageIndex)
+        }
+    }
 
     /// Page and zoom to show once the view has a size: `go(to:)` and `scaleFactor` before the first layout are lost.
     var pendingInitialPage: PDFPage?

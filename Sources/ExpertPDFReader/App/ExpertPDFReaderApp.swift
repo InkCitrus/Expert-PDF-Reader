@@ -251,7 +251,8 @@ public struct ExpertPDFReaderApp: App {
         Settings {
             SettingsView(store: store)
         }
-        .windowResizability(.contentSize)
+        .windowResizability(.contentMinSize)
+        .defaultSize(width: 700, height: 450)
     }
 }
 
@@ -324,6 +325,12 @@ struct ReaderMenuCommands: Commands {
 
         // Replaces File › Close / Close All, whose ⌘W clashed with Close Tab
         CommandGroup(replacing: .saveItem) {
+            Button(L10n.tr("文档信息…", "Document Info…")) {
+                store.activeDocumentTab?.isDocumentInfoPresented = true
+            }
+            .keyboardShortcut("i", modifiers: [.command])
+            .disabled(store.activeDocumentTab == nil)
+
             Button(L10n.tr("导出…", "Export…")) {
                 store.activeDocumentTab?.beginExportPanel(
                     in: store.activeSession.nsWindow,
@@ -344,6 +351,14 @@ struct ReaderMenuCommands: Commands {
                 (NSApp.keyWindow ?? NSApp.mainWindow)?.performClose(nil)
             }
             .keyboardShortcut("w", modifiers: [.command, .shift])
+        }
+
+        CommandGroup(replacing: .printItem) {
+            Button(L10n.tr("打印…", "Print…")) {
+                store.activeDocumentTab?.printActiveDocument(in: store.activeSession.nsWindow)
+            }
+            .keyboardShortcut("p", modifiers: [.command])
+            .disabled(store.activeDocumentTab?.canPrintActiveDocument != true)
         }
 
         CommandGroup(replacing: .undoRedo) {

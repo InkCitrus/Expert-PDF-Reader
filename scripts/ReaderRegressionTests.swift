@@ -2643,8 +2643,10 @@ struct ReaderRegressionTests {
             check(navTab.canGoBack && navTab.jumpBackDestination == nil,
                   "sequential page step records history without popping up the jump-back pill")
             navTab.navigateToPage(3)
-            check(navTab.jumpBackDestination?.pageIndex == 1 && navTab.jumpBackDestination?.point == nil,
-                  "multi-page direct jump surfaces the jump-back banner for the origin page")
+            check(navTab.canGoBack
+                  && navTab.backDestinationPageIndex == 1
+                  && navTab.jumpBackDestination == nil,
+                  "direct UI navigation records back history without triggering the link jump-back banner")
             let originSpot = DocumentTabState.ReadingSpot(pageIndex: 2, point: CGPoint(x: 90, y: 540))
             let tokenBeforeLink = navTab.jumpBackToken
             navTab.recordInternalLinkJump(from: originSpot, to: 5)
@@ -2668,6 +2670,12 @@ struct ReaderRegressionTests {
             navTab.goForward()
             check(navTab.currentPageIndex == 5 && navTab.canGoBack && navTab.forwardDestinationPageIndex == nil,
                   "going forward after returning restores the link destination page")
+            navTab.recordInternalLinkJump(from: originSpot, to: 5)
+            check(navTab.jumpBackDestination != nil,
+                  "internal link click sets jumpBackDestination before subsequent direct navigation")
+            navTab.navigateToPage(3)
+            check(navTab.jumpBackDestination == nil,
+                  "direct navigation after an internal link clears the previous jump-back banner")
 
             let metaURL = try fixture("InspectorMetadata")
             if let metaDoc = PDFDocument(url: metaURL) {

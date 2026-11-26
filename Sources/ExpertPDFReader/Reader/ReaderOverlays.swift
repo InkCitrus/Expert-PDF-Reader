@@ -526,87 +526,39 @@ struct JumpBackBanner: View {
         let isDark = colorScheme == .dark
         let pdfTheme = store.resolvedPDFTheme(isDark: isDark)
         let foreground = AppPalette.pageIndicatorForeground(pdfTheme: pdfTheme, isDarkUI: isDark)
-        let hasHistory = tab.canGoBack || tab.canGoForward
-        let shown = forceVisible || (hasHistory && ((isVisible && tab.canGoBack && tab.jumpBackDestination != nil) || isHovered || isInRevealZone))
+        let activeJumpBack = tab.canGoBack && tab.jumpBackDestination != nil
+        let shown = forceVisible || (activeJumpBack && (isVisible || isHovered || isInRevealZone))
+        let targetIndex = tab.jumpBackDestination?.pageIndex ?? (forceVisible ? tab.backDestinationPageIndex : nil)
 
         ZStack(alignment: .bottomLeading) {
             PageIndicatorRevealArea { isInRevealZone = $0 }
                 .frame(width: 148, height: 76)
 
             Group {
-                if hasHistory {
-                    HStack(spacing: 0) {
-                        if let backIdx = tab.jumpBackDestination?.pageIndex ?? tab.backDestinationPageIndex, tab.canGoBack {
-                            let showsForwardSegment = tab.canGoForward && (isHovered || isInRevealZone || forceVisible)
-                            Button {
-                                hideTask?.cancel()
-                                isVisible = false
-                                tab.goBack()
-                            } label: {
-                                HStack(spacing: 5) {
-                                    Image(systemName: "chevron.backward")
-                                        .font(.system(size: 11, weight: .semibold))
-                                        .opacity(0.82)
-                                    Text(L10n.backToPage(tab.cleanPageLabel(at: backIdx)))
-                                        .font(.system(size: 12.5, weight: .semibold))
-                                        .monospacedDigit()
-                                        .lineLimit(1)
-                                }
-                                .padding(.leading, 11)
-                                .padding(.trailing, showsForwardSegment ? 9 : 12)
-                                .padding(.vertical, 6)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .help(L10n.parenthetical(L10n.tr("返回", "Back"), "⌘["))
-                            .accessibilityLabel(Text(L10n.backToPage(tab.cleanPageLabel(at: backIdx))))
-
-                            if showsForwardSegment {
-                                Rectangle()
-                                    .fill(foreground.opacity(0.22))
-                                    .frame(width: 1, height: 13)
-
-                                Button {
-                                    hideTask?.cancel()
-                                    isVisible = false
-                                    tab.goForward()
-                                } label: {
-                                    Image(systemName: "chevron.forward")
-                                        .font(.system(size: 11, weight: .semibold))
-                                        .opacity(0.85)
-                                        .frame(width: 28, height: 28)
-                                        .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                                .help(L10n.parenthetical(L10n.tr("前进", "Forward"), "⌘]"))
-                                .accessibilityLabel(Text(L10n.tr("前进", "Forward")))
-                            }
-                        } else if let fwdIdx = tab.forwardDestinationPageIndex, tab.canGoForward {
-                            Button {
-                                hideTask?.cancel()
-                                isVisible = false
-                                tab.goForward()
-                            } label: {
-                                HStack(spacing: 5) {
-                                    Text(L10n.jumpToPage(tab.cleanPageLabel(at: fwdIdx)))
-                                        .font(.system(size: 12.5, weight: .semibold))
-                                        .monospacedDigit()
-                                        .lineLimit(1)
-                                    Image(systemName: "chevron.forward")
-                                        .font(.system(size: 11, weight: .semibold))
-                                        .opacity(0.82)
-                                }
-                                .padding(.leading, 12)
-                                .padding(.trailing, 11)
-                                .padding(.vertical, 6)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .help(L10n.parenthetical(L10n.tr("前进", "Forward"), "⌘]"))
-                            .accessibilityLabel(Text(L10n.jumpToPage(tab.cleanPageLabel(at: fwdIdx))))
+                if let backIdx = targetIndex {
+                    Button {
+                        hideTask?.cancel()
+                        isVisible = false
+                        tab.goBack()
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "chevron.backward")
+                                .font(.system(size: 11, weight: .semibold))
+                                .opacity(0.82)
+                            Text(L10n.backToPage(tab.cleanPageLabel(at: backIdx)))
+                                .font(.system(size: 12.5, weight: .semibold))
+                                .monospacedDigit()
+                                .lineLimit(1)
                         }
+                        .padding(.leading, 11)
+                        .padding(.trailing, 12)
+                        .padding(.vertical, 6)
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                     .fixedSize(horizontal: true, vertical: false)
+                    .help(L10n.parenthetical(L10n.tr("返回", "Back"), "⌘["))
+                    .accessibilityLabel(Text(L10n.backToPage(tab.cleanPageLabel(at: backIdx))))
                     .foregroundColor(foreground)
                     .background(
                         RoundedRectangle(cornerRadius: 9, style: .continuous)
@@ -622,7 +574,7 @@ struct JumpBackBanner: View {
                         isHovered = hovering
                         if hovering {
                             hideTask?.cancel()
-                        } else if isVisible {
+                        } else if activeJumpBack {
                             flash()
                         }
                     }
@@ -641,8 +593,8 @@ struct JumpBackBanner: View {
             guard tab.canGoBack, tab.jumpBackDestination != nil else { return }
             flash()
         }
-        .onChange(of: hasHistory) { _, available in
-            if !available {
+        .onChange(of: activeJumpBack) { _, active in
+            if !active {
                 hideTask?.cancel()
                 isVisible = false
             }
@@ -656,7 +608,7 @@ struct JumpBackBanner: View {
         isVisible = true
         hideTask?.cancel()
         hideTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 2_200_000_000)
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
             guard !Task.isCancelled else { return }
             isVisible = false
         }

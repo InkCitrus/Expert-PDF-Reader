@@ -705,10 +705,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     }
 
     public func stepPage(by direction: Int) {
-        navigateToPage(
-            layoutMode.pageIndex(afterStepping: direction, from: currentPageIndex, pageCount: pageCount),
-            isSequentialStep: true
-        )
+        navigateToPage(layoutMode.pageIndex(afterStepping: direction, from: currentPageIndex, pageCount: pageCount))
     }
 
     func showReadingLayout(_ mode: ReaderLayoutMode) {
@@ -726,22 +723,20 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     public func navigateToPage(
         _ index: Int,
         point: CGPoint? = nil,
-        recordHistory: Bool = true,
-        isSequentialStep: Bool = false
+        recordHistory: Bool = true
     ) {
         let clamped = max(0, min(max(0, pageCount - 1), index))
         // A precise point on the current page still scrolls; only a plain same-page jump is a no-op
         guard clamped != currentPageIndex || point != nil else { return }
         let previousPage = currentPageIndex
         readingSpot = nil
-        if recordHistory && !isNavigatingHistory && clamped != previousPage {
-            let entry = NavigationHistoryEntry(pageIndex: previousPage, point: nil)
-            backEntries.append(entry)
-            if backEntries.count > 50 { backEntries.removeFirst() }
-            forwardEntries.removeAll()
-            if !isSequentialStep && abs(clamped - previousPage) > 1 {
-                jumpBackDestination = entry
-                jumpBackToken &+= 1
+        if !isNavigatingHistory && clamped != previousPage {
+            // Outline, thumbnail, bookmark, search, and Go to Page jumps never pop up the link-return banner.
+            jumpBackDestination = nil
+            if recordHistory {
+                backEntries.append(NavigationHistoryEntry(pageIndex: previousPage, point: nil))
+                if backEntries.count > 50 { backEntries.removeFirst() }
+                forwardEntries.removeAll()
             }
         }
         currentPageIndex = clamped

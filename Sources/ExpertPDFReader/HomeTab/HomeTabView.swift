@@ -163,17 +163,21 @@ public struct HomeTabRootView: View {
                 emptyText: L10n.tr("打开过的 PDF 会显示在这里，方便随时继续阅读。", "Recently opened PDFs will appear here so you can pick up where you left off.")
             )
 
-            // Split-view picker has no sidebar, so expose Favorites there when non-empty
-            if isStandaloneSplitPane && !store.favoriteDocuments.isEmpty {
-                documentsSection(
-                    title: L10n.tr("收藏夹", "Favorites"),
-                    emptyIcon: "star",
-                    items: store.favoriteDocuments,
-                    actions: [],
-                    allowsRemoval: false,
-                    emptyText: L10n.tr("将鼠标悬停在文档上并点按星标，即可加入收藏夹。", "Hover over a document and click the star to add it to Favorites.")
-                )
-            }
+            // Favorites
+            documentsSection(
+                title: L10n.tr("收藏夹", "Favorites"),
+                emptyIcon: "star",
+                items: store.favoriteDocuments,
+                actions: isStandaloneSplitPane ? [] : [
+                    HomeSectionAction(title: L10n.tr("查看全部", "See All"), trailingIcon: "chevron.right") {
+                        withAnimation(AppAnimation.panel) {
+                            session.homeCurrentPage = .favorites
+                        }
+                    }
+                ],
+                allowsRemoval: false,
+                emptyText: L10n.tr("将鼠标悬停在文档上并点按星标，即可加入收藏夹。", "Hover over a document and click the star to add it to Favorites.")
+            )
         }
     }
 

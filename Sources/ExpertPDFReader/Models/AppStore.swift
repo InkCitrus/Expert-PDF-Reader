@@ -75,6 +75,8 @@ public struct ReadingPosition: Codable, Equatable {
     /// The result of reading the book's printed page numbers, so it is done once per book
     public var bookPageScan: BookPageScan?
     public var readingSpot: DocumentTabState.ReadingSpot?
+    /// User-applied rotation overrides keyed by 0-based page index (`nil` when every page is at its PDF default)
+    public var pageRotations: [Int: Int]? = nil
     public var updatedAt: Date
 }
 
@@ -908,9 +910,25 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         PageExporter.beginExportPanel(context: context, initialPages: pages, session: session, in: window)
     }
 
+    public struct NavigationHistoryEntry: Equatable {
+        public let pageIndex: Int
+        public let point: CGPoint?
+
+        public init(pageIndex: Int, point: CGPoint? = nil) {
+            self.pageIndex = pageIndex
+            self.point = point
+        }
+    }
+
     // Navigation History (Go Back / Go Forward)
-    @Published public private(set) var backStack: [Int] = []
-    @Published public private(set) var forwardStack: [Int] = []
+    @Published private var backEntries: [NavigationHistoryEntry] = []
+    private var forwardEntries: [NavigationHistoryEntry] = []
+    public var backStack: [Int] { backEntries.map(\.pageIndex) }
+    @Published public private(set) var jumpBackDestination: NavigationHistoryEntry?
+    @Published public private(set) var jumpBackToken: Int = 0
+    @Published public var isDocumentInfoPresented: Bool = false
+    @Published public private(set) var customPageRotations: [Int: Int] = [:]
+    private var originalPageRotations: [Int: Int] = [:]
     private var isNavigatingHistory: Bool = false
 
     // Search state; `isSearchVisible` drives the right results dock
@@ -1120,6 +1138,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
             pageDirection: pageDirection,
             bookPageScan: pageScan,
             readingSpot: readingSpot,
+            pageRotations: customPageRotations.isEmpty ? nil : customPageRotations,
             updatedAt: Date()
         )
     }
@@ -1144,6 +1163,21 @@ public final class DocumentTabState: ObservableObject, Identifiable {
             }
             self.pageScan = pageScan
         }
+        if let savedRotations = position.pageRotations, !savedRotations.isEmpty {
+            for (idx, angle) in savedRotations where (0..<pageCount).contains(idx) {
+                guard let page = pdfDocument.page(at: idx) else { continue }
+                if originalPageRotations[idx] == nil {
+                    originalPageRotations[idx] = page.rotation
+                }
+                let normalized = ((angle % 360) + 360) % 360
+                if page.rotation != normalized {
+                    page.rotation = normalized
+                }
+                if normalized != originalPageRotations[idx] {
+                    customPageRotations[idx] = normalized
+                }
+            }
+        }
     }
 
     /// Keeps `isAutoScaling` in sync with `PDFView.autoScales` (including native context-menu "Automatically Resize").
@@ -1154,7 +1188,10 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     }
 
     public func stepPage(by direction: Int) {
-        navigateToPage(layoutMode.pageIndex(afterStepping: direction, from: currentPageIndex, pageCount: pageCount))
+        navigateToPage(
+            layoutMode.pageIndex(afterStepping: direction, from: currentPageIndex, pageCount: pageCount),
+            isSequentialStep: true
+        )
     }
 
     func showReadingLayout(_ mode: ReaderLayoutMode) {
@@ -1169,15 +1206,26 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         }
     }
 
-    public func navigateToPage(_ index: Int, point: CGPoint? = nil, recordHistory: Bool = true) {
+    public func navigateToPage(
+        _ index: Int,
+        point: CGPoint? = nil,
+        recordHistory: Bool = true,
+        isSequentialStep: Bool = false
+    ) {
         let clamped = max(0, min(max(0, pageCount - 1), index))
         // A precise point on the current page still scrolls; only a plain same-page jump is a no-op
         guard clamped != currentPageIndex || point != nil else { return }
+        let previousPage = currentPageIndex
         readingSpot = nil
-        if recordHistory && !isNavigatingHistory && clamped != currentPageIndex {
-            backStack.append(currentPageIndex)
-            if backStack.count > 50 { backStack.removeFirst() }
-            forwardStack.removeAll()
+        if recordHistory && !isNavigatingHistory && clamped != previousPage {
+            let entry = NavigationHistoryEntry(pageIndex: previousPage, point: nil)
+            backEntries.append(entry)
+            if backEntries.count > 50 { backEntries.removeFirst() }
+            forwardEntries.removeAll()
+            if !isSequentialStep && abs(clamped - previousPage) > 1 {
+                jumpBackDestination = entry
+                jumpBackToken &+= 1
+            }
         }
         currentPageIndex = clamped
         pageJumpPoint = point
@@ -1185,6 +1233,24 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         if syncScrollAndZoom && secondaryPDFDocument == pdfDocument {
             secondaryPageIndex = clamped
         }
+    }
+
+    /// Records an internal PDF link click in navigation history and surfaces the floating return pill.
+    public func recordInternalLinkJump(from origin: ReadingSpot, to destinationPage: Int) {
+        let clampedDest = max(0, min(max(0, pageCount - 1), destinationPage))
+        let entry = NavigationHistoryEntry(pageIndex: origin.pageIndex, point: origin.point)
+        backEntries.append(entry)
+        if backEntries.count > 50 { backEntries.removeFirst() }
+        forwardEntries.removeAll()
+        if currentPageIndex != clampedDest {
+            currentPageIndex = clampedDest
+        }
+        jumpBackDestination = entry
+        jumpBackToken &+= 1
+    }
+
+    public func dismissJumpBackPrompt() {
+        jumpBackDestination = nil
     }
 
     func navigateSecondaryPane(to index: Int) {
@@ -1198,27 +1264,31 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         }
     }
 
-    public var canGoBack: Bool { !backStack.isEmpty }
-    public var canGoForward: Bool { !forwardStack.isEmpty }
+    public var canGoBack: Bool { !backEntries.isEmpty }
+    public var canGoForward: Bool { !forwardEntries.isEmpty }
 
     public func goBack() {
-        guard let prev = backStack.popLast() else { return }
+        guard let prev = backEntries.popLast() else { return }
+        let currentSpotPoint = (readingSpot?.pageIndex == currentPageIndex) ? readingSpot?.point : nil
         readingSpot = nil
-        pageJumpPoint = nil
+        jumpBackDestination = nil
         isNavigatingHistory = true
-        forwardStack.append(currentPageIndex)
-        currentPageIndex = prev
+        forwardEntries.append(NavigationHistoryEntry(pageIndex: currentPageIndex, point: currentSpotPoint))
+        currentPageIndex = prev.pageIndex
+        pageJumpPoint = prev.point
         pageJumpToken &+= 1
         isNavigatingHistory = false
     }
 
     public func goForward() {
-        guard let next = forwardStack.popLast() else { return }
+        guard let next = forwardEntries.popLast() else { return }
+        let currentSpotPoint = (readingSpot?.pageIndex == currentPageIndex) ? readingSpot?.point : nil
         readingSpot = nil
-        pageJumpPoint = nil
+        jumpBackDestination = nil
         isNavigatingHistory = true
-        backStack.append(currentPageIndex)
-        currentPageIndex = next
+        backEntries.append(NavigationHistoryEntry(pageIndex: currentPageIndex, point: currentSpotPoint))
+        currentPageIndex = next.pageIndex
+        pageJumpPoint = next.point
         pageJumpToken &+= 1
         isNavigatingHistory = false
     }
@@ -1310,11 +1380,22 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     private func applyPageRotations(_ rotations: [(Int, Int)], in document: PDFDocument, actionName: String) {
         let previous: [(Int, Int)] = rotations.compactMap { idx, _ in
             guard let page = document.page(at: idx) else { return nil }
+            if document === pdfDocument && originalPageRotations[idx] == nil {
+                originalPageRotations[idx] = page.rotation
+            }
             return (idx, page.rotation)
         }
         guard !previous.isEmpty else { return }
         for (idx, newRotation) in rotations {
             document.page(at: idx)?.rotation = newRotation
+            if document === pdfDocument {
+                let normalized = ((newRotation % 360) + 360) % 360
+                if normalized == originalPageRotations[idx] {
+                    customPageRotations.removeValue(forKey: idx)
+                } else {
+                    customPageRotations[idx] = normalized
+                }
+            }
         }
         rememberReadingSpots()
         let indexSet = Set(rotations.map(\.0))
@@ -3788,6 +3869,16 @@ public final class AppStore: ObservableObject {
             .combineLatest(tab.$pageDirection, tab.$pageScan)
             .dropFirst()
             .debounce(for: .seconds(1), scheduler: RunLoop.main)
+            .sink { [weak self, weak tab] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let tab else { return }
+                    self.rememberReadingPositions(of: [tab])
+                }
+            }
+            .store(in: &tab.cancellables)
+
+        tab.$customPageRotations
+            .dropFirst()
             .sink { [weak self, weak tab] _ in
                 MainActor.assumeIsolated {
                     guard let self, let tab else { return }

@@ -408,6 +408,14 @@ public struct ShortcutsAndTipsSheetView: View {
                 chords: [["⌘", "P"]]
             ),
             ShortcutEntry(
+                id: "document_info",
+                category: .tabs,
+                icon: "info.circle",
+                title: L10n.tr("文档信息…", "Document Info…"),
+                subtitle: nil,
+                chords: [["⌘", "I"]]
+            ),
+            ShortcutEntry(
                 id: "new_home",
                 category: .tabs,
                 icon: "house",

@@ -43,6 +43,9 @@ public struct PDFReaderView: View {
         .animation(AppAnimation.panel, value: tab.isPageOverviewVisible)
         .animation(AppAnimation.panel, value: tab.splitMode)
         .background(store.resolvedPDFTheme(isDark: isDark).documentBackgroundColor(isDarkUI: isDark))
+        .sheet(isPresented: $tab.isDocumentInfoPresented) {
+            DocumentInfoSheetView(store: store, tab: tab)
+        }
         .task(id: tab.documentID) {
             // Restoring background tabs must not compete with the first visible scan for CPU and OCR.
             tab.scanPagesIfNeeded()
@@ -153,8 +156,14 @@ public struct PDFReaderView: View {
             },
             onReadingSpotChange: { spot in
                 tab.readingSpot = spot
+            },
+            onInternalLinkJump: { origin, destPage in
+                tab.recordInternalLinkJump(from: origin, to: destPage)
             }
         )
+        .overlay(alignment: .bottomLeading) {
+            JumpBackBanner(store: store, tab: tab)
+        }
         .overlay(alignment: .bottomTrailing) {
             PageIndicatorOverlay(store: store, tab: tab)
         }

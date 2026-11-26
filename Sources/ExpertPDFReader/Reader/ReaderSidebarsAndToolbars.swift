@@ -1141,11 +1141,17 @@ struct PDFOutlinePanel: View {
     @State private var isGeneratedOutline = false
     @State private var generationTask: Task<Void, Never>?
     @State private var pinnedSelection: PinnedSelection?
+    @State private var filterText: String = ""
+    @State private var userSelectedNodeID: UUID?
 
-    private struct OutlineRow: Identifiable {
+    struct OutlineRow: Identifiable, Equatable {
         let node: PDFOutlineNode
         let level: Int
         var id: UUID { node.id }
+
+        static func == (lhs: OutlineRow, rhs: OutlineRow) -> Bool {
+            lhs.node.id == rhs.node.id && lhs.level == rhs.level
+        }
     }
 
     var body: some View {
@@ -1195,27 +1201,65 @@ struct PDFOutlinePanel: View {
             } else {
                 let rows = visibleRows
                 let activeID = activeNodeID(in: rows)
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(rows) { row in
-                            PDFOutlineRowView(
-                                node: row.node,
-                                pageLabel: row.node.pageIndex.map { tab.displayPageNumber(at: $0) },
-                                level: row.level,
-                                isExpanded: expandedIDs.contains(row.node.id),
-                                isActive: row.node.id == activeID,
-                                isDark: isDark,
-                                onToggle: { toggle(row.node) },
-                                onSelect: {
-                                    if let pIdx = row.node.pageIndex {
-                                        pinnedSelection = PinnedSelection(nodeID: row.node.id, pageIndex: pIdx, settledLineY: nil)
-                                        tab.navigateToPage(pIdx, point: row.node.point)
+                VStack(spacing: 0) {
+                    outlineFilterBar
+                    Rectangle()
+                        .fill(AppPalette.panelSeparator(isDark))
+                        .frame(height: 1)
+
+                    if rows.isEmpty {
+                        PanelEmptyState(
+                            icon: "magnifyingglass",
+                            title: L10n.tr("没有匹配的章节", "No Matching Sections"),
+                            subtitle: nil,
+                            isDark: isDark
+                        )
+                    } else {
+                        ScrollViewReader { proxy in
+                            ScrollView {
+                                LazyVStack(alignment: .leading, spacing: 0) {
+                                    ForEach(rows) { row in
+                                        PDFOutlineRowView(
+                                            node: row.node,
+                                            pageLabel: row.node.pageIndex.map { tab.displayPageNumber(at: $0) },
+                                            level: row.level,
+                                            isExpanded: expandedIDs.contains(row.node.id),
+                                            isActive: row.node.id == activeID,
+                                            isDark: isDark,
+                                            onToggle: { toggle(row.node) },
+                                            onSelect: {
+                                                if let pIdx = row.node.pageIndex {
+                                                    userSelectedNodeID = row.node.id
+                                                    pinnedSelection = PinnedSelection(nodeID: row.node.id, pageIndex: pIdx, settledLineY: nil)
+                                                    tab.navigateToPage(pIdx, point: row.node.point)
+                                                }
+                                            }
+                                        )
+                                        .id(row.id)
                                     }
                                 }
-                            )
+                                .background(AppPalette.panelListBackground(isDark))
+                            }
+                            .onAppear {
+                                if let activeID {
+                                    proxy.scrollTo(activeID, anchor: .center)
+                                }
+                            }
+                            .onChange(of: activeID) { _, newID in
+                                guard let newID,
+                                      filterText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                                    return
+                                }
+                                if userSelectedNodeID == newID {
+                                    userSelectedNodeID = nil
+                                    return
+                                }
+                                withAnimation(AppAnimation.snappy) {
+                                    proxy.scrollTo(newID)
+                                }
+                            }
                         }
                     }
-                    .background(AppPalette.panelListBackground(isDark))
                 }
             }
         }
@@ -1231,8 +1275,9 @@ struct PDFOutlinePanel: View {
         .onChange(of: location.readingLineY) { _, _ in
             updatePinnedSelection()
         }
-        .onChange(of: tab.currentPageIndex) { _, _ in
+        .onChange(of: tab.currentPageIndex) { _, newPage in
             updatePinnedSelection()
+            revealCurrentSectionAncestorsIfNeeded(for: newPage)
         }
         .onChange(of: tab.pageScan) { _, _ in
             if (store.autoGenerateOutline || isGeneratedOutline)
@@ -1260,18 +1305,115 @@ struct PDFOutlinePanel: View {
         }
     }
 
-    private var visibleRows: [OutlineRow] {
-        var rows: [OutlineRow] = []
-        func walk(_ list: [PDFOutlineNode], level: Int) {
-            for node in list {
-                rows.append(OutlineRow(node: node, level: level))
-                if expandedIDs.contains(node.id) {
-                    walk(node.children, level: level + 1)
+    private var outlineFilterBar: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundColor(AppPalette.labelTertiary(isDark))
+
+            TextField(L10n.tr("筛选目录…", "Filter outline…"), text: $filterText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .foregroundColor(AppPalette.labelPrimary(isDark))
+                .tint(accent)
+
+            if !filterText.isEmpty {
+                Button {
+                    filterText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11.5))
+                        .foregroundColor(AppPalette.labelTertiary(isDark))
                 }
+                .buttonStyle(.plain)
             }
         }
-        walk(nodes, level: 0)
-        return rows
+        .padding(.horizontal, 8)
+        .frame(height: 28)
+        .background(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(AppPalette.toolbarControlFill(isDark))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .strokeBorder(AppPalette.panelSeparator(isDark), lineWidth: 1)
+        )
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+    }
+
+    private var visibleRows: [OutlineRow] {
+        Self.filteredRows(
+            nodes: nodes,
+            query: filterText,
+            expandedIDs: expandedIDs,
+            pageLabel: { tab.displayPageNumber(at: $0) }
+        )
+    }
+
+    static func filteredRows(
+        nodes: [PDFOutlineNode],
+        query: String,
+        expandedIDs: Set<UUID>,
+        pageLabel: (Int) -> String
+    ) -> [OutlineRow] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            var rows: [OutlineRow] = []
+            func walk(_ list: [PDFOutlineNode], level: Int) {
+                for node in list {
+                    rows.append(OutlineRow(node: node, level: level))
+                    if expandedIDs.contains(node.id) {
+                        walk(node.children, level: level + 1)
+                    }
+                }
+            }
+            walk(nodes, level: 0)
+            return rows
+        }
+
+        func walkFiltered(_ list: [PDFOutlineNode], level: Int) -> [OutlineRow] {
+            var matched: [OutlineRow] = []
+            for node in list {
+                let titleMatches = node.title.localizedCaseInsensitiveContains(trimmed)
+                let pageMatches = node.pageIndex.map(pageLabel)?.localizedCaseInsensitiveContains(trimmed) ?? false
+                let selfMatches = titleMatches || pageMatches
+                let matchingChildren = walkFiltered(node.children, level: level + 1)
+                if !matchingChildren.isEmpty {
+                    matched.append(OutlineRow(node: node, level: level))
+                    matched.append(contentsOf: matchingChildren)
+                } else if selfMatches {
+                    matched.append(OutlineRow(node: node, level: level))
+                    if expandedIDs.contains(node.id) {
+                        func appendExpanded(_ children: [PDFOutlineNode], depth: Int) {
+                            for child in children {
+                                matched.append(OutlineRow(node: child, level: depth))
+                                if expandedIDs.contains(child.id) {
+                                    appendExpanded(child.children, depth: depth + 1)
+                                }
+                            }
+                        }
+                        appendExpanded(node.children, depth: level + 1)
+                    }
+                }
+            }
+            return matched
+        }
+        return walkFiltered(nodes, level: 0)
+    }
+
+    private func revealCurrentSectionAncestorsIfNeeded(for page: Int) {
+        guard filterText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !nodes.isEmpty else { return }
+        if userSelectedNodeID != nil {
+            userSelectedNodeID = nil
+            return
+        }
+        let ancestors = ancestorIDs(ofPage: page)
+        guard !ancestors.isEmpty, !Set(ancestors).isSubset(of: expandedIDs) else { return }
+        withAnimation(AppAnimation.snappy) {
+            expandedIDs.formUnion(ancestors)
+        }
     }
 
     /// The section being read: the last visible row starting before the current page, or on it above the

@@ -325,6 +325,12 @@ struct ReaderMenuCommands: Commands {
 
         // Replaces File › Close / Close All, whose ⌘W clashed with Close Tab
         CommandGroup(replacing: .saveItem) {
+            Button(L10n.tr("文档信息…", "Document Info…")) {
+                store.activeDocumentTab?.isDocumentInfoPresented = true
+            }
+            .keyboardShortcut("i", modifiers: [.command])
+            .disabled(store.activeDocumentTab == nil)
+
             Button(L10n.tr("导出…", "Export…")) {
                 store.activeDocumentTab?.beginExportPanel(
                     in: store.activeSession.nsWindow,

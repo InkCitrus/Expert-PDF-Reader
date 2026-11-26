@@ -2020,6 +2020,30 @@ struct ReaderRegressionTests {
                 ("按最近打开", "Recent", []),
                 ("按名称", "Name", []),
                 ("按页数", "Page Count", []),
+                ("筛选目录…", "Filter outline…", []),
+                ("没有匹配的章节", "No Matching Sections", []),
+                ("文档信息…", "Document Info…", []),
+                ("文档信息", "Document Info", []),
+                ("元数据", "Metadata", []),
+                ("文件与规格", "File & Specifications", []),
+                ("标题", "Title", []),
+                ("作者", "Author", []),
+                ("主题", "Subject", []),
+                ("关键词", "Keywords", []),
+                ("创建工具", "Creator", []),
+                ("PDF 生成器", "PDF Producer", []),
+                ("页数", "Pages", []),
+                ("PDF 版本", "PDF Version", []),
+                ("页面尺寸", "Page Size", []),
+                ("文件大小", "File Size", []),
+                ("创建时间", "Created", []),
+                ("修改时间", "Modified", []),
+                ("安全性", "Security", []),
+                ("位置", "Where", []),
+                ("复制路径", "Copy Path", []),
+                ("已复制", "Copied", []),
+                ("密码保护（已解锁）", "Password Protected (Unlocked)", []),
+                ("标准（无加密）", "Standard (Unencrypted)", []),
             ]
             for lang in AppLanguage.allCases where lang != .system && lang != .zhHans && lang != .en {
                 L10n.currentLanguage = lang
@@ -2032,6 +2056,7 @@ struct ReaderRegressionTests {
                 check(L10n.selectedPagesCount(3).contains("3")
                       && L10n.exportSelectedPages(3).contains("3")
                       && L10n.exportPageCountSummary(3).contains("3")
+                      && L10n.backToPage("5").contains("5")
                       && !L10n.exportImageSummary(count: 1, formatName: "PNG", pixelSize: CGSize(width: 800, height: 1000)).isEmpty
                       && L10n.exportImageSummary(count: 3, formatName: "JPEG", pixelSize: nil).contains("3")
                       && L10n.exportingProgressText(completed: 2, total: 5, formatName: "PNG").contains("2")
@@ -2564,6 +2589,124 @@ struct ReaderRegressionTests {
                       "savedReadingPageLabel formats active reading progress cleanly")
             } else {
                 check(false, "document item available to check savedReadingPageLabel")
+            }
+
+            // 6. Outline filtering helper, internal link jump-back history, DocumentMetadataSnapshot, and page rotation persistence
+            let childSection = PDFOutlineNode(title: "1.2 Methodology", pageIndex: 4, point: nil, children: [])
+            let parentChapter = PDFOutlineNode(title: "1 Introduction", pageIndex: 1, point: nil, children: [childSection])
+            let appendixChapter = PDFOutlineNode(title: "Appendix A", pageIndex: 12, point: nil, children: [])
+            let sampleNodes = [parentChapter, appendixChapter]
+            let filteredByChild = PDFOutlinePanel.filteredRows(
+                nodes: sampleNodes,
+                query: "method",
+                expandedIDs: [],
+                pageLabel: { "\($0 + 1)" }
+            )
+            check(filteredByChild.map(\.node.id) == [parentChapter.id, childSection.id]
+                  && filteredByChild.map(\.level) == [0, 1],
+                  "outline filter reveals collapsed parent chapters containing matching subsections")
+            let filteredByPage = PDFOutlinePanel.filteredRows(
+                nodes: sampleNodes,
+                query: "13",
+                expandedIDs: [],
+                pageLabel: { "\($0 + 1)" }
+            )
+            check(filteredByPage.map(\.node.id) == [appendixChapter.id],
+                  "outline filter matches display page numbers")
+            check(PDFOutlinePanel.filteredRows(nodes: sampleNodes, query: "nonexistent", expandedIDs: [], pageLabel: { "\($0 + 1)" }).isEmpty,
+                  "outline filter returns empty array when no sections match")
+
+            let navURL = try fixture("NavHistory", mixedNumbers: true)
+            let navStore = freshStore()
+            let navTab = navStore.openDocument(at: navURL, interactive: false)!
+            navTab.undoManager.groupsByEvent = false
+            navTab.stepPage(by: 1)
+            check(navTab.canGoBack && navTab.jumpBackDestination == nil,
+                  "sequential page step records history without popping up the jump-back pill")
+            navTab.navigateToPage(3)
+            check(navTab.jumpBackDestination?.pageIndex == 1 && navTab.jumpBackDestination?.point == nil,
+                  "multi-page direct jump surfaces the jump-back banner for the origin page")
+            let originSpot = DocumentTabState.ReadingSpot(pageIndex: 2, point: CGPoint(x: 90, y: 540))
+            let tokenBeforeLink = navTab.jumpBackToken
+            navTab.recordInternalLinkJump(from: originSpot, to: 5)
+            check(navTab.currentPageIndex == 5
+                  && navTab.jumpBackDestination?.pageIndex == 2
+                  && navTab.jumpBackDestination?.point == CGPoint(x: 90, y: 540)
+                  && navTab.jumpBackToken == tokenBeforeLink + 1,
+                  "internal link jump records exact pre-jump reading spot and triggers jump-back banner")
+            navTab.goBack()
+            check(navTab.currentPageIndex == 2
+                  && navTab.pageJumpPoint == CGPoint(x: 90, y: 540)
+                  && navTab.jumpBackDestination == nil
+                  && navTab.canGoForward,
+                  "going back after an internal link click restores exact page coordinates and clears jump-back pill")
+            navTab.goForward()
+            check(navTab.currentPageIndex == 5 && navTab.canGoBack,
+                  "going forward after returning restores the link destination page")
+
+            let metaURL = try fixture("InspectorMetadata")
+            if let metaDoc = PDFDocument(url: metaURL) {
+                metaDoc.documentAttributes = [
+                    PDFDocumentAttribute.titleAttribute: "Spec Sheet",
+                    PDFDocumentAttribute.authorAttribute: "Ada Lovelace",
+                    PDFDocumentAttribute.keywordsAttribute: ["PDF", "macOS"]
+                ]
+                if let page0 = metaDoc.page(at: 0) {
+                    let a4Rect = CGRect(x: 0, y: 0, width: 595.28, height: 841.89)
+                    page0.setBounds(a4Rect, for: .mediaBox)
+                    page0.setBounds(a4Rect, for: .cropBox)
+                }
+                let snap = DocumentMetadataSnapshot.extract(from: metaDoc, url: metaURL, pageIndex: 0)
+                check(snap.displayTitle == "Spec Sheet"
+                      && snap.author == "Ada Lovelace"
+                      && snap.keywords == "PDF, macOS"
+                      && snap.hasMetadata
+                      && snap.pageSizeText == "210 × 297 mm (A4)",
+                      "DocumentMetadataSnapshot extracts document attributes and detects A4 paper size")
+            } else {
+                check(false, "created PDF document loads for metadata snapshot inspection")
+            }
+
+            let rotURL = try fixture("RotationPersistence")
+            let rotStore = freshStore()
+            let rotTab = rotStore.openDocument(at: rotURL, interactive: false)!
+            rotTab.undoManager.groupsByEvent = false
+            rotTab.undoManager.beginUndoGrouping()
+            rotTab.rotatePage(at: 1, clockwise: true)
+            rotTab.undoManager.endUndoGrouping()
+            rotTab.undoManager.beginUndoGrouping()
+            rotTab.rotatePage(at: 2, clockwise: false)
+            rotTab.undoManager.endUndoGrouping()
+            check(rotTab.customPageRotations == [1: 90, 2: 270],
+                  "rotating pages tracks normalized custom page rotations")
+            rotStore.closeTab(id: rotTab.id)
+
+            let reloadedRotStore = AppStore()
+            if let reopenedRot = reloadedRotStore.openDocument(at: rotURL, interactive: false) {
+                check(reopenedRot.pdfDocument.page(at: 1)?.rotation == 90
+                      && reopenedRot.pdfDocument.page(at: 2)?.rotation == 270
+                      && reopenedRot.customPageRotations == [1: 90, 2: 270],
+                      "saved page rotations persist across AppStore reloads")
+                reopenedRot.undoManager.groupsByEvent = false
+                reopenedRot.undoManager.beginUndoGrouping()
+                reopenedRot.rotatePage(at: 1, clockwise: false)
+                reopenedRot.undoManager.endUndoGrouping()
+                check(reopenedRot.customPageRotations[1] == nil && reopenedRot.customPageRotations[2] == 270,
+                      "rotating a page back to original angle removes its custom rotation override")
+                reloadedRotStore.closeTab(id: reopenedRot.id)
+
+                let renamedRotURL = root.appendingPathComponent("RotationRenamed.pdf")
+                try FileManager.default.moveItem(at: rotURL, to: renamedRotURL)
+                reloadedRotStore.pruneMissingDocuments()
+                if let afterRename = reloadedRotStore.openDocument(at: renamedRotURL, interactive: false) {
+                    check(afterRename.pdfDocument.page(at: 2)?.rotation == 270
+                          && afterRename.pdfDocument.page(at: 1)?.rotation == 0,
+                          "saved page rotations follow Finder file renames")
+                } else {
+                    check(false, "reopening renamed PDF preserves rotation state")
+                }
+            } else {
+                check(false, "reopening rotated PDF restores saved page rotations")
             }
         }
         if !failures.isEmpty {

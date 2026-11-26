@@ -2612,27 +2612,84 @@ struct ReaderRegressionTests {
 
             // 6. Outline filtering helper, internal link jump-back history, DocumentMetadataSnapshot, and page rotation persistence
             let childSection = PDFOutlineNode(title: "1.2 Methodology", pageIndex: 4, point: nil, children: [])
-            let parentChapter = PDFOutlineNode(title: "1 Introduction", pageIndex: 1, point: nil, children: [childSection])
-            let appendixChapter = PDFOutlineNode(title: "Appendix A", pageIndex: 12, point: nil, children: [])
-            let sampleNodes = [parentChapter, appendixChapter]
+            let childResults = PDFOutlineNode(title: "1.4 Results & Virtualization", pageIndex: 13, point: nil, children: [])
+            let parentChapter = PDFOutlineNode(title: "1 Introduction", pageIndex: 0, point: nil, children: [childSection, childResults])
+            let relatedChapter = PDFOutlineNode(title: "II. Related Work", pageIndex: 3, point: nil, children: [])
+            let deviceChild = PDFOutlineNode(title: "A. Hardware Building Blocks", pageIndex: 3, point: nil, children: [])
+            let deviceChapter = PDFOutlineNode(title: "III. Terahertz Device Technologies", pageIndex: 3, point: nil, children: [deviceChild])
+            let discussionChild = PDFOutlineNode(title: "4.1 Experimental Setup", pageIndex: 23, point: nil, children: [])
+            let discussionChapter = PDFOutlineNode(title: "4. Discussion", pageIndex: 22, point: nil, children: [discussionChild])
+            let appendixChapter = PDFOutlineNode(title: "VII. Appendix A", pageIndex: 13, point: nil, children: [])
+            let sampleNodes = [parentChapter, relatedChapter, deviceChapter, discussionChapter, appendixChapter]
+
             let filteredByChild = PDFOutlinePanel.filteredRows(
                 nodes: sampleNodes,
                 query: "method",
-                expandedIDs: [],
-                pageLabel: { "\($0 + 1)" }
+                expandedIDs: []
             )
             check(filteredByChild.map(\.node.id) == [parentChapter.id, childSection.id]
                   && filteredByChild.map(\.level) == [0, 1],
                   "outline filter reveals collapsed parent chapters containing matching subsections")
-            let filteredByPage = PDFOutlinePanel.filteredRows(
+
+            let filteredByNumeric4 = PDFOutlinePanel.filteredRows(
                 nodes: sampleNodes,
-                query: "13",
-                expandedIDs: [],
-                pageLabel: { "\($0 + 1)" }
+                query: "4",
+                expandedIDs: []
             )
-            check(filteredByPage.map(\.node.id) == [appendixChapter.id],
-                  "outline filter matches display page numbers")
-            check(PDFOutlinePanel.filteredRows(nodes: sampleNodes, query: "nonexistent", expandedIDs: [], pageLabel: { "\($0 + 1)" }).isEmpty,
+            check(filteredByNumeric4.map(\.node.id) == [discussionChapter.id, discussionChild.id],
+                  "outline filter matches section number 4 without false-matching page 4/14/24 or 1.4")
+
+            let filteredByRomanII = PDFOutlinePanel.filteredRows(
+                nodes: sampleNodes,
+                query: "II",
+                expandedIDs: []
+            )
+            check(filteredByRomanII.map(\.node.id) == [relatedChapter.id],
+                  "outline filter matches Roman numeral II strictly without matching III or VII")
+
+            let filteredByPrefixVi = PDFOutlinePanel.filteredRows(
+                nodes: sampleNodes,
+                query: "vi",
+                expandedIDs: []
+            )
+            check(filteredByPrefixVi.map(\.node.id) == [parentChapter.id, childResults.id],
+                  "outline filter still allows normal word-prefix matches like vi -> Virtualization")
+
+            let filteredMultiToken = PDFOutlinePanel.filteredRows(
+                nodes: sampleNodes,
+                query: "1 method",
+                expandedIDs: []
+            )
+            check(filteredMultiToken.map(\.node.id) == [parentChapter.id, childSection.id],
+                  "outline filter combines ancestor and subsection tokens cleanly")
+
+            let matchedParentClosed = PDFOutlinePanel.filteredRows(
+                nodes: sampleNodes,
+                query: "terahertz",
+                expandedIDs: [deviceChapter.id]
+            )
+            check(matchedParentClosed.map(\.node.id) == [deviceChapter.id],
+                  "outline filter does not dump non-matching children of a matched parent by default")
+
+            let matchedParentExpanded = PDFOutlinePanel.filteredRows(
+                nodes: sampleNodes,
+                query: "terahertz",
+                expandedIDs: [],
+                manuallyExpandedInFilter: [deviceChapter.id]
+            )
+            check(matchedParentExpanded.map(\.node.id) == [deviceChapter.id, deviceChild.id],
+                  "outline filter allows manually expanding children of a matched parent")
+
+            let matchedChildCollapsed = PDFOutlinePanel.filteredRows(
+                nodes: sampleNodes,
+                query: "method",
+                expandedIDs: [],
+                manuallyCollapsedInFilter: [parentChapter.id]
+            )
+            check(matchedChildCollapsed.map(\.node.id) == [parentChapter.id],
+                  "outline filter allows manually collapsing an auto-expanded ancestor")
+
+            check(PDFOutlinePanel.filteredRows(nodes: sampleNodes, query: "nonexistent", expandedIDs: []).isEmpty,
                   "outline filter returns empty array when no sections match")
 
             let navURL = try fixture("NavHistory", mixedNumbers: true)

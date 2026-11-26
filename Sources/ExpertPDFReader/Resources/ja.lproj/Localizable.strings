@@ -376,7 +376,6 @@
 "标签页|||Tabs" = "タブ";
 "Tabs" = "タブ";
 "阅读与导航|||Navigation" = "移動とナビゲーション";
-"Navigation" = "ナビゲーション";
 "视图与缩放|||View & Zoom" = "表示とズーム";
 "View & Zoom" = "表示とズーム";
 "搜索与书签|||Search & Bookmarks" = "検索とブックマーク";
@@ -563,3 +562,12 @@
 
 "正在识别目录…|||Recognizing outline…" = "目次を認識中…";
 "Recognizing outline…" = "目次を認識中…";
+
+"阅读|||Reading" = "閲覧";
+"Reading" = "閲覧";
+"自动识别目录|||Auto-Recognize Outline" = "目次を自動認識";
+"Auto-Recognize Outline" = "目次を自動認識";
+"文档缺少内嵌书签时自动生成目录|||Generate an outline when bookmarks are missing" = "埋め込みしおりがない場合に目次を自動生成します";
+"Generate an outline when bookmarks are missing" = "埋め込みしおりがない場合に目次を自動生成します";
+"识别目录|||Recognize Outline" = "目次を認識";
+"Recognize Outline" = "目次を認識";

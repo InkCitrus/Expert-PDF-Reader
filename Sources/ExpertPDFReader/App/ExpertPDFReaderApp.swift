@@ -251,7 +251,8 @@ public struct ExpertPDFReaderApp: App {
         Settings {
             SettingsView(store: store)
         }
-        .windowResizability(.contentSize)
+        .windowResizability(.contentMinSize)
+        .defaultSize(width: 700, height: 450)
     }
 }
 

@@ -376,7 +376,6 @@
 "标签页|||Tabs" = "Вкладки";
 "Tabs" = "Вкладки";
 "阅读与导航|||Navigation" = "Навігація";
-"Navigation" = "Навігація";
 "视图与缩放|||View & Zoom" = "Вигляд і масштаб";
 "View & Zoom" = "Вигляд і масштаб";
 "搜索与书签|||Search & Bookmarks" = "Пошук і закладки";
@@ -563,3 +562,12 @@
 
 "正在识别目录…|||Recognizing outline…" = "Розпізнавання змісту…";
 "Recognizing outline…" = "Розпізнавання змісту…";
+
+"阅读|||Reading" = "Читання";
+"Reading" = "Читання";
+"自动识别目录|||Auto-Recognize Outline" = "Автоматично розпізнавати зміст";
+"Auto-Recognize Outline" = "Автоматично розпізнавати зміст";
+"文档缺少内嵌书签时自动生成目录|||Generate an outline when bookmarks are missing" = "Створювати зміст за відсутності вбудованих закладок";
+"Generate an outline when bookmarks are missing" = "Створювати зміст за відсутності вбудованих закладок";
+"识别目录|||Recognize Outline" = "Розпізнати зміст";
+"Recognize Outline" = "Розпізнати зміст";

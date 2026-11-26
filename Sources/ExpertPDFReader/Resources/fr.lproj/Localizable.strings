@@ -376,7 +376,6 @@
 "标签页|||Tabs" = "Onglets";
 "Tabs" = "Onglets";
 "阅读与导航|||Navigation" = "Navigation";
-"Navigation" = "Navigation";
 "视图与缩放|||View & Zoom" = "Affichage et zoom";
 "View & Zoom" = "Affichage et zoom";
 "搜索与书签|||Search & Bookmarks" = "Recherche et signets";
@@ -563,3 +562,12 @@
 
 "正在识别目录…|||Recognizing outline…" = "Reconnaissance du sommaire…";
 "Recognizing outline…" = "Reconnaissance du sommaire…";
+
+"阅读|||Reading" = "Lecture";
+"Reading" = "Lecture";
+"自动识别目录|||Auto-Recognize Outline" = "Reconnaître automatiquement le sommaire";
+"Auto-Recognize Outline" = "Reconnaître automatiquement le sommaire";
+"文档缺少内嵌书签时自动生成目录|||Generate an outline when bookmarks are missing" = "Générer un sommaire en l'absence de signets intégrés";
+"Generate an outline when bookmarks are missing" = "Générer un sommaire en l'absence de signets intégrés";
+"识别目录|||Recognize Outline" = "Reconnaître le sommaire";
+"Recognize Outline" = "Reconnaître le sommaire";

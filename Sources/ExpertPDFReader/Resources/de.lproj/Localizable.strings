@@ -376,7 +376,6 @@
 "标签页|||Tabs" = "Tabs";
 "Tabs" = "Tabs";
 "阅读与导航|||Navigation" = "Navigation";
-"Navigation" = "Navigation";
 "视图与缩放|||View & Zoom" = "Darstellung & Zoom";
 "View & Zoom" = "Darstellung & Zoom";
 "搜索与书签|||Search & Bookmarks" = "Suche & Lesezeichen";
@@ -563,3 +562,12 @@
 
 "正在识别目录…|||Recognizing outline…" = "Gliederung wird erkannt…";
 "Recognizing outline…" = "Gliederung wird erkannt…";
+
+"阅读|||Reading" = "Lesen";
+"Reading" = "Lesen";
+"自动识别目录|||Auto-Recognize Outline" = "Gliederung automatisch erkennen";
+"Auto-Recognize Outline" = "Gliederung automatisch erkennen";
+"文档缺少内嵌书签时自动生成目录|||Generate an outline when bookmarks are missing" = "Gliederung erstellen, wenn Lesezeichen fehlen";
+"Generate an outline when bookmarks are missing" = "Gliederung erstellen, wenn Lesezeichen fehlen";
+"识别目录|||Recognize Outline" = "Gliederung erkennen";
+"Recognize Outline" = "Gliederung erkennen";

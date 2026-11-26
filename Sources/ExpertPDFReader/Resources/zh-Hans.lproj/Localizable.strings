@@ -376,7 +376,6 @@
 "标签页|||Tabs" = "标签页";
 "Tabs" = "标签页";
 "阅读与导航|||Navigation" = "阅读与导航";
-"Navigation" = "导航";
 "视图与缩放|||View & Zoom" = "视图与缩放";
 "View & Zoom" = "视图与缩放";
 "搜索与书签|||Search & Bookmarks" = "搜索与书签";
@@ -563,3 +562,12 @@
 
 "正在识别目录…|||Recognizing outline…" = "正在识别目录…";
 "Recognizing outline…" = "正在识别目录…";
+
+"阅读|||Reading" = "阅读";
+"Reading" = "阅读";
+"自动识别目录|||Auto-Recognize Outline" = "自动识别目录";
+"Auto-Recognize Outline" = "自动识别目录";
+"文档缺少内嵌书签时自动生成目录|||Generate an outline when bookmarks are missing" = "文档缺少内嵌书签时自动生成目录";
+"Generate an outline when bookmarks are missing" = "文档缺少内嵌书签时自动生成目录";
+"识别目录|||Recognize Outline" = "识别目录";
+"Recognize Outline" = "识别目录";

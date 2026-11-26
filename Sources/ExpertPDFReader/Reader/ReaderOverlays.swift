@@ -68,7 +68,7 @@ struct SearchResultsPanel: View {
                 tab.selectNextSearchMatch()
             }
             PanelHeaderIconButton(icon: "xmark", tooltip: L10n.tr("关闭搜索", "Close Search"), isDark: isDark) {
-                withAnimation(.easeInOut(duration: 0.18)) {
+                withAnimation(AppAnimation.panel) {
                     tab.endSearch()
                 }
             }
@@ -141,7 +141,7 @@ struct SearchResultsPanel: View {
                 }
                 .onChange(of: tab.selectedMatchIndex) { _, newIdx in
                     guard newIdx >= 0 && newIdx < tab.searchMatches.count else { return }
-                    withAnimation(.easeInOut(duration: 0.2)) {
+                    withAnimation(AppAnimation.snappy) {
                         proxy.scrollTo(tab.searchMatches[newIdx].id, anchor: .center)
                     }
                 }
@@ -523,7 +523,7 @@ struct PageOverviewGridView: View {
                             isDark: isDark
                         ) {
                             tab.navigateToThumbnail(pageIdx)
-                            withAnimation(.easeInOut(duration: 0.18)) {
+                            withAnimation(AppAnimation.panel) {
                                 tab.isPageOverviewVisible = false
                             }
                         }

@@ -376,7 +376,6 @@
 "标签页|||Tabs" = "탭";
 "Tabs" = "탭";
 "阅读与导航|||Navigation" = "탐색";
-"Navigation" = "탐색";
 "视图与缩放|||View & Zoom" = "보기 및 확대/축소";
 "View & Zoom" = "보기 및 확대/축소";
 "搜索与书签|||Search & Bookmarks" = "검색 및 책갈피";
@@ -563,3 +562,12 @@
 
 "正在识别目录…|||Recognizing outline…" = "목차 인식 중…";
 "Recognizing outline…" = "목차 인식 중…";
+
+"阅读|||Reading" = "읽기";
+"Reading" = "읽기";
+"自动识别目录|||Auto-Recognize Outline" = "목차 자동 인식";
+"Auto-Recognize Outline" = "목차 자동 인식";
+"文档缺少内嵌书签时自动生成目录|||Generate an outline when bookmarks are missing" = "내장 책갈피가 없을 때 목차를 자동으로 생성합니다";
+"Generate an outline when bookmarks are missing" = "내장 책갈피가 없을 때 목차를 자동으로 생성합니다";
+"识别目录|||Recognize Outline" = "목차 인식";
+"Recognize Outline" = "목차 인식";

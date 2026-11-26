@@ -376,7 +376,6 @@
 "标签页|||Tabs" = "Вкладки";
 "Tabs" = "Вкладки";
 "阅读与导航|||Navigation" = "Навигация";
-"Navigation" = "Навигация";
 "视图与缩放|||View & Zoom" = "Вид и масштаб";
 "View & Zoom" = "Вид и масштаб";
 "搜索与书签|||Search & Bookmarks" = "Поиск и закладки";
@@ -563,3 +562,12 @@
 
 "正在识别目录…|||Recognizing outline…" = "Распознавание оглавления…";
 "Recognizing outline…" = "Распознавание оглавления…";
+
+"阅读|||Reading" = "Чтение";
+"Reading" = "Чтение";
+"自动识别目录|||Auto-Recognize Outline" = "Автоматически распознавать оглавление";
+"Auto-Recognize Outline" = "Автоматически распознавать оглавление";
+"文档缺少内嵌书签时自动生成目录|||Generate an outline when bookmarks are missing" = "Создавать оглавление при отсутствии встроенных закладок";
+"Generate an outline when bookmarks are missing" = "Создавать оглавление при отсутствии встроенных закладок";
+"识别目录|||Recognize Outline" = "Распознать оглавление";
+"Recognize Outline" = "Распознать оглавление";

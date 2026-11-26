@@ -1055,16 +1055,22 @@ final class PDFContentAccessibility {
             return region ?? self
         }
         override func accessibilityFrame() -> NSRect {
-            guard let page, let view, let window = view.window,
-                  page.document === view.document, view.visiblePages.contains(where: { $0 === page }) else { return .zero }
-            let frame = view.convert(pageRect, from: page).intersection(view.visibleRect)
-            guard !frame.isNull, !frame.isEmpty else { return .zero }
-            return window.convertToScreen(view.convert(frame, to: nil))
+            guard Thread.isMainThread else { return .zero }
+            return MainActor.assumeIsolated {
+                guard let page, let view, let window = view.window,
+                      page.document === view.document, view.visiblePages.contains(where: { $0 === page }) else { return .zero }
+                let frame = view.convert(pageRect, from: page).intersection(view.visibleRect)
+                guard !frame.isNull, !frame.isEmpty else { return .zero }
+                return window.convertToScreen(view.convert(frame, to: nil))
+            }
         }
         override func accessibilityPerformPress() -> Bool {
-            guard let view, let action = annotation?.action else { return false }
-            view.perform(action)
-            return true
+            guard Thread.isMainThread else { return false }
+            return MainActor.assumeIsolated {
+                guard let view, let action = annotation?.action else { return false }
+                view.perform(action)
+                return true
+            }
         }
     }
 }

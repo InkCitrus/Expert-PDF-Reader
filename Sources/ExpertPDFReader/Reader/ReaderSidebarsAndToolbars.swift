@@ -76,7 +76,7 @@ public struct ReaderToolbarView: View {
                         iconWidth: density.iconWidth,
                         isDark: isDark
                     ) {
-                        withAnimation(.easeInOut(duration: 0.16)) { store.readingThemeMode = mode }
+                        withAnimation(AppAnimation.micro) { store.readingThemeMode = mode }
                     }
                 }
 
@@ -657,7 +657,7 @@ public struct ReaderLeftSidebarView: View {
                 case .thumbnails:
                     PDFPageThumbnailsPanel(store: store, tab: tab, panelWidth: panelWidth, isDark: isDark)
                 case .outline:
-                    PDFOutlinePanel(tab: tab, isDark: isDark)
+                    PDFOutlinePanel(store: store, tab: tab, isDark: isDark)
                 case .bookmarks:
                     PDFBookmarksPanel(store: store, tab: tab, isDark: isDark)
                 }
@@ -843,7 +843,7 @@ struct PDFPageThumbnailsPanel: View {
                 let delta = abs(target - lastScrolledPageIndex)
                 lastScrolledPageIndex = target
                 if delta <= 3 {
-                    withAnimation(.easeInOut(duration: 0.18)) {
+                    withAnimation(AppAnimation.snappy) {
                         proxy.scrollTo(target, anchor: .center)
                     }
                 } else {
@@ -1115,11 +1115,14 @@ struct PDFOutlineNode: Identifiable {
 }
 
 struct PDFOutlinePanel: View {
+    @ObservedObject var store: AppStore
     @ObservedObject var tab: DocumentTabState
     @ObservedObject private var location: ReadingLocation
     let isDark: Bool
+    @Environment(\.appAccentColor) private var accent
 
-    init(tab: DocumentTabState, isDark: Bool) {
+    init(store: AppStore, tab: DocumentTabState, isDark: Bool) {
+        self._store = ObservedObject(wrappedValue: store)
         self._tab = ObservedObject(wrappedValue: tab)
         self._location = ObservedObject(wrappedValue: tab.readingLocation)
         self.isDark = isDark
@@ -1156,7 +1159,39 @@ struct PDFOutlinePanel: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if hasLoaded && nodes.isEmpty {
-                PanelEmptyState(icon: "list.bullet.indent", title: L10n.tr("此文档不包含目录大纲", "This document has no outline"), subtitle: nil, isDark: isDark)
+                if !store.autoGenerateOutline && tab.pdfDocument.outlineRoot == nil {
+                    VStack(spacing: 12) {
+                        Image(systemName: "list.bullet.indent")
+                            .font(.system(size: 26, weight: .light))
+                            .foregroundColor(AppPalette.labelQuaternary(isDark))
+                        Text(L10n.tr("此文档不包含目录大纲", "This document has no outline"))
+                            .font(.system(size: 12.5, weight: .medium))
+                            .foregroundColor(AppPalette.labelSecondary(isDark))
+                        Button {
+                            hasLoaded = false
+                            loadIfNeeded(forceGenerate: true)
+                        } label: {
+                            Text(L10n.tr("识别目录", "Recognize Outline"))
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(AppPalette.labelPrimary(isDark))
+                                .padding(.horizontal, 12)
+                                .frame(height: 26)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                        .fill(AppPalette.toolbarControlFill(isDark))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                        .strokeBorder(AppPalette.panelSeparator(isDark), lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(TactilePressButtonStyle())
+                    }
+                    .padding(20)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    PanelEmptyState(icon: "list.bullet.indent", title: L10n.tr("此文档不包含目录大纲", "This document has no outline"), subtitle: nil, isDark: isDark)
+                }
             } else {
                 let rows = visibleRows
                 let activeID = activeNodeID(in: rows)
@@ -1184,7 +1219,7 @@ struct PDFOutlinePanel: View {
                 }
             }
         }
-        .onAppear(perform: loadIfNeeded)
+        .onAppear { loadIfNeeded() }
         .onDisappear {
             generationTask?.cancel()
             generationTask = nil
@@ -1200,7 +1235,25 @@ struct PDFOutlinePanel: View {
             updatePinnedSelection()
         }
         .onChange(of: tab.pageScan) { _, _ in
-            if (nodes.isEmpty || isGeneratedOutline) && !isGenerating && tab.pdfDocument.outlineRoot == nil {
+            if (store.autoGenerateOutline || isGeneratedOutline)
+                && (nodes.isEmpty || isGeneratedOutline)
+                && !isGenerating
+                && tab.pdfDocument.outlineRoot == nil {
+                hasLoaded = false
+                loadIfNeeded(forceGenerate: isGeneratedOutline)
+            }
+        }
+        .onChange(of: store.autoGenerateOutline) { _, enabled in
+            if !enabled {
+                if isGenerating || isGeneratedOutline {
+                    generationTask?.cancel()
+                    generationTask = nil
+                    isGenerating = false
+                    nodes = []
+                    isGeneratedOutline = false
+                    hasLoaded = true
+                }
+            } else if nodes.isEmpty && tab.pdfDocument.outlineRoot == nil && !isGenerating {
                 hasLoaded = false
                 loadIfNeeded()
             }
@@ -1287,7 +1340,7 @@ struct PDFOutlinePanel: View {
         }
     }
 
-    private func loadIfNeeded() {
+    private func loadIfNeeded(forceGenerate: Bool = false) {
         guard !hasLoaded, !isGenerating else { return }
         if let root = tab.pdfDocument.outlineRoot {
             let embedded = buildOutlineNodes(from: root)
@@ -1298,6 +1351,13 @@ struct PDFOutlinePanel: View {
                 configureExpansion()
                 return
             }
+        }
+
+        if !forceGenerate && !store.autoGenerateOutline {
+            nodes = []
+            isGeneratedOutline = false
+            hasLoaded = true
+            return
         }
 
         if let cached = tab.cachedGeneratedOutline, cached.scan == tab.pageScan {

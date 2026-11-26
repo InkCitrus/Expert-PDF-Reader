@@ -2011,6 +2011,10 @@ struct ReaderRegressionTests {
                 ("撤销", "Undo", []),
                 ("重做", "Redo", []),
                 ("正在识别目录…", "Recognizing outline…", []),
+                ("阅读", "Reading", []),
+                ("自动识别目录", "Auto-Recognize Outline", []),
+                ("文档缺少内嵌书签时自动生成目录", "Generate an outline when bookmarks are missing", []),
+                ("识别目录", "Recognize Outline", []),
             ]
             for lang in AppLanguage.allCases where lang != .system && lang != .zhHans && lang != .en {
                 L10n.currentLanguage = lang
@@ -2504,6 +2508,29 @@ struct ReaderRegressionTests {
                 "Discussion"
             ] && typoGenerated.map(\.level) == [0, 1, 0, 1, 0, 1, 0],
                   "typographic fallback recovers hierarchical unnumbered headings and rejects prose wraps, captions and steps")
+
+            // 4. Auto-recognize outline setting defaults on and persists across stores
+            let autoOutlineKey = "expertPDFReader.autoGenerateOutline"
+            let savedAutoOutline = UserDefaults.standard.object(forKey: autoOutlineKey)
+            defer {
+                if let savedAutoOutline {
+                    UserDefaults.standard.set(savedAutoOutline, forKey: autoOutlineKey)
+                } else {
+                    UserDefaults.standard.removeObject(forKey: autoOutlineKey)
+                }
+            }
+            UserDefaults.standard.removeObject(forKey: autoOutlineKey)
+            let defaultStore = freshStore()
+            check(defaultStore.autoGenerateOutline == true,
+                  "autoGenerateOutline defaults to true when unset")
+            defaultStore.autoGenerateOutline = false
+            let reloadedOffStore = AppStore()
+            check(reloadedOffStore.autoGenerateOutline == false,
+                  "autoGenerateOutline=false persists via UserDefaults")
+            reloadedOffStore.autoGenerateOutline = true
+            let reloadedOnStore = AppStore()
+            check(reloadedOnStore.autoGenerateOutline == true,
+                  "autoGenerateOutline=true persists via UserDefaults")
         }
         if !failures.isEmpty {
             print("\(failures.count) regression checks failed")

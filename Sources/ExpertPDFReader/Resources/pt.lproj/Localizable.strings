@@ -376,7 +376,6 @@
 "标签页|||Tabs" = "Abas";
 "Tabs" = "Abas";
 "阅读与导航|||Navigation" = "Navegação";
-"Navigation" = "Navegação";
 "视图与缩放|||View & Zoom" = "Visualização e zoom";
 "View & Zoom" = "Visualização e zoom";
 "搜索与书签|||Search & Bookmarks" = "Busca e favoritos";
@@ -563,3 +562,12 @@
 
 "正在识别目录…|||Recognizing outline…" = "Reconhecendo sumário…";
 "Recognizing outline…" = "Reconhecendo sumário…";
+
+"阅读|||Reading" = "Leitura";
+"Reading" = "Leitura";
+"自动识别目录|||Auto-Recognize Outline" = "Reconhecer sumário automaticamente";
+"Auto-Recognize Outline" = "Reconhecer sumário automaticamente";
+"文档缺少内嵌书签时自动生成目录|||Generate an outline when bookmarks are missing" = "Gerar sumário quando faltarem marcadores";
+"Generate an outline when bookmarks are missing" = "Gerar sumário quando faltarem marcadores";
+"识别目录|||Recognize Outline" = "Reconhecer sumário";
+"Recognize Outline" = "Reconhecer sumário";

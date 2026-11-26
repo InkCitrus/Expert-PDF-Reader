@@ -376,7 +376,6 @@
 "标签页|||Tabs" = "Schede";
 "Tabs" = "Schede";
 "阅读与导航|||Navigation" = "Navigazione";
-"Navigation" = "Navigazione";
 "视图与缩放|||View & Zoom" = "Vista e zoom";
 "View & Zoom" = "Vista e zoom";
 "搜索与书签|||Search & Bookmarks" = "Ricerca e segnalibri";
@@ -563,3 +562,12 @@
 
 "正在识别目录…|||Recognizing outline…" = "Riconoscimento indice…";
 "Recognizing outline…" = "Riconoscimento indice…";
+
+"阅读|||Reading" = "Lettura";
+"Reading" = "Lettura";
+"自动识别目录|||Auto-Recognize Outline" = "Riconosci indice automaticamente";
+"Auto-Recognize Outline" = "Riconosci indice automaticamente";
+"文档缺少内嵌书签时自动生成目录|||Generate an outline when bookmarks are missing" = "Genera un indice quando mancano i segnalibri";
+"Generate an outline when bookmarks are missing" = "Genera un indice quando mancano i segnalibri";
+"识别目录|||Recognize Outline" = "Riconosci indice";
+"Recognize Outline" = "Riconosci indice";

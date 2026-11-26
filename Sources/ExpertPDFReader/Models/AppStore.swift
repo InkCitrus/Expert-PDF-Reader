@@ -2069,6 +2069,10 @@ public final class AppStore: ObservableObject {
         didSet { UserDefaults.standard.set(alwaysShowPageIndicator, forKey: Keys.alwaysShowPageIndicator) }
     }
 
+    @Published public var autoGenerateOutline: Bool {
+        didSet { UserDefaults.standard.set(autoGenerateOutline, forKey: Keys.autoGenerateOutline) }
+    }
+
     /// Resolves the concrete GPU `PDFViewTheme` (`day`, `sepia`, or `night`) for the given UI appearance.
     public func resolvedPDFTheme(isDark: Bool) -> PDFViewTheme {
         readingThemeMode.resolvedTheme(isDark: isDark, useSepiaInLight: useSepiaForLightSystemTheme)
@@ -2328,6 +2332,7 @@ public final class AppStore: ObservableObject {
         static let bookmarks = "expertPDFReader.Bookmarks"
         static let restoreTabsOnLaunch = "expertPDFReader.restoreTabsOnLaunch"
         static let alwaysShowPageIndicator = "expertPDFReader.alwaysShowPageIndicator"
+        static let autoGenerateOutline = "expertPDFReader.autoGenerateOutline"
         static let readingPositions = "expertPDFReader.ReadingPositions"
         static let fileBookmarks = "expertPDFReader.FileBookmarks"
         static let openTabs = "expertPDFReader.OpenTabs"
@@ -2370,6 +2375,7 @@ public final class AppStore: ObservableObject {
         self.useSepiaForLightSystemTheme = defaults.bool(forKey: "expertPDFReader.useSepiaForLightSystemTheme")
         self.restoreTabsOnLaunch = defaults.object(forKey: Keys.restoreTabsOnLaunch) as? Bool ?? true
         self.alwaysShowPageIndicator = defaults.bool(forKey: Keys.alwaysShowPageIndicator)
+        self.autoGenerateOutline = defaults.object(forKey: Keys.autoGenerateOutline) as? Bool ?? true
 
         let savedAppRaw = defaults.string(forKey: "expertPDFReader.appearanceMode")
             ?? AppAppearanceMode.system.rawValue

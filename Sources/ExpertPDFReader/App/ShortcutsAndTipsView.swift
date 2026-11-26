@@ -209,6 +209,23 @@ public struct ShortcutsAndTipsSheetView: View {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .strokeBorder(AppPalette.sheetCardBorder(isDark), lineWidth: 0.5)
             )
+
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(AppPalette.labelSecondary(isDark))
+                    .frame(width: 26, height: 26)
+                    .background(
+                        Circle()
+                            .fill(isDark ? Color.white.opacity(0.08) : Color.black.opacity(0.055))
+                    )
+                    .contentShape(Circle())
+            }
+            .buttonStyle(TactilePressButtonStyle())
+            .help(L10n.tr("关闭", "Close"))
+            .accessibilityLabel(Text(L10n.tr("关闭", "Close")))
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
@@ -412,6 +429,14 @@ public struct ShortcutsAndTipsSheetView: View {
                 title: L10n.tr("打印…", "Print…"),
                 subtitle: nil,
                 chords: [["⌘", "P"]]
+            ),
+            ShortcutEntry(
+                id: "export",
+                category: .tabs,
+                icon: "square.and.arrow.up",
+                title: L10n.tr("导出…", "Export…"),
+                subtitle: nil,
+                chords: [["⇧", "⌘", "E"]]
             ),
             ShortcutEntry(
                 id: "document_info",

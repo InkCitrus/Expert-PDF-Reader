@@ -306,7 +306,7 @@ struct PDFOutlinePanel: View {
             }
         }
         .padding(.horizontal, 10)
-        .padding(.top, 2)
+        .padding(.top, 6)
         .padding(.bottom, 8)
     }
 

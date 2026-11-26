@@ -590,6 +590,10 @@ public final class AppStore: ObservableObject {
                 performAnimated(AppAnimation.tab) {
                     targetSession.selectedTabID = returnID
                 }
+            } else if targetSession.homeCurrentPage != .home {
+                performAnimated(AppAnimation.tab) {
+                    targetSession.homeCurrentPage = .home
+                }
             }
             return
         }
@@ -1404,6 +1408,26 @@ public final class AppStore: ObservableObject {
             if !targetUndo.isUndoing && !targetUndo.isRedoing {
                 targetUndo.setActionName(actionName)
             }
+        }
+    }
+
+    func isBookmarkActive(in tab: DocumentTabState) -> Bool {
+        let source = tab.activeThumbnailSource
+        let selection = tab.selectedThumbnailPages(in: source)
+        let pages = selection.isEmpty ? [source.pageIndex] : Array(selection)
+        return !pages.isEmpty && pages.allSatisfy { isPageBookmarked(pageIndex: $0, in: source.documentID) }
+    }
+
+    func toggleActiveBookmark(in tab: DocumentTabState, undoManager: UndoManager? = nil) {
+        let source = tab.activeThumbnailSource
+        let selection = tab.selectedThumbnailPages(in: source)
+        if selection.count > 1 {
+            let ordered = selection.sorted()
+            let shouldBookmark = !ordered.allSatisfy { isPageBookmarked(pageIndex: $0, in: source.documentID) }
+            setBookmarks(pageIndices: ordered, bookmarked: shouldBookmark, in: source.documentID, undoManager: undoManager)
+        } else {
+            let pageIndex = selection.first ?? source.pageIndex
+            toggleBookmark(pageIndex: pageIndex, in: source.documentID, undoManager: undoManager)
         }
     }
 

@@ -46,7 +46,7 @@ public struct ReaderLeftSidebarView: View {
             }
             .animation(AppAnimation.sidebarSwitch, value: tab.activeSidebarTab)
             .padding(.horizontal, 14)
-            .frame(height: tab.activeSidebarTab == .outline ? 30 : 34)
+            .frame(height: 34)
 
             if tab.activeSidebarTab != .outline {
                 Rectangle()

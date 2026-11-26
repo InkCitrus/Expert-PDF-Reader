@@ -461,6 +461,8 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     /// Page-space destination for the next jump (outline entries); `nil` lands on the page top.
     /// Components equal to kPDFDestinationUnspecifiedValue keep the current position on that axis.
     @Published public var pageJumpPoint: CGPoint?
+    /// Exact viewport-top reading spot restored by history Back/Forward jumps (`⌘[` / `⌘]`).
+    @Published public var pageJumpScrollSpot: ReadingSpot?
     @Published private(set) var secondaryPageJumpToken: Int = 0
     /// Bumped when crop boxes change after layout (Clear Margins finishing in the background)
     @Published public var clearMarginsLayoutToken: Int = 0
@@ -705,7 +707,13 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     }
 
     public func stepPage(by direction: Int) {
+        isPageOverviewVisible = false
         navigateToPage(layoutMode.pageIndex(afterStepping: direction, from: currentPageIndex, pageCount: pageCount))
+    }
+
+    public func requestGoToPage() {
+        isPageOverviewVisible = false
+        goToPageRequestToken &+= 1
     }
 
     func showReadingLayout(_ mode: ReaderLayoutMode) {
@@ -725,22 +733,25 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         point: CGPoint? = nil,
         recordHistory: Bool = true
     ) {
+        isPageOverviewVisible = false
         let clamped = max(0, min(max(0, pageCount - 1), index))
         // A precise point on the current page still scrolls; only a plain same-page jump is a no-op
         guard clamped != currentPageIndex || point != nil else { return }
         let previousPage = currentPageIndex
+        let previousSpotPoint = (readingSpot?.pageIndex == previousPage) ? readingSpot?.point : nil
         readingSpot = nil
-        if !isNavigatingHistory && clamped != previousPage {
+        if !isNavigatingHistory {
             // Outline, thumbnail, bookmark, search, and Go to Page jumps never pop up the link-return banner.
             jumpBackDestination = nil
-            if recordHistory {
-                backEntries.append(NavigationHistoryEntry(pageIndex: previousPage, point: nil))
+            if clamped != previousPage && recordHistory {
+                backEntries.append(NavigationHistoryEntry(pageIndex: previousPage, point: previousSpotPoint))
                 if backEntries.count > 50 { backEntries.removeFirst() }
                 forwardEntries.removeAll()
             }
         }
         currentPageIndex = clamped
         pageJumpPoint = point
+        pageJumpScrollSpot = nil
         pageJumpToken &+= 1
         if syncScrollAndZoom && secondaryPDFDocument == pdfDocument {
             secondaryPageIndex = clamped
@@ -783,26 +794,30 @@ public final class DocumentTabState: ObservableObject, Identifiable {
 
     public func goBack() {
         guard let prev = backEntries.popLast() else { return }
+        isPageOverviewVisible = false
         let currentSpotPoint = (readingSpot?.pageIndex == currentPageIndex) ? readingSpot?.point : nil
         readingSpot = nil
         jumpBackDestination = nil
         isNavigatingHistory = true
         forwardEntries.append(NavigationHistoryEntry(pageIndex: currentPageIndex, point: currentSpotPoint))
         currentPageIndex = prev.pageIndex
-        pageJumpPoint = prev.point
+        pageJumpPoint = nil
+        pageJumpScrollSpot = prev.point.map { ReadingSpot(pageIndex: prev.pageIndex, point: $0) }
         pageJumpToken &+= 1
         isNavigatingHistory = false
     }
 
     public func goForward() {
         guard let next = forwardEntries.popLast() else { return }
+        isPageOverviewVisible = false
         let currentSpotPoint = (readingSpot?.pageIndex == currentPageIndex) ? readingSpot?.point : nil
         readingSpot = nil
         jumpBackDestination = nil
         isNavigatingHistory = true
         backEntries.append(NavigationHistoryEntry(pageIndex: currentPageIndex, point: currentSpotPoint))
         currentPageIndex = next.pageIndex
-        pageJumpPoint = next.point
+        pageJumpPoint = nil
+        pageJumpScrollSpot = next.point.map { ReadingSpot(pageIndex: next.pageIndex, point: $0) }
         pageJumpToken &+= 1
         isNavigatingHistory = false
     }
@@ -862,6 +877,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
 
     /// ⌘F: opens the results dock and focuses the toolbar search field.
     public func beginSearch() {
+        isPageOverviewVisible = false
         isSearchVisible = true
         searchFocusToken &+= 1
     }
@@ -919,6 +935,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
             readingSpot = nil
             readingSpotBeforeCropChange = nil
             pageJumpPoint = nil
+            pageJumpScrollSpot = nil
             pageJumpToken &+= 1
         }
         if affectsSecondaryCurrent {
@@ -944,7 +961,9 @@ public final class DocumentTabState: ObservableObject, Identifiable {
 
     public func rotateCurrentPage(clockwise: Bool) {
         let source = activeThumbnailSource
-        rotatePages([source.pageIndex], in: source.document, clockwise: clockwise)
+        let selection = selectedThumbnailPages(in: source)
+        let pages = selection.isEmpty ? [source.pageIndex] : selection.sorted()
+        rotatePages(pages, in: source.document, clockwise: clockwise)
     }
 
     public func setSecondaryDocument(url: URL) {
@@ -1124,6 +1143,7 @@ public final class DocumentTabState: ObservableObject, Identifiable {
         selectedMatchIndex = 0
         guard !trimmed.isEmpty else { return }
 
+        isPageOverviewVisible = false
         isSearching = true
         let generation = searchGeneration
         let url = documentID.url

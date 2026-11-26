@@ -52,6 +52,8 @@ public struct ReaderToolbarView: View {
     private func toolbarContent(_ density: Density) -> some View {
         HStack(spacing: 2) {
             zoomControls(density)
+                .disabled(tab.isPageOverviewVisible)
+                .opacity(tab.isPageOverviewVisible ? 0.38 : 1)
 
             ToolbarDivider(isDark: isDark)
             let layoutIcon = tab.isPageOverviewVisible ? "square.grid.2x2"
@@ -93,6 +95,8 @@ public struct ReaderToolbarView: View {
                     tab.isClearMarginsEnabled.toggle()
                     tab.applyClearMarginsIfNeeded()
                 }
+                .disabled(tab.isPageOverviewVisible)
+                .opacity(tab.isPageOverviewVisible ? 0.38 : 1)
 
                 ToolbarIconButton(
                     icon: "rotate.left",
@@ -126,7 +130,7 @@ public struct ReaderToolbarView: View {
             }
             .background(ViewAnchorRepresentable(anchor: shareAnchor).allowsHitTesting(false))
 
-            let isBookmarked = store.isPageBookmarked(pageIndex: tab.currentPageIndex, in: tab.documentID)
+            let isBookmarked = store.isBookmarkActive(in: tab)
             ToolbarIconButton(
                 icon: isBookmarked ? "bookmark.fill" : "bookmark",
                 tooltip: isBookmarked ? L10n.tr("移除当前页书签 (⌘D)", "Remove Bookmark for Current Page (⌘D)") : L10n.tr("为当前页添加书签 (⌘D)", "Add Bookmark for Current Page (⌘D)"),
@@ -136,7 +140,7 @@ public struct ReaderToolbarView: View {
                 iconWidth: density.iconWidth,
                 isDark: isDark
             ) {
-                store.toggleBookmark(pageIndex: tab.currentPageIndex, in: tab.documentID)
+                store.toggleActiveBookmark(in: tab)
             }
 
             searchField(showsShortcut: density == .regular)

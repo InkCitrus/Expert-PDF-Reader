@@ -121,6 +121,7 @@ struct SearchResultsPanel: View {
                                         isDark: isDark
                                     ) {
                                         tab.selectedMatchIndex = entry.index
+                                        tab.isPageOverviewVisible = false
                                         tab.navigateToPage(entry.item.pageIndex, recordHistory: false)
                                     }
                                     .id(entry.id)
@@ -536,6 +537,9 @@ struct JumpBackBanner: View {
 
             Group {
                 if let backIdx = targetIndex {
+                    let bannerLabel = backIdx == tab.currentPageIndex
+                        ? L10n.tr("返回", "Back")
+                        : L10n.backToPage(tab.cleanPageLabel(at: backIdx))
                     Button {
                         hideTask?.cancel()
                         isVisible = false
@@ -545,7 +549,7 @@ struct JumpBackBanner: View {
                             Image(systemName: "chevron.backward")
                                 .font(.system(size: 11, weight: .semibold))
                                 .opacity(0.82)
-                            Text(L10n.backToPage(tab.cleanPageLabel(at: backIdx)))
+                            Text(bannerLabel)
                                 .font(.system(size: 12.5, weight: .semibold))
                                 .monospacedDigit()
                                 .lineLimit(1)
@@ -558,7 +562,7 @@ struct JumpBackBanner: View {
                     .buttonStyle(.plain)
                     .fixedSize(horizontal: true, vertical: false)
                     .help(L10n.parenthetical(L10n.tr("返回", "Back"), "⌘["))
-                    .accessibilityLabel(Text(L10n.backToPage(tab.cleanPageLabel(at: backIdx))))
+                    .accessibilityLabel(Text(bannerLabel))
                     .foregroundColor(foreground)
                     .background(
                         RoundedRectangle(cornerRadius: 9, style: .continuous)

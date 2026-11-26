@@ -305,19 +305,33 @@ public struct HomeTabRootView: View {
         destructiveTitle: String,
         onDestructive: @escaping () -> Void
     ) -> some View {
-        let titleBadge = HStack(alignment: .firstTextBaseline, spacing: 9) {
-            pageTitle(title)
-            if count > 0 {
-                Text("\(count)")
-                    .font(.system(size: 12, weight: .semibold))
-                    .monospacedDigit()
-                    .foregroundColor(AppPalette.labelTertiary(isDark))
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(isDark ? Color.white.opacity(0.07) : Color.black.opacity(0.055))
-                    )
+        let titleBadge = HStack(alignment: .center, spacing: 10) {
+            if !session.isHomeSidebarVisible {
+                HomeSubtleActionButton(
+                    title: L10n.tr("主页", "Home"),
+                    leadingIcon: "chevron.backward",
+                    isDark: isDark
+                ) {
+                    withAnimation(AppAnimation.snappy) {
+                        session.homeCurrentPage = .home
+                    }
+                }
+            }
+
+            HStack(alignment: .firstTextBaseline, spacing: 9) {
+                pageTitle(title)
+                if count > 0 {
+                    Text("\(count)")
+                        .font(.system(size: 12, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundColor(AppPalette.labelTertiary(isDark))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(isDark ? Color.white.opacity(0.07) : Color.black.opacity(0.055))
+                        )
+                }
             }
         }
         .fixedSize(horizontal: true, vertical: false)

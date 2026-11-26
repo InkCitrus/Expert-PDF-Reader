@@ -2662,7 +2662,7 @@ struct ReaderRegressionTests {
                   "cleanPageLabel omits parenthetical front-matter wrapping and navigation helpers report back destination")
             navTab.goBack()
             check(navTab.currentPageIndex == 2
-                  && navTab.pageJumpPoint == CGPoint(x: 90, y: 540)
+                  && navTab.pageJumpScrollSpot == originSpot
                   && navTab.jumpBackDestination == nil
                   && navTab.canGoForward
                   && navTab.forwardDestinationPageIndex == 5,
@@ -2676,6 +2676,71 @@ struct ReaderRegressionTests {
             navTab.navigateToPage(3)
             check(navTab.jumpBackDestination == nil,
                   "direct navigation after an internal link clears the previous jump-back banner")
+
+            let spotP3 = DocumentTabState.ReadingSpot(pageIndex: 3, point: CGPoint(x: 40, y: 420))
+            navTab.readingSpot = spotP3
+            navTab.navigateToPage(1)
+            check(navTab.currentPageIndex == 1 && navTab.pageJumpScrollSpot == nil,
+                  "direct page jump clears any pending history scroll spot")
+            navTab.goBack()
+            check(navTab.currentPageIndex == 3 && navTab.pageJumpScrollSpot == spotP3,
+                  "going back after a reading-spot jump restores exact vertical scroll spot")
+
+            navTab.isPageOverviewVisible = true
+            navTab.navigateToPage(3)
+            check(!navTab.isPageOverviewVisible,
+                  "navigating even to the current page dismisses Page Overview")
+
+            navTab.isPageOverviewVisible = true
+            let prevGoToToken = navTab.goToPageRequestToken
+            navTab.requestGoToPage()
+            check(!navTab.isPageOverviewVisible && navTab.goToPageRequestToken == prevGoToToken + 1,
+                  "Go to Page request closes Page Overview and bumps popover token")
+
+            navTab.isPageOverviewVisible = true
+            navTab.beginSearch()
+            check(!navTab.isPageOverviewVisible && navTab.isSearchVisible,
+                  "beginSearch dismisses Page Overview when opening search")
+
+            let selSource = navTab.activeThumbnailSource
+            navTab.toggleThumbnailSelection(0, in: selSource)
+            navTab.toggleThumbnailSelection(2, in: selSource)
+            navTab.undoManager.groupsByEvent = false
+            navTab.undoManager.beginUndoGrouping()
+            navTab.rotateCurrentPage(clockwise: true)
+            navTab.undoManager.endUndoGrouping()
+            check(navTab.pdfDocument.page(at: 0)?.rotation == 90
+                  && navTab.pdfDocument.page(at: 2)?.rotation == 90
+                  && navTab.pdfDocument.page(at: 1)?.rotation == 0,
+                  "toolbar rotateCurrentPage rotates all selected thumbnail pages together")
+            navTab.undoManager.beginUndoGrouping()
+            navStore.toggleActiveBookmark(in: navTab)
+            navTab.undoManager.endUndoGrouping()
+            check(navStore.isBookmarkActive(in: navTab)
+                  && navStore.isPageBookmarked(pageIndex: 0, in: navTab.documentID)
+                  && navStore.isPageBookmarked(pageIndex: 2, in: navTab.documentID),
+                  "toolbar bookmark toggle applies to all selected thumbnail pages together")
+            navTab.clearThumbnailSelection()
+
+            let secDocURL = try fixture("SecondaryBookmarkDoc")
+            navTab.setSecondaryDocument(url: secDocURL)
+            navTab.showSplitMode(.vertical)
+            navTab.activatePane(isSecondary: true)
+            let secUndo = UndoManager()
+            secUndo.groupsByEvent = false
+            secUndo.beginUndoGrouping()
+            navStore.toggleActiveBookmark(in: navTab, undoManager: secUndo)
+            secUndo.endUndoGrouping()
+            check(navStore.isBookmarkActive(in: navTab)
+                  && navStore.isPageBookmarked(pageIndex: navTab.secondaryPageIndex, in: navTab.activeThumbnailSource.documentID),
+                  "toolbar bookmark toggle targets the active secondary split pane document")
+            navTab.showSplitMode(.disabled)
+
+            let homeNavStore = freshStore()
+            homeNavStore.primarySession.homeCurrentPage = .favorites
+            homeNavStore.toggleHomeTab()
+            check(homeNavStore.primarySession.homeCurrentPage == .home,
+                  "clicking Home on a subpage without open document tabs returns to Home")
 
             let metaURL = try fixture("InspectorMetadata")
             if let metaDoc = PDFDocument(url: metaURL) {

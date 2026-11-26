@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import PDFKit
 
@@ -151,7 +152,12 @@ final class CachedScanPage: PDFPage {
         let transform = context.ctm
         let scale = max(hypot(transform.a, transform.b), hypot(transform.c, transform.d))
         // Printing/exporting and images beyond the raster pixel budget retain the original drawing path.
-        guard context.width > 0, context.height > 0,
+        // Live PDFView tiles draw into layer/display-list contexts where CGBitmapContextGetWidth is 0.
+        let isScreenOrBitmap = NSPrintOperation.current == nil
+            && (context.width > 0
+                || context.userSpaceToDeviceSpaceTransform != .identity
+                || NSGraphicsContext.currentContextDrawingToScreen())
+        guard isScreenOrBitmap,
               let raster = raster(with: box, scale: scale) else { super.draw(with: box, to: context); return }
         let resolution = ScannedPageCache.resolution(for: scale)
         context.saveGState()
@@ -161,9 +167,9 @@ final class CachedScanPage: PDFPage {
         context.restoreGState()
     }
 
-    fileprivate func warmRaster(with box: PDFDisplayBox, scale: CGFloat) { _ = raster(with: box, scale: scale, waits: true) }
+    fileprivate func warmRaster(with box: PDFDisplayBox, scale: CGFloat) { _ = raster(with: box, scale: scale) }
 
-    private func raster(with box: PDFDisplayBox, scale: CGFloat, waits: Bool = false) -> Raster? {
+    private func raster(with box: PDFDisplayBox, scale: CGFloat) -> Raster? {
         guard rotation == 0, scale.isFinite, scale > 0, scale <= 8, annotations.isEmpty else { return nil }
         let displayed = bounds(for: box)
         let resolution = ScannedPageCache.resolution(for: scale)
@@ -172,9 +178,9 @@ final class CachedScanPage: PDFPage {
         let state = rasterState
         let key = "\(state.id):\(box.rawValue):\(displayed):\(bounds(for: .mediaBox)):\(width)x\(height)" as NSString
         if let cached = Self.cache.object(forKey: key) { return cached }
-        // A visible tile never waits for an adjacent-page worker. Keep drawing natively until it is ready.
-        if waits { state.lock.lock() }
-        else if !state.lock.try() { return nil }
+        // Serialize decode per page so concurrent tile threads share one decode rather than each
+        // decoding the full scan image independently.
+        state.lock.lock()
         if state.isScan == nil { state.isScan = hasFullPageScanImage }
         guard state.isScan == true else { state.lock.unlock(); return nil }
         var raster = Self.cache.object(forKey: key)

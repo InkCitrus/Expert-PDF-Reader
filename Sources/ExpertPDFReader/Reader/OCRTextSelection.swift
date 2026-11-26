@@ -79,9 +79,10 @@ struct OCRPageText: Sendable {
 }
 
 extension PageTextRecognition {
-    static func selectableText(pageData: Data) throws -> OCRPageText {
+    static func selectableText(pageData: Data, maximumDimension: CGFloat = 2200) throws -> OCRPageText {
         guard let document = PDFDocument(data: pageData), let page = document.page(at: 0), page.rotation % 360 == 0,
-              let image = render(page), let lines = try NativeOCR.recognize(image, includingCharacters: true) else { throw Failure.unreadable }
+              let image = render(page, maximumDimension: maximumDimension),
+              let lines = try NativeOCR.recognize(image, includingCharacters: true) else { throw Failure.unreadable }
         defer { withExtendedLifetime(document) {} }
         let vertical = BookPageScanner.writingDirection(in: image) == .vertical
         let result = OCRPageText(lines: lines, vertical: vertical, imageSize: CGSize(width: image.width, height: image.height), cropBox: page.bounds(for: .cropBox))

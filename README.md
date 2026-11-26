@@ -36,9 +36,9 @@ A native macOS PDF reader built for reading: tabs, Split View, and Day / Sepia /
   - **Printed page numbers**: the page counter and Go to Page use the numbers printed on the pages — read from the pages themselves when the PDF's own page labels are missing or wrong — and show both pages of a spread. Roman-numeral front matter followed by Arabic numbering is recognized, the outline and thumbnails show the same numbers, and Go to Page also takes `(n)` for the n-th page of the file.
   - **`←` / `→`** turn the page in the focused pane.
   - **Clear Margins (`⇧⌘M`)** detects the content bounds of each page and crops the margins, computed in the background.
-  - **Left sidebar (`⌘B`)**: themed page thumbnails, the document outline and bookmarks (`⌘D`).
+  - **Left sidebar (`⌘B`)**: themed page thumbnails, the document outline and bookmarks (`⌘D`). When a PDF has no embedded outline, the reader can build one locally from contents pages or structural headings.
   - **Local OCR**: bundled [RapidOCRLite](https://github.com/RapidAI/RapidOCRLite) models provide character positions for selecting scanned text, including traditional Chinese and vertical columns. Drag to select and use `⌘C`; the original PDF is not rewritten. Recognition runs on demand and copies join physical wraps while preserving paragraphs. No upload or Python runtime is needed.
-  - **Full-text search (`⌘F`)** runs in the background and lists results per page as they are found, with highlighted context.
+  - **Full-text search (`⌘F`)** runs in the background and lists results per page as they are found, with highlighted context. Image-only pages use the bundled local OCR and a versioned on-disk text cache; no document content is uploaded.
   - **Restore Tabs** in Settings is on by default and reopens the previous session’s tabs at startup. Turn it off to start on Home. Each PDF’s reading position, zoom and layout are saved independently and restored whenever you open it.
   - **Password-protected PDFs** ask for their password; files that can't be opened say why.
   - Drop PDFs anywhere on the window or on the Dock icon; `⌘=` zooms in as well as `⌘+`.

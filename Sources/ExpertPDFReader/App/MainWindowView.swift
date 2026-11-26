@@ -61,7 +61,7 @@ public struct MainWindowView: View {
         }
         .background(AppPalette.homeContentBackground(isDark), ignoresSafeAreaEdges: [])
         .overlay {
-            if isDropTargeted && session.activeDocumentTab != nil {
+            if isDropTargeted {
                 DropOverlayView(isDark: isDark)
                     .padding(14)
                     .allowsHitTesting(false)
@@ -69,7 +69,7 @@ public struct MainWindowView: View {
             }
         }
         .animation(AppAnimation.snappy, value: isDropTargeted)
-        .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
+        .onDrop(of: [.fileURL, .url], isTargeted: $isDropTargeted) { providers in
             PDFFileDrop.open(providers) { url in
                 store.openDocument(at: url, in: session.id)
             }

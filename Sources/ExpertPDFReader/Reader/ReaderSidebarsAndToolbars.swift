@@ -802,6 +802,7 @@ struct PDFPageThumbnailsPanel: View {
     @ObservedObject var tab: DocumentTabState
     let panelWidth: CGFloat
     let isDark: Bool
+    @State private var lastScrolledPageIndex: Int = -1
 
     var body: some View {
         let source = tab.activeThumbnailSource
@@ -831,11 +832,22 @@ struct PDFPageThumbnailsPanel: View {
                 .frame(maxWidth: .infinity)
             }
             .onAppear {
+                lastScrolledPageIndex = source.pageIndex
                 proxy.scrollTo(source.pageIndex, anchor: .center)
             }
-            .onChange(of: source.pageIndex) { _, newIdx in
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    proxy.scrollTo(newIdx, anchor: .center)
+            .task(id: source.pageIndex) {
+                let target = source.pageIndex
+                guard target != lastScrolledPageIndex else { return }
+                try? await Task.sleep(nanoseconds: 80_000_000)
+                guard !Task.isCancelled else { return }
+                let delta = abs(target - lastScrolledPageIndex)
+                lastScrolledPageIndex = target
+                if delta <= 3 {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        proxy.scrollTo(target, anchor: .center)
+                    }
+                } else {
+                    proxy.scrollTo(target, anchor: .center)
                 }
             }
         }
@@ -1113,9 +1125,19 @@ struct PDFOutlinePanel: View {
         self.isDark = isDark
     }
 
+    struct PinnedSelection: Equatable {
+        let nodeID: UUID
+        let pageIndex: Int
+        var settledLineY: CGFloat?
+    }
+
     @State private var nodes: [PDFOutlineNode] = []
     @State private var expandedIDs: Set<UUID> = []
     @State private var hasLoaded = false
+    @State private var isGenerating = false
+    @State private var isGeneratedOutline = false
+    @State private var generationTask: Task<Void, Never>?
+    @State private var pinnedSelection: PinnedSelection?
 
     private struct OutlineRow: Identifiable {
         let node: PDFOutlineNode
@@ -1125,7 +1147,15 @@ struct PDFOutlinePanel: View {
 
     var body: some View {
         Group {
-            if hasLoaded && nodes.isEmpty {
+            if isGenerating {
+                VStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text(L10n.tr("正在识别目录…", "Recognizing outline…"))
+                        .font(.system(size: 12))
+                        .foregroundColor(AppPalette.labelTertiary(isDark))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if hasLoaded && nodes.isEmpty {
                 PanelEmptyState(icon: "list.bullet.indent", title: L10n.tr("此文档不包含目录大纲", "This document has no outline"), subtitle: nil, isDark: isDark)
             } else {
                 let rows = visibleRows
@@ -1143,6 +1173,7 @@ struct PDFOutlinePanel: View {
                                 onToggle: { toggle(row.node) },
                                 onSelect: {
                                     if let pIdx = row.node.pageIndex {
+                                        pinnedSelection = PinnedSelection(nodeID: row.node.id, pageIndex: pIdx, settledLineY: nil)
                                         tab.navigateToPage(pIdx, point: row.node.point)
                                     }
                                 }
@@ -1154,6 +1185,26 @@ struct PDFOutlinePanel: View {
             }
         }
         .onAppear(perform: loadIfNeeded)
+        .onDisappear {
+            generationTask?.cancel()
+            generationTask = nil
+            if !hasLoaded { isGenerating = false }
+        }
+        .onChange(of: location.pageIndex) { _, _ in
+            updatePinnedSelection()
+        }
+        .onChange(of: location.readingLineY) { _, _ in
+            updatePinnedSelection()
+        }
+        .onChange(of: tab.currentPageIndex) { _, _ in
+            updatePinnedSelection()
+        }
+        .onChange(of: tab.pageScan) { _, _ in
+            if (nodes.isEmpty || isGeneratedOutline) && !isGenerating && tab.pdfDocument.outlineRoot == nil {
+                hasLoaded = false
+                loadIfNeeded()
+            }
+        }
     }
 
     private var visibleRows: [OutlineRow] {
@@ -1176,8 +1227,44 @@ struct PDFOutlinePanel: View {
     /// together. Mixing in `tab.currentPageIndex` — which PDFKit derives from the middle of the view and
     /// updates on a different cadence — made the highlight flip back and forth while scrolling.
     private func activeNodeID(in rows: [OutlineRow]) -> UUID? {
-        Self.activeSection(in: rows.map(\.node), locationPage: location.pageIndex,
-                           readingLineY: location.readingLineY, fallbackPage: tab.currentPageIndex)
+        if let pinned = pinnedSelection,
+           (location.pageIndex == pinned.pageIndex || tab.currentPageIndex == pinned.pageIndex),
+           rows.contains(where: { $0.node.id == pinned.nodeID }) {
+            return pinned.nodeID
+        }
+        return Self.activeSection(in: rows.map(\.node), locationPage: location.pageIndex,
+                                  readingLineY: location.readingLineY, fallbackPage: tab.currentPageIndex)
+    }
+
+    private func updatePinnedSelection() {
+        pinnedSelection = Self.reconciledPinnedSelection(
+            pinnedSelection,
+            locationPage: location.pageIndex,
+            readingLineY: location.readingLineY,
+            currentPage: tab.currentPageIndex
+        )
+    }
+
+    static func reconciledPinnedSelection(
+        _ pinned: PinnedSelection?,
+        locationPage: Int,
+        readingLineY: CGFloat,
+        currentPage: Int
+    ) -> PinnedSelection? {
+        guard var pinned else { return nil }
+        if locationPage == pinned.pageIndex {
+            if pinned.settledLineY == nil {
+                pinned.settledLineY = readingLineY
+                return pinned
+            } else if abs(readingLineY - pinned.settledLineY!) > 18 {
+                return nil
+            }
+            return pinned
+        }
+        if locationPage >= 0 && currentPage != pinned.pageIndex {
+            return nil
+        }
+        return pinned
     }
 
     static func activeSection(in nodes: [PDFOutlineNode], locationPage: Int,
@@ -1201,11 +1288,79 @@ struct PDFOutlinePanel: View {
     }
 
     private func loadIfNeeded() {
-        guard !hasLoaded else { return }
-        hasLoaded = true
-        guard let root = tab.pdfDocument.outlineRoot else { return }
-        nodes = buildOutlineNodes(from: root)
+        guard !hasLoaded, !isGenerating else { return }
+        if let root = tab.pdfDocument.outlineRoot {
+            let embedded = buildOutlineNodes(from: root)
+            if !embedded.isEmpty {
+                nodes = embedded
+                isGeneratedOutline = false
+                hasLoaded = true
+                configureExpansion()
+                return
+            }
+        }
 
+        if let cached = tab.cachedGeneratedOutline, cached.scan == tab.pageScan {
+            nodes = buildGeneratedNodes(cached.entries)
+            isGeneratedOutline = true
+            hasLoaded = true
+            configureExpansion()
+            return
+        }
+
+        isGenerating = true
+        let url = tab.documentID.url
+        let password = tab.password
+        let needsScan = tab.pageScan == nil && tab.pageCount >= 16
+        generationTask = Task {
+            if needsScan {
+                let scanWorker = Task.detached(priority: .utility) {
+                    await BookPageScanQueue.shared.scan(url: url, password: password)
+                }
+                let scan = await withTaskCancellationHandler {
+                    await scanWorker.value
+                } onCancel: {
+                    scanWorker.cancel()
+                }
+                if !Task.isCancelled, let scan {
+                    tab.applyPageScanIfNeeded(scan)
+                }
+            }
+            guard !Task.isCancelled else {
+                isGenerating = false
+                generationTask = nil
+                return
+            }
+            let scanSnapshot = tab.pageScan
+            let oddIndexShift = scanSnapshot?.printedNumbers?.oddIndexShift ?? 0
+            var labels = tab.pageIndicesByLabel
+            for (label, indices) in tab.pageIndicesByLabel {
+                let lower = label.lowercased()
+                if labels[lower] == nil { labels[lower] = indices }
+            }
+            let worker = Task.detached(priority: .utility) {
+                guard let document = PDFDocumentLoader.openCopy(of: url, password: password) else {
+                    return [GeneratedOutlineEntry]()
+                }
+                return AutomaticOutlineGenerator.generate(document: document, pageLabels: labels, oddIndexShift: oddIndexShift)
+            }
+            let generated = await withTaskCancellationHandler {
+                await worker.value
+            } onCancel: {
+                worker.cancel()
+            }
+            isGenerating = false
+            generationTask = nil
+            guard !Task.isCancelled else { return }
+            tab.cachedGeneratedOutline = (scan: scanSnapshot, entries: generated)
+            nodes = buildGeneratedNodes(generated)
+            isGeneratedOutline = true
+            hasLoaded = true
+            configureExpansion()
+        }
+    }
+
+    private func configureExpansion() {
         // Short outlines open fully; long ones only reveal the branch holding the current page
         var parentIDs: [UUID] = []
         var nodeCount = 0
@@ -1220,6 +1375,31 @@ struct PDFOutlinePanel: View {
         }
         collect(nodes)
         expandedIDs = nodeCount <= 30 ? Set(parentIDs) : Set(ancestorIDs(ofPage: tab.currentPageIndex))
+    }
+
+    private func buildGeneratedNodes(_ entries: [GeneratedOutlineEntry]) -> [PDFOutlineNode] {
+        final class Builder {
+            let entry: GeneratedOutlineEntry
+            var children: [Builder] = []
+            init(_ entry: GeneratedOutlineEntry) { self.entry = entry }
+        }
+        var roots: [Builder] = []
+        var stack: [(level: Int, node: Builder)] = []
+        for entry in entries {
+            let level = max(0, entry.level)
+            while stack.last.map({ $0.level >= level }) == true { stack.removeLast() }
+            let node = Builder(entry)
+            if let parent = stack.last?.node { parent.children.append(node) }
+            else { roots.append(node) }
+            stack.append((level, node))
+        }
+        func freeze(_ builders: [Builder]) -> [PDFOutlineNode] {
+            builders.map {
+                PDFOutlineNode(title: $0.entry.title, pageIndex: $0.entry.pageIndex,
+                               point: $0.entry.destinationPoint, children: freeze($0.children))
+            }
+        }
+        return freeze(roots)
     }
 
     private func ancestorIDs(ofPage page: Int) -> [UUID] {

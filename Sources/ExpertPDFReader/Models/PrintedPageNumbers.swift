@@ -8,8 +8,8 @@ import Vision
 /// digital books carry page labels numbered in file order, or none at all, and a book bound on the right
 /// (vertical Chinese and Japanese) may be stored in reading order or, as the Internet Archive scans it, with
 /// each spread's left page first.
-public struct BookPageScan: Codable, Equatable {
-    public static let currentVersion = 4
+public struct BookPageScan: Codable, Equatable, Sendable {
+    public static let currentVersion = 5
 
     public var version: Int? = Self.currentVersion
     public var printedNumbers: PrintedPageNumbers?
@@ -27,10 +27,10 @@ public struct BookPageScan: Codable, Equatable {
     }
 }
 
-public struct PrintedPageNumbers: Codable, Equatable {
+public struct PrintedPageNumbers: Codable, Equatable, Sendable {
     /// A run of pages numbered consecutively: printed number = page index + offset. Unnumbered inserts (plates,
     /// blank leaves) start a new run with a smaller offset
-    public struct Run: Codable, Equatable {
+    public struct Run: Codable, Equatable, Sendable {
         public var firstIndex: Int
         public var lastIndex: Int
         public var offset: Int
@@ -315,8 +315,25 @@ public enum BookPageScanner {
             let shift = reading.index % 2 == 0 ? difference : -difference
             if [0, 2, -2].contains(shift) { shifts[shift, default: 0] += 1 }
         }
-        guard let (oddIndexShift, votes) = shifts.max(by: { $0.value < $1.value }),
-              votes * 10 >= shifts.values.reduce(0, +) * 7, votes >= 3 else { return nil }
+        let oddIndexShift: Int
+        if let (shift, votes) = shifts.max(by: { $0.value < $1.value }),
+           votes * 10 >= shifts.values.reduce(0, +) * 7, votes >= 3 {
+            oddIndexShift = shift
+        } else {
+            // Some scans consistently lose the folio on one side of every spread (for example, faint
+            // left-edge numbers) even though the surviving samples agree across the whole book. There is
+            // then no adjacent pair from which to vote on a spread shift. Accept only a strong, widely
+            // distributed zero-shift run; this keeps short numbered papers inside compilations rejected.
+            var rawOffsets: [Int: Int] = [:]
+            for reading in numbered {
+                rawOffsets[reading.number! - reading.index, default: 0] += 1
+            }
+            guard let (_, agreeing) = rawOffsets.max(by: { $0.value < $1.value }),
+                  agreeing >= 5, agreeing * 10 >= numbered.count * 7,
+                  let first = numbered.first?.index, let last = numbered.last?.index,
+                  last - first >= pageCount / 2 else { return nil }
+            oddIndexShift = 0
+        }
 
         func offset(of reading: Reading) -> Int {
             reading.number! - reading.index - (reading.index % 2 == 1 ? oddIndexShift : 0)

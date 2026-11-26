@@ -143,6 +143,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         context.coordinator.setupNotifications(for: pdfView)
         applyConfiguration(to: pdfView, coordinator: context.coordinator)
         pdfView.installOCRSelection()
+        pdfView.installSearchHighlights()
         return pdfView
     }
 
@@ -306,6 +307,11 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                 } else if pdfView.currentPage !== targetPage {
                     pdfView.go(to: targetPage)
                 }
+                coordinator.reportReadingLocation(of: pdfView)
+                DispatchQueue.main.async {
+                    guard Coordinator.isLive(pdfView) else { return }
+                    coordinator.reportReadingLocation(of: pdfView)
+                }
             }
         } else if let current = pdfView.currentPage, Coordinator.isLive(pdfView) {
             let actualIdx = pdfDocument.index(for: current)
@@ -372,10 +378,13 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
             if pdfView.highlightedSelections != nil {
                 pdfView.highlightedSelections = nil
             }
+            themedView?.searchHighlightOverlay.update(matches: [], selectedIndex: 0,
+                                                       isNight: pdfTheme == .night)
         } else {
             let isNight = (pdfTheme == .night)
-            let selections = searchMatches.enumerated().map { idx, item -> PDFSelection in
-                let sel = item.selection.copy() as! PDFSelection
+            let selections = searchMatches.enumerated().compactMap { idx, item -> PDFSelection? in
+                guard let selection = item.selection else { return nil }
+                let sel = selection.copy() as! PDFSelection
                 if isNight {
                     // PDFKit multiplies highlights onto the page, so the text stays black underneath and the
                     // Night filter turns it into #BFBFBF ink. These warm colors become amber boxes there
@@ -392,12 +401,23 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                 return sel
             }
             pdfView.highlightedSelections = selections
+            themedView?.searchHighlightOverlay.update(matches: searchMatches,
+                                                       selectedIndex: selectedMatchIndex,
+                                                       isNight: isNight)
             if selectedMatchIndex >= 0 && selectedMatchIndex < searchMatches.count {
                 let activeMatch = searchMatches[selectedMatchIndex]
                 // Compare match IDs, not indices: a new search selects index 0 again
                 if coordinator.lastHighlightedMatchID != activeMatch.id {
                     coordinator.lastHighlightedMatchID = activeMatch.id
-                    pdfView.go(to: activeMatch.selection)
+                    if let selection = activeMatch.selection {
+                        pdfView.go(to: selection)
+                    } else if let page = pdfDocument.page(at: activeMatch.pageIndex) {
+                        if let first = activeMatch.ocrBounds.first {
+                            pdfView.go(to: PDFDestination(page: page, at: CGPoint(x: first.minX, y: first.maxY)))
+                        } else {
+                            pdfView.go(to: page)
+                        }
+                    }
                 }
             }
         }
@@ -461,7 +481,9 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
 
         private func prefetchAdjacentPages(in pdfView: PDFView) {
             guard Self.isLive(pdfView), let document = pdfView.document, !document.isEncrypted,
-                  let url = document.documentURL, let page = pdfView.currentPage, page.hasFullPageScanImage else { return }
+                  let url = document.documentURL,
+                  let page = pdfView.page(for: Self.topEdge(of: pdfView), nearest: true) ?? pdfView.currentPage,
+                  page.hasFullPageScanImage else { return }
             let index = document.index(for: page)
             let scale = pdfView.scaleFactor * (pdfView.window?.backingScaleFactor ?? 2)
             let key = "\(ObjectIdentifier(document)):\(index):\(ScannedPageCache.resolution(for: scale)):\(parent.layoutToken):\(pdfView.displayMode.rawValue)"
@@ -470,8 +492,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
             lastPrefetchKey = key
             lastPrefetchPage = index
             scanPrefetchTask?.cancel()
-            let count = pdfView.displayMode == .twoUpContinuous ? 2 : 1
-            let pages = (0...count).compactMap { offset -> ScannedPageCache.PrefetchPage? in
+            let pages = [0, 1, 2, -1].compactMap { offset -> ScannedPageCache.PrefetchPage? in
                 let next = index + direction * offset
                 guard (0..<document.pageCount).contains(next), let page = document.page(at: next) else { return nil }
                 return .init(index: next, mediaBox: page.bounds(for: .mediaBox), cropBox: page.bounds(for: .cropBox), rotation: page.rotation)
@@ -549,6 +570,7 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                     guard let pdfView else { return }
                     (pdfView as? ThemedPDFView)?.applyThemeLayers()
                     self?.reportReadingLocation(of: pdfView)
+                    self?.prefetchAdjacentPages(in: pdfView)
                     if Self.isLive(pdfView) {
                         self?.lastDestination = pdfView.currentDestination
                     }
@@ -607,11 +629,11 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         /// of the view already counts as the section being read
         func reportReadingLocation(of pdfView: PDFView) {
             guard Self.isLive(pdfView), let document = pdfView.document else { return }
-            if let handler = parent.onReadingLocationChange,
-               let destination = pdfView.currentDestination,
-               let page = destination.page {
-                let quarterView = pdfView.bounds.height / max(pdfView.scaleFactor, 0.01) / 4
-                handler(document.index(for: page), destination.point.y - quarterView)
+            if let handler = parent.onReadingLocationChange {
+                let readingLine = Self.readingLinePoint(in: pdfView.bounds, isFlipped: pdfView.isFlipped)
+                if let page = pdfView.page(for: readingLine, nearest: true) {
+                    handler(document.index(for: page), pdfView.convert(readingLine, to: page).y)
+                }
             }
             if let handler = parent.onReadingSpotChange {
                 let top = Self.topEdge(of: pdfView)
@@ -625,6 +647,11 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         static func topEdge(of pdfView: PDFView) -> CGPoint {
             let bounds = pdfView.bounds
             return CGPoint(x: bounds.midX, y: pdfView.isFlipped ? bounds.minY : bounds.maxY)
+        }
+
+        static func readingLinePoint(in bounds: CGRect, isFlipped: Bool) -> CGPoint {
+            CGPoint(x: bounds.midX,
+                    y: isFlipped ? bounds.minY + bounds.height / 4 : bounds.maxY - bounds.height / 4)
         }
 
         /// Scrolls vertically so `spot` is at the top of the view again; a spot in a margin the crop boxes now
@@ -642,6 +669,72 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
             origin.y += target.y - top.y
             clipView.scroll(to: clipView.constrainBoundsRect(NSRect(origin: origin, size: clipView.bounds.size)).origin)
             scrollView.reflectScrolledClipView(clipView)
+        }
+    }
+}
+
+/// PDFKit cannot create a `PDFSelection` for image-only pages. This transparent sibling paints OCR
+/// character rectangles without adding temporary annotations to the PDF.
+final class OCRSearchHighlightOverlay: NSView {
+    weak var pdfView: PDFView?
+    private var matches: [SearchMatchItem] = []
+    private var selectedIndex = 0
+    private var isNight = false
+    private var observers: [NSObjectProtocol] = []
+
+    init(pdfView: PDFView) {
+        self.pdfView = pdfView
+        super.init(frame: pdfView.bounds)
+        autoresizingMask = [.width, .height]
+        wantsLayer = false
+        if let scrollView = pdfView.subviews.compactMap({ $0 as? NSScrollView }).first {
+            scrollView.contentView.postsBoundsChangedNotifications = true
+            observers.append(NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main
+            ) { [weak self] _ in self?.needsDisplay = true })
+        }
+        for name in [Notification.Name.PDFViewScaleChanged, Notification.Name.PDFViewPageChanged] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: pdfView, queue: .main) {
+                [weak self] _ in self?.needsDisplay = true
+            })
+        }
+    }
+
+    required init?(coder: NSCoder) { nil }
+    deinit { observers.forEach(NotificationCenter.default.removeObserver) }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override var isOpaque: Bool { false }
+
+    func update(matches: [SearchMatchItem], selectedIndex: Int, isNight: Bool) {
+        self.matches = matches
+        self.selectedIndex = selectedIndex
+        self.isNight = isNight
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard let pdfView, let document = pdfView.document else { return }
+        let visiblePages = Set(pdfView.visiblePages.map(ObjectIdentifier.init))
+        for (index, match) in matches.enumerated() where !match.ocrBounds.isEmpty {
+            guard let page = document.page(at: match.pageIndex),
+                  visiblePages.contains(ObjectIdentifier(page)) else { continue }
+            let color: NSColor
+            if isNight {
+                color = index == selectedIndex
+                    ? NSColor(srgbRed: 0.81, green: 0.67, blue: 0.36, alpha: 0.72)
+                    : NSColor(srgbRed: 0.87, green: 0.78, blue: 0.58, alpha: 0.52)
+            } else {
+                color = index == selectedIndex
+                    ? NSColor.systemOrange.withAlphaComponent(0.58)
+                    : NSColor.systemYellow.withAlphaComponent(0.40)
+            }
+            color.setFill()
+            for bounds in match.ocrBounds {
+                let rect = pdfView.convert(bounds, from: page).insetBy(dx: -1.5, dy: -1)
+                guard rect.intersects(dirtyRect) else { continue }
+                NSBezierPath(roundedRect: rect, xRadius: 2, yRadius: 2).fill()
+            }
         }
     }
 }
@@ -673,10 +766,17 @@ final class ThemedPDFView: PDFView {
     func preciseAccessibilityHit(at point: NSPoint) -> Any? { contentAccessibility.hitTest(point) }
 
     lazy var ocrSelectionOverlay = OCRTextSelectionOverlay(pdfView: self)
+    lazy var searchHighlightOverlay = OCRSearchHighlightOverlay(pdfView: self)
     private lazy var nativeSelectionTracker = NativePDFSelectionTracker(pdfView: self)
 
     func installOCRSelection() {
         if ocrSelectionOverlay.superview == nil { addSubview(ocrSelectionOverlay, positioned: .above, relativeTo: nil) }
+    }
+
+    func installSearchHighlights() {
+        if searchHighlightOverlay.superview == nil {
+            addSubview(searchHighlightOverlay, positioned: .above, relativeTo: ocrSelectionOverlay)
+        }
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {

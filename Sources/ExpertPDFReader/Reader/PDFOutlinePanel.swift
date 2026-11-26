@@ -103,8 +103,15 @@ struct PDFOutlinePanel: View {
             } else {
                 let rows = visibleRows
                 let activeID = activeNodeID(in: rows)
+                let expandableIDs = allExpandableIDs
+                let hasExpandableNodes = !expandableIDs.isEmpty
+                let areAllExpanded = hasExpandableNodes && expandableIDs.isSubset(of: expandedIDs)
                 VStack(spacing: 0) {
-                    outlineFilterBar
+                    outlineFilterBar(
+                        hasExpandableNodes: hasExpandableNodes,
+                        areAllExpanded: areAllExpanded,
+                        expandableIDs: expandableIDs
+                    )
                     Rectangle()
                         .fill(AppPalette.panelSeparator(isDark))
                         .frame(height: 1)
@@ -120,13 +127,15 @@ struct PDFOutlinePanel: View {
                         ScrollViewReader { proxy in
                             ScrollView {
                                 LazyVStack(alignment: .leading, spacing: 0) {
-                                    ForEach(rows) { row in
+                                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                                         PDFOutlineRowView(
                                             node: row.node,
                                             pageLabel: row.node.pageIndex.map { tab.displayPageNumber(at: $0) },
                                             level: row.level,
                                             isExpanded: expandedIDs.contains(row.node.id),
                                             isActive: row.node.id == activeID,
+                                            hasExpandableNodes: hasExpandableNodes,
+                                            showsChapterTopSpacing: row.level == 0 && index > 0,
                                             isDark: isDark,
                                             onToggle: { toggle(row.node) },
                                             onSelect: {
@@ -140,7 +149,7 @@ struct PDFOutlinePanel: View {
                                         .id(row.id)
                                     }
                                 }
-                                .background(AppPalette.panelListBackground(isDark))
+                                .padding(.vertical, 6)
                             }
                             .onAppear {
                                 if let activeID {
@@ -165,6 +174,7 @@ struct PDFOutlinePanel: View {
                 }
             }
         }
+        .background(AppPalette.panelBackground(isDark))
         .onAppear { loadIfNeeded() }
         .onDisappear {
             generationTask?.cancel()
@@ -207,41 +217,87 @@ struct PDFOutlinePanel: View {
         }
     }
 
-    private var outlineFilterBar: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 11.5, weight: .medium))
-                .foregroundColor(AppPalette.labelTertiary(isDark))
-
-            TextField(L10n.tr("筛选目录…", "Filter outline…"), text: $filterText)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12))
-                .foregroundColor(AppPalette.labelPrimary(isDark))
-                .tint(accent)
-
-            if !filterText.isEmpty {
-                Button {
-                    filterText = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 11.5))
-                        .foregroundColor(AppPalette.labelTertiary(isDark))
-                }
-                .buttonStyle(.plain)
+    private var allExpandableIDs: Set<UUID> {
+        var ids = Set<UUID>()
+        func collect(_ list: [PDFOutlineNode]) {
+            for node in list where !node.children.isEmpty {
+                ids.insert(node.id)
+                collect(node.children)
             }
         }
-        .padding(.horizontal, 8)
-        .frame(height: 28)
-        .background(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(AppPalette.toolbarControlFill(isDark))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .strokeBorder(AppPalette.panelSeparator(isDark), lineWidth: 1)
-        )
+        collect(nodes)
+        return ids
+    }
+
+    private func outlineFilterBar(
+        hasExpandableNodes: Bool,
+        areAllExpanded: Bool,
+        expandableIDs: Set<UUID>
+    ) -> some View {
+        HStack(spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(AppPalette.labelTertiary(isDark))
+
+                TextField(L10n.tr("筛选目录…", "Filter outline…"), text: $filterText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundColor(AppPalette.labelPrimary(isDark))
+                    .tint(accent)
+
+                if !filterText.isEmpty {
+                    Button {
+                        filterText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundColor(AppPalette.labelTertiary(isDark))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 26)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isDark ? Color.white.opacity(0.06) : Color.black.opacity(0.045))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(isDark ? Color.white.opacity(0.09) : Color.black.opacity(0.07), lineWidth: 0.5)
+            )
+
+            if hasExpandableNodes && filterText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Button {
+                    withAnimation(AppAnimation.snappy) {
+                        expandedIDs = areAllExpanded ? [] : expandableIDs
+                    }
+                } label: {
+                    Image(systemName: areAllExpanded
+                          ? "arrow.down.right.and.arrow.up.left"
+                          : "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundColor(AppPalette.labelSecondary(isDark))
+                        .frame(width: 26, height: 26)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(isDark ? Color.white.opacity(0.06) : Color.black.opacity(0.045))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .strokeBorder(isDark ? Color.white.opacity(0.09) : Color.black.opacity(0.07), lineWidth: 0.5)
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                }
+                .buttonStyle(TactilePressButtonStyle())
+                .help(areAllExpanded ? L10n.tr("折叠全部", "Collapse All") : L10n.tr("展开全部", "Expand All"))
+                .accessibilityLabel(Text(areAllExpanded ? L10n.tr("折叠全部", "Collapse All") : L10n.tr("展开全部", "Expand All")))
+            }
+        }
         .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.top, 2)
+        .padding(.bottom, 8)
     }
 
     private var visibleRows: [OutlineRow] {
@@ -553,6 +609,8 @@ struct PDFOutlineRowView: View {
     let level: Int
     let isExpanded: Bool
     let isActive: Bool
+    let hasExpandableNodes: Bool
+    let showsChapterTopSpacing: Bool
     let isDark: Bool
     let onToggle: () -> Void
     let onSelect: () -> Void
@@ -560,58 +618,89 @@ struct PDFOutlineRowView: View {
     @State private var isHovered = false
     @Environment(\.appAccentColor) private var accent
 
+    private var titleFont: Font {
+        if level == 0 {
+            return .system(size: 12.5, weight: .semibold)
+        } else if level == 1 {
+            return .system(size: 12, weight: isActive ? .medium : .regular)
+        } else {
+            return .system(size: 11.5, weight: isActive ? .medium : .regular)
+        }
+    }
+
+    private var titleColor: Color {
+        if isActive { return accent }
+        if level == 0 || isHovered { return AppPalette.labelPrimary(isDark) }
+        return AppPalette.labelSecondary(isDark)
+    }
+
+    private var pillBackground: Color {
+        if isActive {
+            return accent.opacity(isDark ? 0.18 : 0.11)
+        }
+        if isHovered {
+            return isDark ? Color.white.opacity(0.06) : Color.black.opacity(0.045)
+        }
+        return .clear
+    }
+
     var body: some View {
-        HStack(alignment: .top, spacing: 4) {
-            Group {
-                if node.children.isEmpty {
-                    Color.clear
-                } else {
-                    Button(action: onToggle) {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 9.5, weight: .semibold))
-                            .foregroundColor(AppPalette.labelTertiary(isDark))
-                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                            .animation(AppAnimation.snappy, value: isExpanded)
-                            .frame(width: 18, height: 18)
-                            .contentShape(Rectangle())
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            if hasExpandableNodes {
+                Group {
+                    if node.children.isEmpty {
+                        Color.clear
+                    } else {
+                        Button(action: onToggle) {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 8.5, weight: .bold))
+                                .foregroundColor(isActive ? accent.opacity(0.85) : AppPalette.labelTertiary(isDark))
+                                .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                                .animation(AppAnimation.snappy, value: isExpanded)
+                                .frame(width: 14, height: 14)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
+                .frame(width: 14, height: 14)
+                .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 3.5 }
             }
-            .frame(width: 18, height: 18)
 
             Text(node.title)
-                .font(.system(size: 12.5, weight: level == 0 ? .medium : .regular))
-                .foregroundColor(isActive ? accent : AppPalette.labelPrimary(isDark))
+                .font(titleFont)
+                .foregroundColor(titleColor)
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 1)
                 .accessibilityHidden(true)
 
             if let label = pageLabel {
                 Text(label)
-                    .font(.system(size: 11))
+                    .font(.system(size: 11, weight: isActive ? .semibold : .regular))
                     .monospacedDigit()
                     .foregroundColor(isActive ? accent : AppPalette.labelTertiary(isDark))
-                    .padding(.top, 2)
                     .accessibilityHidden(true)
             }
         }
-        .padding(.leading, 8 + CGFloat(level) * 14)
-        .padding(.trailing, 12)
-        .padding(.vertical, 8)
+        .padding(.leading, 8 + CGFloat(level) * 13)
+        .padding(.trailing, 8)
+        .padding(.vertical, level == 0 ? 6 : 4.5)
         .background(
-            isActive
-                ? accent.opacity(isDark ? 0.20 : 0.10)
-                : (isHovered ? AppPalette.rowHover(isDark) : Color.clear)
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(pillBackground)
         )
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(AppPalette.panelSeparator(isDark))
-                .frame(height: 1)
-                .padding(.leading, 30 + CGFloat(level) * 14)
+        .overlay(alignment: .leading) {
+            if isActive {
+                Capsule(style: .continuous)
+                    .fill(accent)
+                    .frame(width: 2.5, height: 14)
+                    .padding(.leading, 2.5)
+            }
         }
+        .padding(.horizontal, 6)
+        .padding(.top, showsChapterTopSpacing ? 6 : 1)
+        .padding(.bottom, 1)
         .contentShape(Rectangle())
         .animation(AppAnimation.micro, value: isHovered)
         .animation(AppAnimation.micro, value: isActive)

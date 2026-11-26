@@ -629,3 +629,14 @@
 "Password Protected (Unlocked)" = "パスワード保護（ロック解除済み）";
 "标准（无加密）|||Standard (Unencrypted)" = "標準（暗号化なし）";
 "Standard (Unencrypted)" = "標準（暗号化なし）";
+
+"文库|||Library" = "ライブラリ";
+"Library" = "ライブラリ";
+"网格视图|||Grid View" = "グリッド表示";
+"Grid View" = "グリッド表示";
+"列表视图|||List View" = "リスト表示";
+"List View" = "リスト表示";
+"展开全部|||Expand All" = "すべて展開";
+"Expand All" = "すべて展開";
+"折叠全部|||Collapse All" = "すべて折りたたむ";
+"Collapse All" = "すべて折りたたむ";

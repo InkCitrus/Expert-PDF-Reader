@@ -46,11 +46,13 @@ public struct ReaderLeftSidebarView: View {
             }
             .animation(AppAnimation.sidebarSwitch, value: tab.activeSidebarTab)
             .padding(.horizontal, 14)
-            .frame(height: 34)
+            .frame(height: tab.activeSidebarTab == .outline ? 30 : 34)
 
-            Rectangle()
-                .fill(AppPalette.panelSeparator(isDark))
-                .frame(height: 1)
+            if tab.activeSidebarTab != .outline {
+                Rectangle()
+                    .fill(AppPalette.panelSeparator(isDark))
+                    .frame(height: 1)
+            }
 
             // Active Panel Content
             ZStack {

@@ -629,3 +629,14 @@
 "Password Protected (Unlocked)" = "Protetto da password (sbloccato)";
 "标准（无加密）|||Standard (Unencrypted)" = "Standard (non crittografato)";
 "Standard (Unencrypted)" = "Standard (non crittografato)";
+
+"文库|||Library" = "Libreria";
+"Library" = "Libreria";
+"网格视图|||Grid View" = "Vista a griglia";
+"Grid View" = "Vista a griglia";
+"列表视图|||List View" = "Vista a elenco";
+"List View" = "Vista a elenco";
+"展开全部|||Expand All" = "Espandi tutto";
+"Expand All" = "Espandi tutto";
+"折叠全部|||Collapse All" = "Comprimi tutto";
+"Collapse All" = "Comprimi tutto";

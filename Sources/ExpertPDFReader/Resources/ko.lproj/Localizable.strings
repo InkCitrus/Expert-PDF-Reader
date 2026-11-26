@@ -629,3 +629,14 @@
 "Password Protected (Unlocked)" = "암호로 보호됨(잠금 해제됨)";
 "标准（无加密）|||Standard (Unencrypted)" = "표준(암호화되지 않음)";
 "Standard (Unencrypted)" = "표준(암호화되지 않음)";
+
+"文库|||Library" = "보관함";
+"Library" = "보관함";
+"网格视图|||Grid View" = "격자 보기";
+"Grid View" = "격자 보기";
+"列表视图|||List View" = "목록 보기";
+"List View" = "목록 보기";
+"展开全部|||Expand All" = "모두 펼치기";
+"Expand All" = "모두 펼치기";
+"折叠全部|||Collapse All" = "모두 접기";
+"Collapse All" = "모두 접기";

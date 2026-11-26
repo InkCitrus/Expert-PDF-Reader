@@ -629,3 +629,14 @@
 "Password Protected (Unlocked)" = "Захищено паролем (розблоковано)";
 "标准（无加密）|||Standard (Unencrypted)" = "Стандартний (без шифрування)";
 "Standard (Unencrypted)" = "Стандартний (без шифрування)";
+
+"文库|||Library" = "Бібліотека";
+"Library" = "Бібліотека";
+"网格视图|||Grid View" = "Сітка";
+"Grid View" = "Сітка";
+"列表视图|||List View" = "Список";
+"List View" = "Список";
+"展开全部|||Expand All" = "Розгорнути все";
+"Expand All" = "Розгорнути все";
+"折叠全部|||Collapse All" = "Згорнути все";
+"Collapse All" = "Згорнути все";

@@ -465,6 +465,17 @@ public final class AppStore: ObservableObject {
         return "\(pos.pageIndex + 1) / \(item.pageCount)"
     }
 
+    /// Returns a progress label + fraction only while genuinely mid-document (never on page 1 or the final page).
+    public func inProgressReadingState(for item: DocumentItem) -> (label: String, fraction: Double)? {
+        guard let pos = readingPositions[item.documentID.normalizedPath],
+              pos.pageIndex > 0,
+              item.pageCount > 2,
+              pos.pageIndex < item.pageCount - 1 else { return nil }
+        let label = "\(pos.pageIndex + 1) / \(item.pageCount)"
+        let fraction = min(1.0, max(0.0, Double(pos.pageIndex + 1) / Double(item.pageCount)))
+        return (label, fraction)
+    }
+
     public var allOpenDocumentTabs: [DocumentTabState] {
         allWindowSessions.flatMap { session in
             session.tabs.compactMap { tab -> DocumentTabState? in

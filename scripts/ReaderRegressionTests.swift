@@ -2044,6 +2044,11 @@ struct ReaderRegressionTests {
                 ("已复制", "Copied", []),
                 ("密码保护（已解锁）", "Password Protected (Unlocked)", []),
                 ("标准（无加密）", "Standard (Unencrypted)", []),
+                ("文库", "Library", []),
+                ("网格视图", "Grid View", []),
+                ("列表视图", "List View", []),
+                ("展开全部", "Expand All", []),
+                ("折叠全部", "Collapse All", []),
             ]
             for lang in AppLanguage.allCases where lang != .system && lang != .zhHans && lang != .en {
                 L10n.currentLanguage = lang
@@ -2587,8 +2592,22 @@ struct ReaderRegressionTests {
             if let docItemForProgress = homePrintStore.documents.first(where: { $0.documentID == outlineDocID }) {
                 check(homePrintStore.savedReadingPageLabel(for: docItemForProgress) == "2 / \(progressPageCount)",
                       "savedReadingPageLabel formats active reading progress cleanly")
+                if let inProgress = homePrintStore.inProgressReadingState(for: docItemForProgress) {
+                    check(inProgress.label == "2 / \(progressPageCount)" && abs(inProgress.fraction - (2.0 / Double(progressPageCount))) < 0.001,
+                          "inProgressReadingState returns label and fraction only when mid-document")
+                } else {
+                    check(false, "inProgressReadingState returns value when stopped mid-document")
+                }
             } else {
                 check(false, "document item available to check savedReadingPageLabel")
+            }
+            if let reopenEnd = homePrintStore.openDocument(at: outlineURL, interactive: false) {
+                reopenEnd.currentPageIndex = progressPageCount - 1
+                homePrintStore.closeTab(id: reopenEnd.id)
+                if let finishedDoc = homePrintStore.documents.first(where: { $0.documentID == outlineDocID }) {
+                    check(homePrintStore.inProgressReadingState(for: finishedDoc) == nil,
+                          "inProgressReadingState hides overlay badge when finished on the last page")
+                }
             }
 
             // 6. Outline filtering helper, internal link jump-back history, DocumentMetadataSnapshot, and page rotation persistence

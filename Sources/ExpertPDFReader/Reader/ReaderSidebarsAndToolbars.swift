@@ -11,9 +11,22 @@ public struct ReaderLeftSidebarView: View {
     var panelWidth: CGFloat = ReaderLeftSidebarView.width
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appAccentColor) private var accent
+    @State private var outlineFilterText: String = ""
+    @State private var isOutlineFilterExpanded: Bool = false
+    @State private var hasOutlineNodes: Bool = false
+    @FocusState private var isOutlineFilterFocused: Bool
     private var isDark: Bool { colorScheme == .dark }
 
     public static let width: CGFloat = 240
+
+    private func collapseOutlineFilter() {
+        isOutlineFilterFocused = false
+        withAnimation(AppAnimation.snappy) {
+            outlineFilterText = ""
+            isOutlineFilterExpanded = false
+        }
+    }
 
     public var body: some View {
         documentSummary
@@ -22,6 +35,23 @@ public struct ReaderLeftSidebarView: View {
             .background(AppPalette.panelBackground(isDark), ignoresSafeAreaEdges: [])
             .accessibilityElement(children: .contain)
             .accessibilityLabel(Text(tab.activeSidebarTab.title))
+            .onChange(of: isOutlineFilterFocused) { _, focused in
+                if !focused && outlineFilterText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    withAnimation(AppAnimation.snappy) {
+                        isOutlineFilterExpanded = false
+                    }
+                }
+            }
+            .onChange(of: tab.activeSidebarTab) { _, newTab in
+                if newTab != .outline && outlineFilterText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    isOutlineFilterExpanded = false
+                }
+            }
+            .onChange(of: hasOutlineNodes) { _, available in
+                if !available && isOutlineFilterExpanded {
+                    collapseOutlineFilter()
+                }
+            }
     }
 
     private var documentSummary: some View {
@@ -37,22 +67,65 @@ public struct ReaderLeftSidebarView: View {
             .padding(.top, 10)
             .padding(.bottom, 4)
 
-            HStack(spacing: 6) {
-                Text(tab.activeSidebarTab.title)
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(AppPalette.labelPrimary(isDark))
-                Spacer()
-                headerAccessory
+            Group {
+                if tab.activeSidebarTab == .outline && isOutlineFilterExpanded {
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(AppPalette.labelTertiary(isDark))
+
+                        TextField(L10n.tr("筛选目录…", "Filter outline…"), text: $outlineFilterText)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 12))
+                            .foregroundColor(AppPalette.labelPrimary(isDark))
+                            .tint(accent)
+                            .focused($isOutlineFilterFocused)
+                            .onExitCommand { collapseOutlineFilter() }
+
+                        Button {
+                            collapseOutlineFilter()
+                        } label: {
+                            Image(systemName: outlineFilterText.isEmpty ? "xmark" : "xmark.circle.fill")
+                                .font(.system(size: outlineFilterText.isEmpty ? 10 : 11, weight: .semibold))
+                                .foregroundColor(AppPalette.labelTertiary(isDark))
+                                .frame(width: 16, height: 16)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help(L10n.tr("关闭", "Close"))
+                        .accessibilityLabel(Text(L10n.tr("关闭", "Close")))
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(height: 26)
+                    .background(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(isDark ? Color.white.opacity(0.06) : Color.black.opacity(0.045))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .strokeBorder(isDark ? Color.white.opacity(0.09) : Color.black.opacity(0.07), lineWidth: 0.5)
+                    )
+                    .padding(.horizontal, 8)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                } else {
+                    HStack(spacing: 6) {
+                        Text(tab.activeSidebarTab.title)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(AppPalette.labelPrimary(isDark))
+                        Spacer()
+                        headerAccessory
+                    }
+                    .padding(.horizontal, 14)
+                    .transition(.opacity)
+                }
             }
             .animation(AppAnimation.sidebarSwitch, value: tab.activeSidebarTab)
-            .padding(.horizontal, 14)
+            .animation(AppAnimation.snappy, value: isOutlineFilterExpanded)
             .frame(height: 34)
 
-            if tab.activeSidebarTab != .outline {
-                Rectangle()
-                    .fill(AppPalette.panelSeparator(isDark))
-                    .frame(height: 1)
-            }
+            Rectangle()
+                .fill(AppPalette.panelSeparator(isDark))
+                .frame(height: 1)
 
             // Active Panel Content
             ZStack {
@@ -60,7 +133,13 @@ public struct ReaderLeftSidebarView: View {
                 case .thumbnails:
                     PDFPageThumbnailsPanel(store: store, tab: tab, panelWidth: panelWidth, isDark: isDark)
                 case .outline:
-                    PDFOutlinePanel(store: store, tab: tab, isDark: isDark)
+                    PDFOutlinePanel(
+                        store: store,
+                        tab: tab,
+                        isDark: isDark,
+                        filterText: $outlineFilterText,
+                        hasOutlineNodes: $hasOutlineNodes
+                    )
                 case .bookmarks:
                     PDFBookmarksPanel(store: store, tab: tab, isDark: isDark)
                 }
@@ -91,7 +170,20 @@ public struct ReaderLeftSidebarView: View {
                 .animation(AppAnimation.micro, value: selectedCount)
                 .foregroundColor(AppPalette.labelTertiary(isDark))
         case .outline:
-            EmptyView()
+            if hasOutlineNodes {
+                PanelHeaderIconButton(
+                    icon: "magnifyingglass",
+                    tooltip: L10n.tr("筛选目录…", "Filter outline…"),
+                    isDark: isDark
+                ) {
+                    withAnimation(AppAnimation.snappy) {
+                        isOutlineFilterExpanded = true
+                    }
+                    DispatchQueue.main.async {
+                        isOutlineFilterFocused = true
+                    }
+                }
+            }
         case .bookmarks:
             let count = store.bookmarks(for: tab.documentID).count
             if count > 0 {

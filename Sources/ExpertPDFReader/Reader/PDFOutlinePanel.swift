@@ -23,11 +23,22 @@ struct PDFOutlinePanel: View {
     let isDark: Bool
     @Environment(\.appAccentColor) private var accent
 
-    init(store: AppStore, tab: DocumentTabState, isDark: Bool) {
+    @Binding var filterText: String
+    @Binding var hasOutlineNodes: Bool
+
+    init(
+        store: AppStore,
+        tab: DocumentTabState,
+        isDark: Bool,
+        filterText: Binding<String> = .constant(""),
+        hasOutlineNodes: Binding<Bool> = .constant(false)
+    ) {
         self._store = ObservedObject(wrappedValue: store)
         self._tab = ObservedObject(wrappedValue: tab)
         self._location = ObservedObject(wrappedValue: tab.readingLocation)
         self.isDark = isDark
+        self._filterText = filterText
+        self._hasOutlineNodes = hasOutlineNodes
     }
 
     struct PinnedSelection: Equatable {
@@ -43,7 +54,6 @@ struct PDFOutlinePanel: View {
     @State private var isGeneratedOutline = false
     @State private var generationTask: Task<Void, Never>?
     @State private var pinnedSelection: PinnedSelection?
-    @State private var filterText: String = ""
     @State private var filterExpandedIDs: Set<UUID> = []
     @State private var filterCollapsedIDs: Set<UUID> = []
     @State private var userSelectedNodeID: UUID?
@@ -61,68 +71,53 @@ struct PDFOutlinePanel: View {
     var body: some View {
         Group {
             if isGenerating {
-                VStack(spacing: 0) {
-                    Rectangle()
-                        .fill(AppPalette.panelSeparator(isDark))
-                        .frame(height: 1)
-                    VStack(spacing: 10) {
-                        ProgressView().controlSize(.small)
-                        Text(L10n.tr("正在识别目录…", "Recognizing outline…"))
-                            .font(.system(size: 12))
-                            .foregroundColor(AppPalette.labelTertiary(isDark))
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text(L10n.tr("正在识别目录…", "Recognizing outline…"))
+                        .font(.system(size: 12))
+                        .foregroundColor(AppPalette.labelTertiary(isDark))
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if hasLoaded && nodes.isEmpty {
-                VStack(spacing: 0) {
-                    Rectangle()
-                        .fill(AppPalette.panelSeparator(isDark))
-                        .frame(height: 1)
-                    if !store.autoGenerateOutline && tab.pdfDocument.outlineRoot == nil {
-                        VStack(spacing: 12) {
-                            Image(systemName: "list.bullet.indent")
-                                .font(.system(size: 26, weight: .light))
-                                .foregroundColor(AppPalette.labelQuaternary(isDark))
-                            Text(L10n.tr("此文档不包含目录大纲", "This document has no outline"))
-                                .font(.system(size: 12.5, weight: .medium))
-                                .foregroundColor(AppPalette.labelSecondary(isDark))
-                            Button {
-                                hasLoaded = false
-                                loadIfNeeded(forceGenerate: true)
-                            } label: {
-                                Text(L10n.tr("识别目录", "Recognize Outline"))
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(AppPalette.labelPrimary(isDark))
-                                    .padding(.horizontal, 12)
-                                    .frame(height: 26)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                            .fill(AppPalette.toolbarControlFill(isDark))
-                                    )
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                            .strokeBorder(AppPalette.panelSeparator(isDark), lineWidth: 1)
-                                    )
-                            }
-                            .buttonStyle(TactilePressButtonStyle())
+                if !store.autoGenerateOutline && tab.pdfDocument.outlineRoot == nil {
+                    VStack(spacing: 12) {
+                        Image(systemName: "list.bullet.indent")
+                            .font(.system(size: 26, weight: .light))
+                            .foregroundColor(AppPalette.labelQuaternary(isDark))
+                        Text(L10n.tr("此文档不包含目录大纲", "This document has no outline"))
+                            .font(.system(size: 12.5, weight: .medium))
+                            .foregroundColor(AppPalette.labelSecondary(isDark))
+                        Button {
+                            hasLoaded = false
+                            loadIfNeeded(forceGenerate: true)
+                        } label: {
+                            Text(L10n.tr("识别目录", "Recognize Outline"))
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(AppPalette.labelPrimary(isDark))
+                                .padding(.horizontal, 12)
+                                .frame(height: 26)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                        .fill(AppPalette.toolbarControlFill(isDark))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                        .strokeBorder(AppPalette.panelSeparator(isDark), lineWidth: 1)
+                                )
                         }
-                        .padding(20)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else {
-                        PanelEmptyState(icon: "list.bullet.indent", title: L10n.tr("此文档不包含目录大纲", "This document has no outline"), subtitle: nil, isDark: isDark)
+                        .buttonStyle(TactilePressButtonStyle())
                     }
+                    .padding(20)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    PanelEmptyState(icon: "list.bullet.indent", title: L10n.tr("此文档不包含目录大纲", "This document has no outline"), subtitle: nil, isDark: isDark)
                 }
             } else {
                 let rows = visibleRows
                 let activeID = activeNodeID(in: rows)
                 let hasExpandable = hasExpandableNodes
                 let isFiltering = !filterText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                VStack(spacing: 0) {
-                    outlineFilterBar
-                    Rectangle()
-                        .fill(AppPalette.panelSeparator(isDark))
-                        .frame(height: 1)
-
+                Group {
                     if rows.isEmpty {
                         PanelEmptyState(
                             icon: "magnifyingglass",
@@ -184,12 +179,18 @@ struct PDFOutlinePanel: View {
             }
         }
         .background(AppPalette.panelBackground(isDark))
-        .onAppear { loadIfNeeded() }
+        .onAppear {
+            loadIfNeeded()
+            syncOutlineAvailability()
+        }
         .onDisappear {
             generationTask?.cancel()
             generationTask = nil
             if !hasLoaded { isGenerating = false }
         }
+        .onChange(of: hasLoaded) { _, _ in syncOutlineAvailability() }
+        .onChange(of: isGenerating) { _, _ in syncOutlineAvailability() }
+        .onChange(of: nodes.count) { _, _ in syncOutlineAvailability() }
         .onChange(of: filterText) { _, _ in
             filterExpandedIDs.removeAll()
             filterCollapsedIDs.removeAll()
@@ -230,49 +231,12 @@ struct PDFOutlinePanel: View {
         }
     }
 
-    private var hasExpandableNodes: Bool {
-        nodes.contains { !$0.children.isEmpty }
+    private func syncOutlineAvailability() {
+        hasOutlineNodes = hasLoaded && !isGenerating && !nodes.isEmpty
     }
 
-    private var outlineFilterBar: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(AppPalette.labelTertiary(isDark))
-
-            TextField(L10n.tr("筛选目录…", "Filter outline…"), text: $filterText)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12))
-                .foregroundColor(AppPalette.labelPrimary(isDark))
-                .tint(accent)
-                .onExitCommand {
-                    filterText = ""
-                }
-
-            if !filterText.isEmpty {
-                Button {
-                    filterText = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 11))
-                        .foregroundColor(AppPalette.labelTertiary(isDark))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 9)
-        .frame(height: 28)
-        .background(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(isDark ? Color.white.opacity(0.06) : Color.black.opacity(0.045))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .strokeBorder(isDark ? Color.white.opacity(0.09) : Color.black.opacity(0.07), lineWidth: 0.5)
-        )
-        .padding(.horizontal, 8)
-        .padding(.top, 2)
-        .padding(.bottom, 8)
+    private var hasExpandableNodes: Bool {
+        nodes.contains { !$0.children.isEmpty }
     }
 
     private var visibleRows: [OutlineRow] {

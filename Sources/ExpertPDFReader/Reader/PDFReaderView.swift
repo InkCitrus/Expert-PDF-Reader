@@ -137,6 +137,11 @@ public struct PDFReaderView: View {
             pageJumpToken: tab.pageJumpToken,
             pageJumpPoint: tab.pageJumpPoint,
             pageJumpScrollSpot: tab.pageJumpScrollSpot,
+            bookmarkPulseToken: tab.bookmarkPulseToken,
+            bookmarkPulseTarget: tab.bookmarkPulseTarget,
+            highlights: store.highlights(for: tab.documentID),
+            defaultHighlightColor: store.defaultHighlightColor,
+            highlightRequestToken: tab.highlightSelectionRequestToken,
             zoomCommandToken: tab.zoomCommandToken,
             pendingZoomAction: tab.pendingZoomAction,
             isAutoScaling: tab.isAutoScaling,
@@ -160,6 +165,40 @@ public struct PDFReaderView: View {
             },
             onInternalLinkJump: { origin, destPage in
                 tab.recordInternalLinkJump(from: origin, to: destPage)
+            },
+            onToggleBookmarkAtPoint: { pageIndex, point in
+                if let existing = store.nearbyBookmark(pageIndex: pageIndex, point: point, tolerance: 60, in: tab.documentID) {
+                    store.removeBookmark(id: existing.id, in: tab.documentID, undoManager: tab.undoManager)
+                } else {
+                    let title = tab.smartBookmarkTitle(at: pageIndex, point: point)
+                    let created = store.addBookmark(
+                        pageIndex: pageIndex,
+                        title: title,
+                        point: point,
+                        in: tab.documentID,
+                        undoManager: tab.undoManager
+                    )
+                    tab.activeBookmarkID = created.id
+                    tab.flashBookmarkIndicator(pageIndex: pageIndex, point: point)
+                }
+            },
+            nearbyBookmarkID: { pageIndex, point in
+                store.nearbyBookmark(pageIndex: pageIndex, point: point, tolerance: 60, in: tab.documentID)?.id
+            },
+            onAddHighlights: { drafts, color in
+                let created = store.addHighlights(
+                    drafts: drafts,
+                    color: color,
+                    in: tab.documentID,
+                    undoManager: tab.undoManager
+                )
+                tab.activeHighlightID = created.last?.id
+            },
+            onUpdateHighlightColor: { id, color in
+                store.updateHighlightColor(id: id, color: color, in: tab.documentID, undoManager: tab.undoManager)
+            },
+            onRemoveHighlight: { id in
+                store.removeHighlight(id: id, in: tab.documentID, undoManager: tab.undoManager)
             }
         )
         .overlay(alignment: .bottomLeading) {
@@ -190,6 +229,7 @@ public struct PDFReaderView: View {
                     tab.setSecondaryDocument(url: chosenURL)
                 }
             } else if let secDoc = tab.secondaryPDFDocument {
+                let secondaryDocID = tab.secondaryDocumentURL.map { DocumentID(url: $0) }
                 PDFReaderCanvasView(
                     pdfDocument: secDoc,
                     currentPageIndex: Binding(
@@ -210,6 +250,9 @@ public struct PDFReaderView: View {
                     isDarkUI: isDark,
                     accentColor: store.accentColor,
                     pageJumpToken: tab.secondaryPageJumpToken,
+                    highlights: secondaryDocID.map { store.highlights(for: $0) } ?? [],
+                    defaultHighlightColor: store.defaultHighlightColor,
+                    highlightRequestToken: tab.highlightSelectionRequestToken,
                     zoomCommandToken: tab.secondaryZoomCommandToken,
                     pendingZoomAction: tab.pendingSecondaryZoomAction,
                     isAutoScaling: tab.secondaryIsAutoScaling,
@@ -232,6 +275,29 @@ public struct PDFReaderView: View {
                     },
                     onReadingSpotChange: { spot in
                         tab.secondaryReadingSpot = spot
+                    },
+                    onAddHighlights: secondaryDocID.map { secID in
+                        { drafts, color in
+                            let created = store.addHighlights(
+                                drafts: drafts,
+                                color: color,
+                                in: secID,
+                                undoManager: tab.undoManager
+                            )
+                            if secID == tab.documentID {
+                                tab.activeHighlightID = created.last?.id
+                            }
+                        }
+                    },
+                    onUpdateHighlightColor: secondaryDocID.map { secID in
+                        { id, color in
+                            store.updateHighlightColor(id: id, color: color, in: secID, undoManager: tab.undoManager)
+                        }
+                    },
+                    onRemoveHighlight: secondaryDocID.map { secID in
+                        { id in
+                            store.removeHighlight(id: id, in: secID, undoManager: tab.undoManager)
+                        }
                     }
                 )
                 .id(ObjectIdentifier(secDoc))

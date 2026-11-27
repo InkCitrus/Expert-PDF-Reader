@@ -459,7 +459,7 @@ struct ReaderMenuCommands: Commands {
             .keyboardShortcut("3", modifiers: [.control, .command])
             .disabled(store.activeDocumentTab == nil)
 
-            Toggle(L10n.tr("书签", "Bookmarks"), isOn: Binding(
+            Toggle(L10n.tr("书签与高亮", "Bookmarks & Highlights"), isOn: Binding(
                 get: {
                     guard let tab = store.activeDocumentTab else { return false }
                     return tab.isLeftSidebarVisible && tab.activeSidebarTab == .bookmarks
@@ -687,6 +687,12 @@ struct ReaderMenuCommands: Commands {
                 store.toggleActiveBookmark(in: tab)
             }
             .keyboardShortcut("d", modifiers: [.command])
+            .disabled(store.activeDocumentTab == nil)
+
+            Button(L10n.tr("高亮所选文字", "Highlight Selection")) {
+                store.activeDocumentTab?.highlightSelectionRequestToken &+= 1
+            }
+            .keyboardShortcut("h", modifiers: [.control, .command])
             .disabled(store.activeDocumentTab == nil)
 
             Divider()

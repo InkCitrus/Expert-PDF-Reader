@@ -2863,6 +2863,132 @@ struct ReaderRegressionTests {
             } else {
                 check(false, "reopening rotated PDF restores saved page rotations")
             }
+
+            // 7. Precise in-page bookmarks, bookmark renaming, deduplication, and text highlights
+            let bmURL = try fixture("BookmarksAndHighlights")
+            let bmStore = freshStore()
+            let bmTab = bmStore.openDocument(at: bmURL, interactive: false)!
+            let bmDocID = bmTab.documentID
+            bmTab.undoManager.groupsByEvent = false
+
+            let upperPoint = CGPoint(x: 72, y: 640)
+            let lowerPoint = CGPoint(x: 72, y: 180)
+            bmTab.undoManager.beginUndoGrouping()
+            let lowerBM = bmStore.addBookmark(pageIndex: 1, title: "Lower Equation", point: lowerPoint, in: bmDocID, undoManager: bmTab.undoManager)
+            bmTab.undoManager.endUndoGrouping()
+            bmTab.undoManager.beginUndoGrouping()
+            let upperBM = bmStore.addBookmark(pageIndex: 1, title: "Upper Theorem", point: upperPoint, in: bmDocID, undoManager: bmTab.undoManager)
+            bmTab.undoManager.endUndoGrouping()
+            bmTab.undoManager.beginUndoGrouping()
+            let wholePageBM = bmStore.addBookmark(pageIndex: 1, title: "Whole Page", point: nil, in: bmDocID, undoManager: bmTab.undoManager)
+            bmTab.undoManager.endUndoGrouping()
+
+            let pageOneBMs = bmStore.bookmarks(for: bmDocID).filter { $0.pageIndex == 1 }
+            check(pageOneBMs.map(\.id) == [wholePageBM.id, upperBM.id, lowerBM.id],
+                  "bookmarks sort whole-page first then top-to-bottom within a page")
+            check(bmTab.bookmarkRegionLabel(for: upperBM) == "Top"
+                  && bmTab.bookmarkRegionLabel(for: lowerBM) == "Bottom",
+                  "bookmarkRegionLabel classifies vertical page regions cleanly")
+
+            bmTab.undoManager.beginUndoGrouping()
+            bmStore.renameBookmark(id: upperBM.id, newTitle: "Renamed Theorem", in: bmDocID, undoManager: bmTab.undoManager)
+            bmTab.undoManager.endUndoGrouping()
+            check(bmStore.bookmarks(for: bmDocID).first(where: { $0.id == upperBM.id })?.title == "Renamed Theorem"
+                  && bmTab.undoManager.undoActionName == "Rename Bookmark",
+                  "renameBookmark updates title and records Undo action name")
+            bmTab.undoManager.undo()
+            check(bmStore.bookmarks(for: bmDocID).first(where: { $0.id == upperBM.id })?.title == "Upper Theorem",
+                  "undoing renameBookmark restores original title")
+            bmTab.undoManager.redo()
+            check(bmStore.bookmarks(for: bmDocID).first(where: { $0.id == upperBM.id })?.title == "Renamed Theorem",
+                  "redoing renameBookmark reapplies new title")
+
+            bmTab.navigateToBookmark(lowerBM)
+            check(bmTab.currentPageIndex == 1
+                  && bmTab.activeBookmarkID == lowerBM.id
+                  && bmTab.bookmarkPulseTarget?.point == lowerPoint,
+                  "navigateToBookmark jumps to page, selects bookmark, and pulses destination point")
+
+            let dupSpot1 = bmStore.addBookmark(pageIndex: 1, title: "Dup Spot", point: CGPoint(x: 72, y: 180), in: bmDocID)
+            let dupSpot2 = bmStore.addBookmark(pageIndex: 1, title: "Should Deduplicate", point: CGPoint(x: 72, y: 196), in: bmDocID)
+            check(dupSpot1.id == lowerBM.id && dupSpot2.id == lowerBM.id,
+                  "addBookmark deduplicates repeated adds near the same in-page spot")
+            let dupWhole = bmStore.addBookmark(pageIndex: 1, title: "Duplicate Whole", point: nil, in: bmDocID)
+            check(dupWhole.id == wholePageBM.id,
+                  "addBookmark deduplicates repeated whole-page bookmarks on the same page")
+
+            bmTab.undoManager.beginUndoGrouping()
+            bmStore.toggleBookmark(pageIndex: 1, in: bmDocID, undoManager: bmTab.undoManager)
+            bmTab.undoManager.endUndoGrouping()
+            check(bmStore.bookmarks(for: bmDocID).filter { $0.pageIndex == 1 }.isEmpty,
+                  "toggleBookmark clears all bookmarks on the page in one click")
+
+            // Text Highlights: creation, sorting, deduplication, navigation, color Undo/Redo, deletion, persistence & rename migration
+            let hlSourceURL = try fixture("HighlightSource")
+            let hlStore = freshStore()
+            let hlTab = hlStore.openDocument(at: hlSourceURL, interactive: false)!
+            let hlDocID = hlTab.documentID
+            hlTab.undoManager.groupsByEvent = false
+
+            hlTab.undoManager.beginUndoGrouping()
+            let addedHLs = hlStore.addHighlights(
+                drafts: [
+                    (pageIndex: 1, text: "Lower   highlighted sentence", rects: [CGRect(x: 72, y: 200, width: 180, height: 14)]),
+                    (pageIndex: 1, text: "Upper\nimportant clause", rects: [CGRect(x: 72, y: 620, width: 200, height: 14)])
+                ],
+                color: .green,
+                in: hlDocID,
+                undoManager: hlTab.undoManager
+            )
+            hlTab.undoManager.endUndoGrouping()
+            let pageOneHLs = hlStore.highlights(for: hlDocID).filter { $0.pageIndex == 1 }
+            check(addedHLs.count == 2
+                  && pageOneHLs.map(\.text) == ["Upper important clause", "Lower highlighted sentence"],
+                  "addHighlights normalizes whitespace and sorts top-to-bottom on a page")
+
+            let upperHLID = pageOneHLs[0].id
+            hlTab.navigateToHighlight(pageOneHLs[0])
+            check(hlTab.currentPageIndex == 1 && hlTab.activeHighlightID == upperHLID,
+                  "navigateToHighlight activates and jumps to highlight")
+
+            hlTab.undoManager.beginUndoGrouping()
+            hlStore.updateHighlightColor(id: upperHLID, color: .pink, in: hlDocID, undoManager: hlTab.undoManager)
+            hlTab.undoManager.endUndoGrouping()
+            check(hlStore.highlights(for: hlDocID).first(where: { $0.id == upperHLID })?.color == .pink
+                  && hlTab.undoManager.undoActionName == "Change Highlight Color",
+                  "updateHighlightColor updates color and records Undo action name")
+
+            hlTab.undoManager.undo()
+            check(hlStore.highlights(for: hlDocID).first(where: { $0.id == upperHLID })?.color == .green,
+                  "undoing updateHighlightColor restores previous color")
+            hlTab.undoManager.redo()
+            check(hlStore.highlights(for: hlDocID).first(where: { $0.id == upperHLID })?.color == .pink,
+                  "redoing updateHighlightColor reapplies new color")
+
+            hlTab.undoManager.beginUndoGrouping()
+            hlStore.removeHighlight(id: upperHLID, in: hlDocID, undoManager: hlTab.undoManager)
+            hlTab.undoManager.endUndoGrouping()
+            check(hlStore.highlights(for: hlDocID).count == 1,
+                  "removeHighlight deletes target highlight")
+            hlTab.undoManager.undo()
+            check(hlStore.highlights(for: hlDocID).count == 2,
+                  "undoing removeHighlight restores deleted highlight")
+
+            let reloadedHLStore = AppStore()
+            check(reloadedHLStore.highlights(for: hlDocID).count == 2
+                  && reloadedHLStore.defaultHighlightColor == .pink,
+                  "highlights and defaultHighlightColor persist across AppStore reloads")
+
+            let hlRenamedURL = root.appendingPathComponent("HighlightAfterRename.pdf")
+            try FileManager.default.moveItem(at: hlSourceURL, to: hlRenamedURL)
+            hlStore.pruneMissingDocuments()
+            let migratedID = DocumentID(url: hlRenamedURL)
+            check(hlStore.highlights(for: migratedID).count == 2
+                  && hlStore.highlights(for: hlDocID).isEmpty,
+                  "highlights follow Finder file renames via pruneMissingDocuments")
+
+            check(ReaderSidebarTab.allCases.count == 3,
+                  "ReaderSidebarTab keeps consolidated 3-tab structure")
         }
         if !failures.isEmpty {
             print("\(failures.count) regression checks failed")

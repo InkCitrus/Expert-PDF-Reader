@@ -296,6 +296,37 @@ final class NativePDFSelectionTracker {
     var isRepairingOrCustomHighlight: Bool { isRepairing || !overlay.highlights.isEmpty }
     func repaintHighlights() { overlay.needsDisplay = true }
 
+    func currentHighlightDraft(in document: PDFDocument) -> [(pageIndex: Int, text: String, rects: [CGRect])]? {
+        guard let selection = pdfView?.currentSelection,
+              selection === repairedSelection,
+              !overlay.highlights.isEmpty else { return nil }
+        let fallbackText = (repairedText?.string ?? selection.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        var byPage: [Int: (rects: [CGRect], textParts: [String])] = [:]
+        for h in overlay.highlights {
+            let idx = document.index(for: h.page)
+            guard (0..<document.pageCount).contains(idx) else { continue }
+            var entry = byPage[idx] ?? ([], [])
+            entry.rects.append(h.rect)
+            byPage[idx] = entry
+        }
+        guard !byPage.isEmpty else { return nil }
+        return byPage.keys.sorted().compactMap { idx in
+            guard let rects = byPage[idx]?.rects, !rects.isEmpty else { return nil }
+            let text: String
+            if byPage.count == 1 {
+                text = fallbackText
+            } else if let page = document.page(at: idx) {
+                let joined = rects.compactMap { r in
+                    page.selection(for: r.insetBy(dx: -1, dy: -1))?.string
+                }.joined(separator: " ")
+                text = joined.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? fallbackText : joined
+            } else {
+                text = fallbackText
+            }
+            return text.isEmpty ? nil : (pageIndex: idx, text: text, rects: rects)
+        }
+    }
+
     private func apply(_ result: NativePDFSelection.Result) {
         guard let pdfView else { return }
         isRepairing = true

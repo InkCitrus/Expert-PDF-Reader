@@ -228,6 +228,12 @@ public final class AppStore: ObservableObject {
     @Published public private(set) var recentDocumentIDs: [DocumentID] = []
     @Published public private(set) var favoriteDocumentIDs: Set<DocumentID> = []
     @Published public private(set) var bookmarksByDocument: [String: [BookmarkItem]] = [:]
+    @Published public private(set) var highlightsByDocument: [String: [HighlightItem]] = [:]
+    @Published public var defaultHighlightColor: HighlightColor = .yellow {
+        didSet {
+            UserDefaults.standard.set(defaultHighlightColor.rawValue, forKey: Keys.defaultHighlightColor)
+        }
+    }
 
     // Active window tabs
     public var tabs: [AppTab] {
@@ -294,6 +300,8 @@ public final class AppStore: ObservableObject {
         static let recents = "expertPDFReader.Recents"
         static let favorites = "expertPDFReader.Favorites"
         static let bookmarks = "expertPDFReader.Bookmarks"
+        static let highlights = "expertPDFReader.highlights"
+        static let defaultHighlightColor = "expertPDFReader.defaultHighlightColor"
         static let restoreTabsOnLaunch = "expertPDFReader.restoreTabsOnLaunch"
         static let alwaysShowPageIndicator = "expertPDFReader.alwaysShowPageIndicator"
         static let autoGenerateOutline = "expertPDFReader.autoGenerateOutline"
@@ -348,6 +356,8 @@ public final class AppStore: ObservableObject {
         let resolvedAccent = AppAccentColor(rawValue: savedAccentRaw) ?? .blue
         self.accentColor = resolvedAccent
         AppPalette.accent = resolvedAccent
+        let savedHighlightColorRaw = defaults.string(forKey: Keys.defaultHighlightColor) ?? HighlightColor.yellow.rawValue
+        self.defaultHighlightColor = HighlightColor(rawValue: savedHighlightColorRaw) ?? .yellow
         self.tabsInSidebar = defaults.bool(forKey: "expertPDFReader.tabsInSidebar")
 
         let formatter = DateFormatter()
@@ -1418,6 +1428,55 @@ public final class AppStore: ObservableObject {
         return !pages.isEmpty && pages.allSatisfy { isPageBookmarked(pageIndex: $0, in: source.documentID) }
     }
 
+    private static func sortBookmarks(_ list: inout [BookmarkItem]) {
+        list.sort { lhs, rhs in
+            if lhs.pageIndex != rhs.pageIndex { return lhs.pageIndex < rhs.pageIndex }
+            let ly = lhs.pageY ?? .infinity
+            let ry = rhs.pageY ?? .infinity
+            if abs(ly - ry) > 0.5 { return ly > ry }
+            return lhs.createdAt < rhs.createdAt
+        }
+    }
+
+    public func nearbyBookmark(
+        pageIndex: Int,
+        point: CGPoint?,
+        tolerance: CGFloat = 48,
+        in documentID: DocumentID
+    ) -> BookmarkItem? {
+        let list = bookmarks(for: documentID)
+        return list.first { item in
+            guard item.pageIndex == pageIndex else { return false }
+            if let point {
+                guard let existingY = item.pageY else { return false }
+                return abs(existingY - Double(point.y)) <= Double(tolerance)
+            } else {
+                return item.pageY == nil
+            }
+        }
+    }
+
+    @discardableResult
+    public func addBookmark(
+        pageIndex: Int,
+        title: String? = nil,
+        point: CGPoint? = nil,
+        in documentID: DocumentID,
+        undoManager: UndoManager? = nil
+    ) -> BookmarkItem {
+        if let existing = nearbyBookmark(pageIndex: pageIndex, point: point, tolerance: 48, in: documentID) {
+            return existing
+        }
+        var list = bookmarksByDocument[documentID.normalizedPath] ?? []
+        let cleaned = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let label = (cleaned?.isEmpty == false ? cleaned! : L10n.defaultBookmarkTitle(pageNumber: pageIndex + 1))
+        let item = BookmarkItem(pageIndex: pageIndex, title: label, point: point)
+        list.append(item)
+        Self.sortBookmarks(&list)
+        applyBookmarks(list, for: documentID, actionName: L10n.tr("添加书签", "Add Bookmark"), undoManager: undoManager)
+        return item
+    }
+
     func toggleActiveBookmark(in tab: DocumentTabState, undoManager: UndoManager? = nil) {
         let source = tab.activeThumbnailSource
         let selection = tab.selectedThumbnailPages(in: source)
@@ -1427,25 +1486,29 @@ public final class AppStore: ObservableObject {
             setBookmarks(pageIndices: ordered, bookmarked: shouldBookmark, in: source.documentID, undoManager: undoManager)
         } else {
             let pageIndex = selection.first ?? source.pageIndex
-            toggleBookmark(pageIndex: pageIndex, in: source.documentID, undoManager: undoManager)
+            let isPrimary = (source.documentID == tab.documentID)
+            let point = (isPrimary && selection.isEmpty) ? tab.currentBookmarkPoint(for: pageIndex) : nil
+            let title = (isPrimary && selection.isEmpty) ? tab.smartBookmarkTitle(at: pageIndex, point: point) : nil
+            toggleBookmark(pageIndex: pageIndex, point: point, defaultTitle: title, in: source.documentID, undoManager: undoManager)
         }
     }
 
     public func toggleBookmark(
         pageIndex: Int,
+        point: CGPoint? = nil,
         defaultTitle: String? = nil,
         in documentID: DocumentID,
         undoManager: UndoManager? = nil
     ) {
         var list = bookmarksByDocument[documentID.normalizedPath] ?? []
         let actionName: String
-        if let existingIdx = list.firstIndex(where: { $0.pageIndex == pageIndex }) {
-            list.remove(at: existingIdx)
+        if list.contains(where: { $0.pageIndex == pageIndex }) {
+            list.removeAll { $0.pageIndex == pageIndex }
             actionName = L10n.tr("移除书签", "Remove Bookmark")
         } else {
             let label = defaultTitle ?? L10n.defaultBookmarkTitle(pageNumber: pageIndex + 1)
-            list.append(BookmarkItem(pageIndex: pageIndex, title: label))
-            list.sort(by: { $0.pageIndex < $1.pageIndex })
+            list.append(BookmarkItem(pageIndex: pageIndex, title: label, point: point))
+            Self.sortBookmarks(&list)
             actionName = L10n.tr("添加书签", "Add Bookmark")
         }
         applyBookmarks(list, for: documentID, actionName: actionName, undoManager: undoManager)
@@ -1467,7 +1530,7 @@ public final class AppStore: ObservableObject {
             for idx in unique where !existing.contains(idx) {
                 list.append(BookmarkItem(pageIndex: idx, title: L10n.defaultBookmarkTitle(pageNumber: idx + 1)))
             }
-            list.sort(by: { $0.pageIndex < $1.pageIndex })
+            Self.sortBookmarks(&list)
             actionName = L10n.tr("添加书签", "Add Bookmark")
         } else {
             let removals = Set(unique)
@@ -1485,10 +1548,116 @@ public final class AppStore: ObservableObject {
     }
 
     public func renameBookmark(id: UUID, newTitle: String, in documentID: DocumentID, undoManager: UndoManager? = nil) {
-        guard var list = bookmarksByDocument[documentID.normalizedPath],
+        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              var list = bookmarksByDocument[documentID.normalizedPath],
+              let idx = list.firstIndex(where: { $0.id == id }),
+              list[idx].title != trimmed else { return }
+        list[idx].title = trimmed
+        applyBookmarks(list, for: documentID, actionName: L10n.tr("重命名书签", "Rename Bookmark"), undoManager: undoManager)
+    }
+
+    // MARK: - Highlights Management
+
+    public func highlights(for documentID: DocumentID) -> [HighlightItem] {
+        highlightsByDocument[documentID.normalizedPath] ?? []
+    }
+
+    private func applyHighlights(
+        _ newList: [HighlightItem],
+        for documentID: DocumentID,
+        actionName: String,
+        undoManager: UndoManager?
+    ) {
+        let previousList = highlightsByDocument[documentID.normalizedPath] ?? []
+        guard newList != previousList else { return }
+        highlightsByDocument[documentID.normalizedPath] = newList
+        savePersistedState()
+        let targetUndo = undoManager ?? self.undoManager(for: documentID)
+        if let targetUndo {
+            targetUndo.registerUndo(withTarget: self) { store in
+                MainActor.assumeIsolated {
+                    store.applyHighlights(previousList, for: documentID, actionName: actionName, undoManager: targetUndo)
+                }
+            }
+            if !targetUndo.isUndoing && !targetUndo.isRedoing {
+                targetUndo.setActionName(actionName)
+            }
+        }
+    }
+
+    private static func sortHighlights(_ list: inout [HighlightItem]) {
+        list.sort { lhs, rhs in
+            if lhs.pageIndex != rhs.pageIndex { return lhs.pageIndex < rhs.pageIndex }
+            let ly = lhs.rects.first?.y ?? 0
+            let ry = rhs.rects.first?.y ?? 0
+            if abs(ly - ry) > 1 { return ly > ry }
+            let lx = lhs.rects.first?.x ?? 0
+            let rx = rhs.rects.first?.x ?? 0
+            if abs(lx - rx) > 1 { return lx < rx }
+            return lhs.createdAt < rhs.createdAt
+        }
+    }
+
+    @discardableResult
+    public func addHighlights(
+        drafts: [(pageIndex: Int, text: String, rects: [CGRect])],
+        color: HighlightColor? = nil,
+        in documentID: DocumentID,
+        undoManager: UndoManager? = nil
+    ) -> [HighlightItem] {
+        let chosenColor = color ?? defaultHighlightColor
+        if color != nil && defaultHighlightColor != chosenColor {
+            defaultHighlightColor = chosenColor
+        }
+        var list = highlightsByDocument[documentID.normalizedPath] ?? []
+        var createdOrUpdated: [HighlightItem] = []
+
+        for draft in drafts {
+            let validRects = draft.rects.filter { !$0.isNull && !$0.isInfinite && $0.width > 0.5 && $0.height > 0.5 }
+            guard !validRects.isEmpty else { continue }
+            let normalizedText = PDFTextCleanup.normalize(draft.text)
+                .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedText.isEmpty else { continue }
+
+            let firstRect = validRects[0]
+            if let existingIdx = list.firstIndex(where: { existing in
+                existing.pageIndex == draft.pageIndex
+                    && existing.text == normalizedText
+                    && (existing.rects.first?.cgRect.intersects(firstRect.insetBy(dx: -2, dy: -2)) ?? false)
+            }) {
+                list[existingIdx].color = chosenColor
+                createdOrUpdated.append(list[existingIdx])
+            } else {
+                let item = HighlightItem(pageIndex: draft.pageIndex, text: normalizedText, color: chosenColor, rects: validRects)
+                list.append(item)
+                createdOrUpdated.append(item)
+            }
+        }
+
+        guard !createdOrUpdated.isEmpty else { return [] }
+        Self.sortHighlights(&list)
+        applyHighlights(list, for: documentID, actionName: L10n.tr("添加高亮", "Add Highlight"), undoManager: undoManager)
+        return createdOrUpdated
+    }
+
+    public func updateHighlightColor(id: UUID, color: HighlightColor, in documentID: DocumentID, undoManager: UndoManager? = nil) {
+        guard var list = highlightsByDocument[documentID.normalizedPath],
               let idx = list.firstIndex(where: { $0.id == id }) else { return }
-        list[idx].title = newTitle
-        applyBookmarks(list, for: documentID, actionName: L10n.tr("书签", "Bookmarks"), undoManager: undoManager)
+        if defaultHighlightColor != color {
+            defaultHighlightColor = color
+        }
+        guard list[idx].color != color else { return }
+        list[idx].color = color
+        applyHighlights(list, for: documentID, actionName: L10n.tr("更改高亮颜色", "Change Highlight Color"), undoManager: undoManager)
+    }
+
+    public func removeHighlight(id: UUID, in documentID: DocumentID, undoManager: UndoManager? = nil) {
+        guard var list = highlightsByDocument[documentID.normalizedPath],
+              list.contains(where: { $0.id == id }) else { return }
+        list.removeAll(where: { $0.id == id })
+        applyHighlights(list, for: documentID, actionName: L10n.tr("移除高亮", "Remove Highlight"), undoManager: undoManager)
     }
 
     // MARK: - Persistence & Sample Initialization
@@ -1656,6 +1825,10 @@ public final class AppStore: ObservableObject {
            let decoded = try? decoder.decode([String: [BookmarkItem]].self, from: data) {
             bookmarksByDocument = decoded
         }
+        if let data = defaults.data(forKey: Keys.highlights),
+           let decoded = try? decoder.decode([String: [HighlightItem]].self, from: data) {
+            highlightsByDocument = decoded
+        }
         if let data = defaults.data(forKey: Keys.closedTabs),
            let decoded = try? decoder.decode([ClosedTabRecord].self, from: data) {
             closedTabs = decoded.compactMap { record in
@@ -1727,12 +1900,16 @@ public final class AppStore: ObservableObject {
         if let bmData = try? JSONEncoder().encode(bookmarksByDocument) {
             defaults.set(bmData, forKey: Keys.bookmarks)
         }
+        if let hlData = try? JSONEncoder().encode(highlightsByDocument) {
+            defaults.set(hlData, forKey: Keys.highlights)
+        }
 
         // Only keep file bookmarks of documents that are still remembered somewhere
         var remembered = Set(favPaths)
         remembered.formUnion(recentDocumentIDs.map(\.normalizedPath))
         remembered.formUnion(closedTabs.map(\.documentID.normalizedPath))
         remembered.formUnion(defaults.stringArray(forKey: Keys.openTabs) ?? [])
+        remembered.formUnion(highlightsByDocument.keys)
         fileBookmarks = fileBookmarks.filter { remembered.contains($0.key) }
         if let data = try? JSONEncoder().encode(fileBookmarks) {
             defaults.set(data, forKey: Keys.fileBookmarks)
@@ -1959,6 +2136,9 @@ public final class AppStore: ObservableObject {
     private func moveSavedState(from oldKey: String, to newKey: String) {
         if let bookmarks = bookmarksByDocument.removeValue(forKey: oldKey) {
             bookmarksByDocument[newKey] = bookmarks
+        }
+        if let highlights = highlightsByDocument.removeValue(forKey: oldKey) {
+            highlightsByDocument[newKey] = highlights
         }
         if let position = readingPositions.removeValue(forKey: oldKey) {
             readingPositions[newKey] = position

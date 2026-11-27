@@ -542,7 +542,7 @@ public struct ShortcutsAndTipsSheetView: View {
                 id: "sidebar_tabs",
                 category: .viewAndZoom,
                 icon: "list.bullet.indent",
-                title: "\(L10n.tr("缩略图", "Thumbnails")) / \(L10n.tr("大纲", "Outline")) / \(L10n.tr("书签", "Bookmarks"))",
+                title: "\(L10n.tr("缩略图", "Thumbnails")) / \(L10n.tr("大纲", "Outline")) / \(L10n.tr("书签与高亮", "Bookmarks & Highlights"))",
                 subtitle: nil,
                 chords: [["⌃", "⌘", "2"], ["⌃", "⌘", "3"], ["⌃", "⌘", "4"]]
             ),
@@ -603,6 +603,14 @@ public struct ShortcutsAndTipsSheetView: View {
                 title: L10n.tr("为当前页添加/移除书签", "Toggle Bookmark for Current Page"),
                 subtitle: nil,
                 chords: [["⌘", "D"]]
+            ),
+            ShortcutEntry(
+                id: "highlight_selection",
+                category: .searchAndBookmarks,
+                icon: "highlighter",
+                title: L10n.tr("高亮所选文字", "Highlight Selection"),
+                subtitle: nil,
+                chords: [["⌃", "⌘", "H"]]
             ),
             ShortcutEntry(
                 id: "open_shortcuts",

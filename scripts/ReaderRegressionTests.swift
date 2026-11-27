@@ -2987,8 +2987,114 @@ struct ReaderRegressionTests {
                   && hlStore.highlights(for: hlDocID).isEmpty,
                   "highlights follow Finder file renames via pruneMissingDocuments")
 
-            check(ReaderSidebarTab.allCases.count == 3,
-                  "ReaderSidebarTab keeps consolidated 3-tab structure")
+            // Notes CRUD, Undo/Redo, and Persistence
+            let targetHLID = hlStore.highlights(for: migratedID)[0].id
+            hlTab.undoManager.beginUndoGrouping()
+            hlStore.updateHighlightNote(id: targetHLID, note: "Key method takeaway", in: migratedID, undoManager: hlTab.undoManager)
+            hlTab.undoManager.endUndoGrouping()
+            check(hlStore.highlights(for: migratedID).first(where: { $0.id == targetHLID })?.note == "Key method takeaway"
+                  && hlTab.undoManager.undoActionName == "Add Note",
+                  "updateHighlightNote attaches note to highlight and records Undo action")
+
+            hlTab.undoManager.undo()
+            check(hlStore.highlights(for: migratedID).first(where: { $0.id == targetHLID })?.note == nil,
+                  "undoing updateHighlightNote removes attached note")
+            hlTab.undoManager.redo()
+            check(hlStore.highlights(for: migratedID).first(where: { $0.id == targetHLID })?.note == "Key method takeaway",
+                  "redoing updateHighlightNote restores attached note")
+
+            hlTab.undoManager.beginUndoGrouping()
+            let pageNote = hlStore.addPageNote(pageIndex: 0, pageX: 120, pageY: 540, note: "Standalone summary note", in: migratedID, undoManager: hlTab.undoManager)
+            hlTab.undoManager.endUndoGrouping()
+            check(pageNote.isStandaloneNote
+                  && pageNote.anchorPoint == CGPoint(x: 120, y: 540)
+                  && hlStore.highlights(for: migratedID).contains(where: { $0.id == pageNote.id && $0.isStandaloneNote }),
+                  "addPageNote creates standalone page note with coordinates")
+
+            let reloadedNotesStore = AppStore()
+            check(reloadedNotesStore.highlights(for: migratedID).first(where: { $0.id == targetHLID })?.note == "Key method takeaway"
+                  && reloadedNotesStore.highlights(for: migratedID).first(where: { $0.id == pageNote.id })?.note == "Standalone summary note",
+                  "attached highlight notes and standalone page notes persist across AppStore reloads")
+
+            // Clearing note on highlight preserves highlight; clearing note on standalone removes it
+            hlTab.undoManager.beginUndoGrouping()
+            hlStore.updateHighlightNote(id: targetHLID, note: "   ", in: migratedID, undoManager: hlTab.undoManager)
+            hlTab.undoManager.endUndoGrouping()
+            check(hlStore.highlights(for: migratedID).contains(where: { $0.id == targetHLID && $0.note == nil }),
+                  "clearing note on highlight preserves the highlight itself")
+            hlTab.undoManager.beginUndoGrouping()
+            hlStore.updateHighlightNote(id: pageNote.id, note: nil, in: migratedID, undoManager: hlTab.undoManager)
+            hlTab.undoManager.endUndoGrouping()
+            check(!hlStore.highlights(for: migratedID).contains(where: { $0.id == pageNote.id }),
+                  "clearing note on standalone note removes the empty standalone note")
+
+            check(ReaderSidebarTab.allCases == [.thumbnails, .outline, .bookmarks, .annotations],
+                  "ReaderSidebarTab exposes clean 4-tab structure (Thumbnails, Outline, Bookmarks, Annotations)")
+
+            // arXiv rotated left-margin stamp exclusion
+            let arxivPDFData: Data = {
+                var box = CGRect(x: 0, y: 0, width: 612, height: 792)
+                let data = NSMutableData()
+                guard let consumer = CGDataConsumer(data: data as CFMutableData),
+                      let ctx = CGContext(consumer: consumer, mediaBox: &box, nil) else {
+                    return Data()
+                }
+                ctx.beginPDFPage(nil)
+                let stampAttr = NSAttributedString(
+                    string: "arXiv:2506.15841v2 [cs.CL] 17 Jul 2025",
+                    attributes: [.font: NSFont.systemFont(ofSize: 16)]
+                )
+                ctx.saveGState()
+                ctx.translateBy(x: 42, y: 180)
+                ctx.rotate(by: .pi / 2)
+                let stampLine = CTLineCreateWithAttributedString(stampAttr)
+                ctx.textPosition = .zero
+                CTLineDraw(stampLine, ctx)
+                ctx.restoreGState()
+
+                for (idx, bodyText) in [
+                    "Modern language agents operate across long horizons.",
+                    "Vertical margin stamps must never stretch highlights."
+                ].enumerated() {
+                    let bodyAttr = NSAttributedString(
+                        string: bodyText,
+                        attributes: [.font: NSFont.systemFont(ofSize: 12)]
+                    )
+                    let bodyLine = CTLineCreateWithAttributedString(bodyAttr)
+                    ctx.textPosition = CGPoint(x: 150, y: 500 - CGFloat(idx) * 20)
+                    CTLineDraw(bodyLine, ctx)
+                }
+                ctx.endPDFPage()
+                ctx.closePDF()
+                return data as Data
+            }()
+            if let arxivDoc = PDFDocument(data: arxivPDFData), let arxivPage = arxivDoc.page(at: 0) {
+                let geom = NativePDFPageGeometry.geometry(for: arxivPage)
+                let leakedMarginGlyphs = geom.rows.flatMap { $0.glyphs }.filter { $0.bounds.maxX < 90 }
+                check(leakedMarginGlyphs.isEmpty && !geom.excludedIndices.isEmpty && geom.needsDirectSelection,
+                      "NativePDFPageGeometry excludes rotated vertical left-margin stamp glyphs from rows (leaked=\(leakedMarginGlyphs.count))")
+                let startPt = CGPoint(x: 155, y: 504)
+                let endPt = CGPoint(x: 430, y: 484)
+                let rawSel = arxivPage.selection(from: startPt, to: endPt) ?? PDFSelection(document: arxivDoc)
+                if let repaired = NativePDFSelection.corrected(
+                    rawSel,
+                    in: arxivDoc,
+                    from: arxivPage,
+                    at: startPt,
+                    to: arxivPage,
+                    at: endPt,
+                    force: true
+                ) {
+                    let spansLeftMargin = repaired.highlights.contains { $0.rect.minX < 90 }
+                    let leakedStampText = (repaired.selection.string ?? "").contains("arXiv")
+                    check(!spansLeftMargin && !leakedStampText && !repaired.highlights.isEmpty,
+                          "NativePDFSelection.corrected keeps horizontal body highlights and text out of left vertical stamp margin")
+                } else {
+                    check(false, "NativePDFSelection.corrected failed on synthetic arXiv page")
+                }
+            } else {
+                check(false, "Could not create synthetic arXiv PDF page")
+            }
         }
         if !failures.isEmpty {
             print("\(failures.count) regression checks failed")

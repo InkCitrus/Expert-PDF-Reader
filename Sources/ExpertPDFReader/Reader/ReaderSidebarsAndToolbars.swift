@@ -13,18 +13,40 @@ public struct ReaderLeftSidebarView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.appAccentColor) private var accent
     @State private var outlineFilterText: String = ""
-    @State private var isOutlineFilterExpanded: Bool = false
+    @State private var annotationsFilterText: String = ""
+    @State private var isFilterExpanded: Bool = false
     @State private var hasOutlineNodes: Bool = false
-    @FocusState private var isOutlineFilterFocused: Bool
+    @FocusState private var isFilterFocused: Bool
     private var isDark: Bool { colorScheme == .dark }
 
     public static let width: CGFloat = 240
 
-    private func collapseOutlineFilter() {
-        isOutlineFilterFocused = false
+    private var activeFilterText: Binding<String> {
+        Binding(
+            get: { tab.activeSidebarTab == .annotations ? annotationsFilterText : outlineFilterText },
+            set: { newValue in
+                if tab.activeSidebarTab == .annotations {
+                    annotationsFilterText = newValue
+                } else {
+                    outlineFilterText = newValue
+                }
+            }
+        )
+    }
+
+    private var currentFilterString: String {
+        tab.activeSidebarTab == .annotations ? annotationsFilterText : outlineFilterText
+    }
+
+    private func collapseFilter() {
+        isFilterFocused = false
         withAnimation(AppAnimation.snappy) {
-            outlineFilterText = ""
-            isOutlineFilterExpanded = false
+            if tab.activeSidebarTab == .annotations {
+                annotationsFilterText = ""
+            } else {
+                outlineFilterText = ""
+            }
+            isFilterExpanded = false
         }
     }
 
@@ -35,31 +57,32 @@ public struct ReaderLeftSidebarView: View {
             .background(AppPalette.panelBackground(isDark), ignoresSafeAreaEdges: [])
             .accessibilityElement(children: .contain)
             .accessibilityLabel(Text(tab.activeSidebarTab.title))
-            .onChange(of: isOutlineFilterFocused) { _, focused in
-                if !focused && outlineFilterText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            .onChange(of: isFilterFocused) { _, focused in
+                if !focused && currentFilterString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     withAnimation(AppAnimation.snappy) {
-                        isOutlineFilterExpanded = false
+                        isFilterExpanded = false
                     }
                 }
             }
             .onChange(of: tab.activeSidebarTab) { _, newTab in
-                if newTab != .outline && outlineFilterText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    isOutlineFilterExpanded = false
+                let targetText = newTab == .annotations ? annotationsFilterText : (newTab == .outline ? outlineFilterText : "")
+                if (newTab != .outline && newTab != .annotations) || targetText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    isFilterExpanded = false
                 }
             }
             .onChange(of: hasOutlineNodes) { _, available in
-                if !available && isOutlineFilterExpanded {
-                    collapseOutlineFilter()
+                if tab.activeSidebarTab == .outline && !available && isFilterExpanded {
+                    collapseFilter()
                 }
             }
     }
 
     private var documentSummary: some View {
         VStack(spacing: 0) {
-            // Icon Segmented Header (Thumbnails / Outline / Bookmarks)
+            // Icon Segmented Header (Thumbnails / Outline / Bookmarks / Annotations)
             PanelSegmentedControl(items: ReaderSidebarTab.allCases, selection: $tab.activeSidebarTab, isDark: isDark) { sTab, _ in
                 Image(systemName: sTab.iconName)
-                    .font(.system(size: 12.5, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .help(sTab.title)
                     .accessibilityLabel(Text(sTab.title))
             }
@@ -68,25 +91,30 @@ public struct ReaderLeftSidebarView: View {
             .padding(.bottom, 4)
 
             Group {
-                if tab.activeSidebarTab == .outline && isOutlineFilterExpanded {
+                if (tab.activeSidebarTab == .outline || tab.activeSidebarTab == .annotations) && isFilterExpanded {
                     HStack(spacing: 6) {
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundColor(AppPalette.labelTertiary(isDark))
 
-                        TextField(L10n.tr("筛选目录…", "Filter outline…"), text: $outlineFilterText)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 12))
-                            .foregroundColor(AppPalette.labelPrimary(isDark))
-                            .tint(accent)
-                            .focused($isOutlineFilterFocused)
-                            .onExitCommand { collapseOutlineFilter() }
+                        TextField(
+                            tab.activeSidebarTab == .annotations
+                                ? L10n.tr("筛选批注", "Filter annotations")
+                                : L10n.tr("筛选目录…", "Filter outline…"),
+                            text: activeFilterText
+                        )
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                        .foregroundColor(AppPalette.labelPrimary(isDark))
+                        .tint(accent)
+                        .focused($isFilterFocused)
+                        .onExitCommand { collapseFilter() }
 
                         Button {
-                            collapseOutlineFilter()
+                            collapseFilter()
                         } label: {
-                            Image(systemName: outlineFilterText.isEmpty ? "xmark" : "xmark.circle.fill")
-                                .font(.system(size: outlineFilterText.isEmpty ? 10 : 11, weight: .semibold))
+                            Image(systemName: currentFilterString.isEmpty ? "xmark" : "xmark.circle.fill")
+                                .font(.system(size: currentFilterString.isEmpty ? 10 : 11, weight: .semibold))
                                 .foregroundColor(AppPalette.labelTertiary(isDark))
                                 .frame(width: 16, height: 16)
                                 .contentShape(Rectangle())
@@ -123,7 +151,7 @@ public struct ReaderLeftSidebarView: View {
                 }
             }
             .animation(AppAnimation.sidebarSwitch, value: tab.activeSidebarTab)
-            .animation(AppAnimation.snappy, value: isOutlineFilterExpanded)
+            .animation(AppAnimation.snappy, value: isFilterExpanded)
             .frame(height: 34)
 
             Rectangle()
@@ -145,6 +173,8 @@ public struct ReaderLeftSidebarView: View {
                     )
                 case .bookmarks:
                     PDFBookmarksPanel(store: store, tab: tab, isDark: isDark)
+                case .annotations:
+                    PDFAnnotationsPanel(store: store, tab: tab, isDark: isDark, filterText: annotationsFilterText)
                 }
             }
             .id(tab.activeSidebarTab)
@@ -180,45 +210,66 @@ public struct ReaderLeftSidebarView: View {
                     isDark: isDark
                 ) {
                     withAnimation(AppAnimation.snappy) {
-                        isOutlineFilterExpanded = true
+                        isFilterExpanded = true
                     }
                     DispatchQueue.main.async {
-                        isOutlineFilterFocused = true
+                        isFilterFocused = true
                     }
                 }
             }
         case .bookmarks:
-            let totalCount = store.bookmarks(for: tab.documentID).count + store.highlights(for: tab.documentID).count
-            HStack(spacing: 6) {
-                if totalCount > 0 {
-                    Text("\(totalCount)")
-                        .font(.system(size: 11))
-                        .monospacedDigit()
-                        .foregroundColor(AppPalette.labelTertiary(isDark))
+            PanelHeaderIconButton(
+                icon: "plus",
+                tooltip: L10n.tr("为当前页添加书签 (⌘D)", "Add Bookmark for Current Page (⌘D)"),
+                isDark: isDark
+            ) {
+                let point = tab.currentBookmarkPoint(for: tab.currentPageIndex)
+                if let existing = store.nearbyBookmark(pageIndex: tab.currentPageIndex, point: point, tolerance: 48, in: tab.documentID) {
+                    tab.activeBookmarkID = existing.id
+                    tab.pendingRenameBookmarkID = existing.id
+                } else {
+                    let title = tab.smartBookmarkTitle(at: tab.currentPageIndex, point: point)
+                    let created = store.addBookmark(
+                        pageIndex: tab.currentPageIndex,
+                        title: title,
+                        point: point,
+                        in: tab.documentID,
+                        undoManager: tab.undoManager
+                    )
+                    tab.activeBookmarkID = created.id
+                    if let point {
+                        tab.flashBookmarkIndicator(pageIndex: tab.currentPageIndex, point: point)
+                    }
+                }
+            }
+        case .annotations:
+            HStack(spacing: 2) {
+                if !store.highlights(for: tab.documentID).isEmpty {
+                    PanelHeaderIconButton(
+                        icon: "magnifyingglass",
+                        tooltip: L10n.tr("筛选批注", "Filter annotations"),
+                        isDark: isDark
+                    ) {
+                        withAnimation(AppAnimation.snappy) {
+                            isFilterExpanded = true
+                        }
+                        DispatchQueue.main.async {
+                            isFilterFocused = true
+                        }
+                    }
                 }
                 PanelHeaderIconButton(
                     icon: "plus",
-                    tooltip: L10n.tr("为当前页添加书签 (⌘D)", "Add Bookmark for Current Page (⌘D)"),
+                    tooltip: L10n.tr("添加页面笔记", "Add Page Note"),
                     isDark: isDark
                 ) {
-                    let point = tab.currentBookmarkPoint(for: tab.currentPageIndex)
-                    if let existing = store.nearbyBookmark(pageIndex: tab.currentPageIndex, point: point, tolerance: 48, in: tab.documentID) {
-                        tab.activeBookmarkID = existing.id
-                        tab.pendingRenameBookmarkID = existing.id
-                    } else {
-                        let title = tab.smartBookmarkTitle(at: tab.currentPageIndex, point: point)
-                        let created = store.addBookmark(
-                            pageIndex: tab.currentPageIndex,
-                            title: title,
-                            point: point,
-                            in: tab.documentID,
-                            undoManager: tab.undoManager
-                        )
-                        tab.activeBookmarkID = created.id
-                        if let point {
-                            tab.flashBookmarkIndicator(pageIndex: tab.currentPageIndex, point: point)
-                        }
-                    }
+                    let created = store.addPageNote(
+                        pageIndex: tab.currentPageIndex,
+                        in: tab.documentID,
+                        undoManager: tab.undoManager
+                    )
+                    tab.activeHighlightID = created.id
+                    tab.pendingEditNoteID = created.id
                 }
             }
         }
@@ -284,14 +335,18 @@ struct PanelHeaderIconButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 10.5, weight: .semibold))
-                .foregroundColor(isDisabled ? AppPalette.labelQuaternary(isDark) : AppPalette.labelSecondary(isDark))
-                .frame(width: 22, height: 22)
-                .background(
-                    Circle()
-                        .fill(isHovered && !isDisabled ? AppPalette.toolbarActive(isDark) : AppPalette.segmentedTrack(isDark))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(
+                    isDisabled
+                        ? AppPalette.labelQuaternary(isDark)
+                        : (isHovered ? AppPalette.labelPrimary(isDark) : AppPalette.labelSecondary(isDark))
                 )
-                .contentShape(Circle())
+                .frame(width: 24, height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(isHovered && !isDisabled ? AppPalette.sidebarRowHover(isDark) : Color.clear)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
@@ -632,63 +687,13 @@ struct PageThumbnailCell: View {
     }
 }
 
-// MARK: - 3. PDFBookmarksPanel (Unified Bookmarks & Highlights + Inline Rename)
+// MARK: - 3. PDFBookmarksPanel (Clean Bookmark List + Single-Line Rows + Inline Rename)
 
 struct PDFBookmarksPanel: View {
     @ObservedObject var store: AppStore
     @ObservedObject var tab: DocumentTabState
     let isDark: Bool
 
-    private enum AnnotationFilter: String, CaseIterable, Identifiable {
-        case all
-        case bookmarks
-        case highlights
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .all:        return L10n.tr("全部", "All")
-            case .bookmarks:  return L10n.tr("书签", "Bookmarks")
-            case .highlights: return L10n.tr("高亮", "Highlights")
-            }
-        }
-    }
-
-    private enum UnifiedAnnotationItem: Identifiable {
-        case bookmark(BookmarkItem)
-        case highlight(HighlightItem)
-
-        var id: String {
-            switch self {
-            case .bookmark(let bm):  return "bm-\(bm.id.uuidString)"
-            case .highlight(let hl): return "hl-\(hl.id.uuidString)"
-            }
-        }
-
-        var pageIndex: Int {
-            switch self {
-            case .bookmark(let bm):  return bm.pageIndex
-            case .highlight(let hl): return hl.pageIndex
-            }
-        }
-
-        var sortY: Double {
-            switch self {
-            case .bookmark(let bm):  return bm.pageY ?? .infinity
-            case .highlight(let hl): return hl.rects.first?.y ?? 0
-            }
-        }
-
-        var createdAt: Date {
-            switch self {
-            case .bookmark(let bm):  return bm.createdAt
-            case .highlight(let hl): return hl.createdAt
-            }
-        }
-    }
-
-    @State private var filter: AnnotationFilter = .all
     @State private var editingBookmarkID: UUID?
 
     private func resolvedActiveBookmarkID(in items: [BookmarkItem]) -> UUID? {
@@ -704,108 +709,37 @@ struct PDFBookmarksPanel: View {
         })?.id ?? samePage.first?.id
     }
 
-    private func unifiedItems(bookmarks: [BookmarkItem], highlights: [HighlightItem]) -> [UnifiedAnnotationItem] {
-        var combined: [UnifiedAnnotationItem] = bookmarks.map(UnifiedAnnotationItem.bookmark)
-        combined.append(contentsOf: highlights.map(UnifiedAnnotationItem.highlight))
-        combined.sort { lhs, rhs in
-            if lhs.pageIndex != rhs.pageIndex { return lhs.pageIndex < rhs.pageIndex }
-            if abs(lhs.sortY - rhs.sortY) > 1 { return lhs.sortY > rhs.sortY }
-            return lhs.createdAt < rhs.createdAt
-        }
-        return combined
-    }
-
     var body: some View {
         let bookmarks = store.bookmarks(for: tab.documentID)
-        let highlights = store.highlights(for: tab.documentID)
-        let showsFilter = !bookmarks.isEmpty && !highlights.isEmpty
-        let effectiveFilter = showsFilter ? filter : .all
         let activeBookmarkID = resolvedActiveBookmarkID(in: bookmarks)
         let pageBookmarkCounts = Dictionary(grouping: bookmarks, by: \.pageIndex).mapValues(\.count)
 
         VStack(spacing: 0) {
-            if bookmarks.isEmpty && highlights.isEmpty {
-                VStack(spacing: 12) {
-                    PanelEmptyState(
-                        icon: "bookmark",
-                        title: L10n.tr("暂无书签或高亮", "No Bookmarks or Highlights"),
-                        subtitle: L10n.tr("按 ⌘D 添加页面书签，或选中文字按 ⌃⌘H 标记重点句子", "Press ⌘D to bookmark a page, or select text and press ⌃⌘H to highlight"),
-                        isDark: isDark
-                    )
-                    .frame(maxHeight: .infinity)
-                }
-                .overlay(alignment: .bottom) {
-                    addCurrentBookmarkButton
-                        .padding(.bottom, 22)
-                }
+            if bookmarks.isEmpty {
+                PanelEmptyState(
+                    icon: "bookmark",
+                    title: L10n.tr("暂无书签", "No Bookmarks"),
+                    subtitle: L10n.tr("点击左侧栏书签列表中的 + 或按 ⌘D 可将当前页加入书签", "Press ⌘D or click + to bookmark a page"),
+                    isDark: isDark
+                )
+                .frame(maxHeight: .infinity)
             } else {
-                if showsFilter {
-                    PanelSegmentedControl(items: AnnotationFilter.allCases, selection: $filter, isDark: isDark) { option, _ in
-                        Text(option.title)
-                            .font(.system(size: 11.5, weight: .medium))
-                            .lineLimit(1)
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.top, 8)
-                    .padding(.bottom, 4)
-                }
-
-                switch effectiveFilter {
-                case .all:
-                    let items = unifiedItems(bookmarks: bookmarks, highlights: highlights)
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 2) {
-                            ForEach(items) { entry in
-                                switch entry {
-                                case .bookmark(let bm):
-                                    bookmarkRow(
-                                        bm,
-                                        isCurrent: bm.id == activeBookmarkID,
-                                        showsRegionSubtitle: (pageBookmarkCounts[bm.pageIndex] ?? 0) > 1
-                                    )
-                                case .highlight(let hl):
-                                    highlightRow(hl)
-                                }
-                            }
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 2) {
+                        ForEach(bookmarks) { bm in
+                            bookmarkRow(
+                                bm,
+                                isCurrent: bm.id == activeBookmarkID,
+                                showsRegionSubtitle: (pageBookmarkCounts[bm.pageIndex] ?? 0) > 1
+                            )
                         }
-                        .padding(.vertical, 6)
                     }
-                case .bookmarks:
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 2) {
-                            ForEach(bookmarks) { bm in
-                                bookmarkRow(
-                                    bm,
-                                    isCurrent: bm.id == activeBookmarkID,
-                                    showsRegionSubtitle: (pageBookmarkCounts[bm.pageIndex] ?? 0) > 1
-                                )
-                            }
-                        }
-                        .padding(.vertical, 6)
-                    }
-                case .highlights:
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 2) {
-                            ForEach(highlights) { hl in
-                                highlightRow(hl)
-                            }
-                        }
-                        .padding(.vertical, 6)
-                    }
+                    .padding(.vertical, 6)
                 }
             }
-        }
-        .onChange(of: bookmarks.isEmpty) { _, empty in
-            if empty && filter != .all { filter = .all }
-        }
-        .onChange(of: highlights.isEmpty) { _, empty in
-            if empty && filter != .all { filter = .all }
         }
         .onChange(of: tab.pendingRenameBookmarkID) { _, id in
             guard let id else { return }
-            if filter == .highlights {
-                filter = .all
-            }
             editingBookmarkID = id
             tab.pendingRenameBookmarkID = nil
         }
@@ -839,68 +773,6 @@ struct PDFBookmarksPanel: View {
             }
         )
     }
-
-    private func highlightRow(_ item: HighlightItem) -> some View {
-        HighlightRowView(
-            item: item,
-            pageLabel: tab.displayPageNumber(at: item.pageIndex),
-            isCurrent: item.id == tab.activeHighlightID && item.pageIndex == tab.currentPageIndex,
-            isDark: isDark,
-            onSelect: { tab.navigateToHighlight(item) },
-            onCopyText: {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(item.text, forType: .string)
-            },
-            onChangeColor: { color in
-                store.updateHighlightColor(
-                    id: item.id,
-                    color: color,
-                    in: tab.documentID,
-                    undoManager: tab.undoManager
-                )
-            },
-            onDelete: {
-                store.removeHighlight(
-                    id: item.id,
-                    in: tab.documentID,
-                    undoManager: tab.undoManager
-                )
-            }
-        )
-    }
-
-    private var addCurrentBookmarkButton: some View {
-        Button {
-            let point = tab.currentBookmarkPoint(for: tab.currentPageIndex)
-            let title = tab.smartBookmarkTitle(at: tab.currentPageIndex, point: point)
-            let created = store.addBookmark(
-                pageIndex: tab.currentPageIndex,
-                title: title,
-                point: point,
-                in: tab.documentID,
-                undoManager: tab.undoManager
-            )
-            tab.activeBookmarkID = created.id
-            if let point {
-                tab.flashBookmarkIndicator(pageIndex: tab.currentPageIndex, point: point)
-            }
-        } label: {
-            Text(L10n.tr("添加当前页书签", "Bookmark Current Page"))
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(AppPalette.labelPrimary(isDark))
-                .padding(.horizontal, 12)
-                .frame(height: 26)
-                .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(AppPalette.toolbarControlFill(isDark))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .strokeBorder(AppPalette.panelSeparator(isDark), lineWidth: 1)
-                )
-        }
-        .buttonStyle(TactilePressButtonStyle())
-    }
 }
 
 struct BookmarkRowView: View {
@@ -920,73 +792,78 @@ struct BookmarkRowView: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "bookmark.fill")
-                .font(.system(size: 11.5))
-                .foregroundColor(isCurrent ? accent : AppPalette.labelSecondary(isDark))
+            Image(systemName: isCurrent ? "bookmark.fill" : "bookmark")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(isCurrent ? accent : AppPalette.labelTertiary(isDark))
+                .frame(width: 12)
 
-            VStack(alignment: .leading, spacing: 2) {
-                if isEditing {
-                    BookmarkInlineRenameField(
-                        initialText: bookmark.title,
-                        placeholder: L10n.tr("书签名称", "Bookmark Name"),
-                        textColor: AppPalette.labelPrimary(isDark),
-                        accentColor: accent,
-                        onFinish: onFinishRename
-                    )
-                    .frame(height: 22)
-                    .padding(.horizontal, 6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 5, style: .continuous)
-                            .fill(AppPalette.toolbarControlFill(isDark))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 5, style: .continuous)
-                            .strokeBorder(accent.opacity(0.75), lineWidth: 0.75)
-                    )
-                } else {
+            if isEditing {
+                BookmarkInlineRenameField(
+                    initialText: bookmark.title,
+                    placeholder: L10n.tr("书签名称", "Bookmark Name"),
+                    textColor: AppPalette.labelPrimary(isDark),
+                    accentColor: accent,
+                    onFinish: onFinishRename
+                )
+                .frame(height: 22)
+                .padding(.horizontal, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(AppPalette.toolbarControlFill(isDark))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .strokeBorder(accent.opacity(0.75), lineWidth: 0.75)
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                HStack(spacing: 4) {
                     Text(bookmark.title)
                         .font(.system(size: 12.5, weight: isCurrent ? .semibold : .regular))
-                        .foregroundColor(AppPalette.labelPrimary(isDark))
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .foregroundColor(isCurrent ? AppPalette.labelPrimary(isDark) : AppPalette.labelSecondary(isDark))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if let regionLabel {
+                        Text("· \(regionLabel)")
+                            .font(.system(size: 10.5))
+                            .foregroundColor(AppPalette.labelQuaternary(isDark))
+                            .lineLimit(1)
+                    }
                 }
-
-                if let regionLabel, !isEditing {
-                    Text(regionLabel)
-                        .font(.system(size: 10.5))
-                        .foregroundColor(AppPalette.labelTertiary(isDark))
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            if isHovered && !isEditing {
-                HStack(spacing: 2) {
-                    SidebarHoverIconButton(
-                        icon: "pencil",
-                        tooltip: L10n.tr("重命名书签", "Rename Bookmark"),
-                        isDark: isDark,
-                        action: onBeginRename
-                    )
-                    SidebarHoverIconButton(
-                        icon: "xmark",
-                        tooltip: L10n.tr("删除书签", "Delete Bookmark"),
-                        isDark: isDark,
-                        action: onDelete
-                    )
-                }
-                .transition(.opacity)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             if !isEditing {
-                Text(pageLabel)
-                    .font(.system(size: 11, weight: isCurrent ? .semibold : .regular))
-                    .monospacedDigit()
-                    .foregroundColor(isCurrent ? AppPalette.labelSecondary(isDark) : AppPalette.labelTertiary(isDark))
+                ZStack(alignment: .trailing) {
+                    if isHovered {
+                        HStack(spacing: 2) {
+                            SidebarHoverIconButton(
+                                icon: "pencil",
+                                tooltip: L10n.tr("重命名书签", "Rename Bookmark"),
+                                isDark: isDark,
+                                action: onBeginRename
+                            )
+                            SidebarHoverIconButton(
+                                icon: "xmark",
+                                tooltip: L10n.tr("删除书签", "Delete Bookmark"),
+                                isDark: isDark,
+                                action: onDelete
+                            )
+                        }
+                        .transition(.opacity)
+                    } else {
+                        Text(pageLabel)
+                            .font(.system(size: 11, weight: isCurrent ? .semibold : .regular))
+                            .monospacedDigit()
+                            .foregroundColor(isCurrent ? AppPalette.labelSecondary(isDark) : AppPalette.labelTertiary(isDark))
+                            .transition(.opacity)
+                    }
+                }
+                .frame(minWidth: 28, alignment: .trailing)
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 6.5)
+        .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .fill(
@@ -1020,6 +897,121 @@ struct BookmarkRowView: View {
             Button(L10n.tr("重命名书签", "Rename Bookmark"), action: onBeginRename)
             Divider()
             Button(L10n.tr("删除书签", "Delete Bookmark"), role: .destructive, action: onDelete)
+        }
+    }
+}
+
+// MARK: - 4. PDFAnnotationsPanel (Highlights + Notes in Clean Dot-Accented Sidebar)
+
+struct PDFAnnotationsPanel: View {
+    @ObservedObject var store: AppStore
+    @ObservedObject var tab: DocumentTabState
+    let isDark: Bool
+    let filterText: String
+
+    @State private var editingNoteID: UUID?
+
+    private var trimmedFilter: String {
+        filterText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        let allItems = store.highlights(for: tab.documentID)
+        let query = trimmedFilter
+        let filteredItems: [HighlightItem] = query.isEmpty ? allItems : allItems.filter { item in
+            let pageNum = tab.displayPageNumber(at: item.pageIndex)
+            return item.text.localizedCaseInsensitiveContains(query)
+                || (item.note?.localizedCaseInsensitiveContains(query) ?? false)
+                || pageNum.localizedCaseInsensitiveContains(query)
+        }
+
+        VStack(spacing: 0) {
+            if allItems.isEmpty {
+                PanelEmptyState(
+                    icon: "highlighter",
+                    title: L10n.tr("暂无批注", "No Annotations"),
+                    subtitle: L10n.tr("选中文字即可高亮或添加笔记，也可点击 + 添加页面笔记", "Highlight text, add a note, or click + for a page note"),
+                    isDark: isDark
+                )
+                .frame(maxHeight: .infinity)
+            } else if filteredItems.isEmpty {
+                PanelEmptyState(
+                    icon: "magnifyingglass",
+                    title: L10n.tr("暂无匹配的批注", "No Matching Annotations"),
+                    subtitle: nil,
+                    isDark: isDark
+                )
+                .frame(maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 2) {
+                        ForEach(filteredItems) { item in
+                            AnnotationRowView(
+                                item: item,
+                                pageLabel: tab.displayPageNumber(at: item.pageIndex),
+                                isCurrent: item.id == tab.activeHighlightID && item.pageIndex == tab.currentPageIndex,
+                                isEditingNote: editingNoteID == item.id,
+                                isDark: isDark,
+                                onSelect: { tab.navigateToHighlight(item) },
+                                onCopyText: {
+                                    let text = item.isStandaloneNote ? (item.note ?? "") : item.text
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(text, forType: .string)
+                                },
+                                onChangeColor: { color in
+                                    store.updateHighlightColor(
+                                        id: item.id,
+                                        color: color,
+                                        in: tab.documentID,
+                                        undoManager: tab.undoManager
+                                    )
+                                },
+                                onBeginEditNote: { editingNoteID = item.id },
+                                onFinishEditNote: { newNote in
+                                    editingNoteID = nil
+                                    if let newNote {
+                                        store.updateHighlightNote(
+                                            id: item.id,
+                                            note: newNote,
+                                            in: tab.documentID,
+                                            undoManager: tab.undoManager
+                                        )
+                                    } else if item.isStandaloneNote && item.note == nil {
+                                        store.removeHighlight(
+                                            id: item.id,
+                                            in: tab.documentID,
+                                            undoManager: tab.undoManager
+                                        )
+                                    }
+                                },
+                                onDeleteNote: {
+                                    if editingNoteID == item.id { editingNoteID = nil }
+                                    store.updateHighlightNote(
+                                        id: item.id,
+                                        note: nil,
+                                        in: tab.documentID,
+                                        undoManager: tab.undoManager
+                                    )
+                                },
+                                onDelete: {
+                                    if editingNoteID == item.id { editingNoteID = nil }
+                                    store.removeHighlight(
+                                        id: item.id,
+                                        in: tab.documentID,
+                                        undoManager: tab.undoManager
+                                    )
+                                }
+                            )
+                        }
+                    }
+                    .padding(.vertical, 6)
+                }
+            }
+        }
+        .onChange(of: tab.pendingEditNoteID) { _, id in
+            guard let id else { return }
+            editingNoteID = id
+            tab.pendingEditNoteID = nil
         }
     }
 }
@@ -1189,88 +1181,116 @@ private struct BookmarkInlineRenameField: NSViewRepresentable {
     }
 }
 
-// MARK: - HighlightRowView (Shared in Unified Bookmarks & Highlights Sidebar)
+// MARK: - AnnotationRowView (Dot-Accented Highlights & Notes Matching Outline Rows)
 
-struct HighlightRowView: View {
+struct AnnotationRowView: View {
     let item: HighlightItem
     let pageLabel: String
     let isCurrent: Bool
+    let isEditingNote: Bool
     let isDark: Bool
     let onSelect: () -> Void
     let onCopyText: () -> Void
     let onChangeColor: (HighlightColor) -> Void
+    let onBeginEditNote: () -> Void
+    let onFinishEditNote: (String?) -> Void
+    let onDeleteNote: () -> Void
     let onDelete: () -> Void
 
     @State private var isHovered = false
+    @Environment(\.appAccentColor) private var accent
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                .fill(item.color.color(isDark: isDark))
-                .frame(width: 3)
-                .padding(.vertical, 1)
+            if item.isStandaloneNote {
+                Image(systemName: "note.text")
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundColor(item.color.color(isDark: isDark))
+                    .frame(width: 10, height: 15)
+            } else {
+                Circle()
+                    .fill(item.color.color(isDark: isDark))
+                    .frame(width: 7.5, height: 7.5)
+                    .padding(.top, 4.5)
+                    .frame(width: 10)
+            }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(item.text)
-                    .font(.system(size: 12))
-                    .foregroundColor(AppPalette.labelPrimary(isDark))
-                    .lineLimit(3)
-                    .lineSpacing(1.5)
-                    .multilineTextAlignment(.leading)
+                if !item.isStandaloneNote {
+                    HStack(alignment: .top, spacing: 6) {
+                        Text(item.text)
+                            .font(.system(size: 12, weight: isCurrent ? .medium : .regular))
+                            .foregroundColor(isCurrent ? AppPalette.labelPrimary(isDark) : AppPalette.labelSecondary(isDark))
+                            .lineLimit(3)
+                            .lineSpacing(1.5)
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
 
-                HStack(spacing: 6) {
-                    Text(L10n.pageTitle(pageLabel))
-                        .font(.system(size: 10.5))
-                        .monospacedDigit()
-                        .foregroundColor(isCurrent ? AppPalette.labelSecondary(isDark) : AppPalette.labelTertiary(isDark))
+                        trailingAccessory
+                    }
+                } else if isEditingNote {
+                    HStack(spacing: 6) {
+                        Text(L10n.pageTitle(pageLabel))
+                            .font(.system(size: 11, weight: .medium))
+                            .monospacedDigit()
+                            .foregroundColor(AppPalette.labelTertiary(isDark))
+                        Spacer()
+                    }
+                }
 
-                    Spacer(minLength: 4)
+                if isEditingNote {
+                    BookmarkInlineRenameField(
+                        initialText: item.note ?? "",
+                        placeholder: L10n.tr("写下笔记…", "Write a note…"),
+                        textColor: AppPalette.labelPrimary(isDark),
+                        accentColor: accent,
+                        onFinish: onFinishEditNote
+                    )
+                    .frame(height: 22)
+                    .padding(.horizontal, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .fill(AppPalette.toolbarControlFill(isDark))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .strokeBorder(accent.opacity(0.75), lineWidth: 0.75)
+                    )
+                } else if let note = item.note, !note.isEmpty {
+                    if item.isStandaloneNote {
+                        HStack(alignment: .top, spacing: 6) {
+                            Text(note)
+                                .font(.system(size: 12.5, weight: isCurrent ? .medium : .regular))
+                                .foregroundColor(AppPalette.labelPrimary(isDark))
+                                .lineLimit(4)
+                                .lineSpacing(1.5)
+                                .multilineTextAlignment(.leading)
+                                .frame(maxWidth: .infinity, alignment: .leading)
 
-                    if isHovered {
-                        HStack(spacing: 3) {
-                            ForEach(HighlightColor.allCases) { color in
-                                Button {
-                                    onChangeColor(color)
-                                } label: {
-                                    Circle()
-                                        .fill(color.color(isDark: isDark))
-                                        .frame(width: 9, height: 9)
-                                        .overlay(
-                                            Circle()
-                                                .strokeBorder(
-                                                    item.color == color ? AppPalette.labelPrimary(isDark) : Color.clear,
-                                                    lineWidth: 1.25
-                                                )
-                                                .frame(width: 12, height: 12)
-                                        )
-                                        .frame(width: 13, height: 13)
-                                        .contentShape(Circle())
-                                }
-                                .buttonStyle(.plain)
-                                .help(color.title)
-                            }
-
-                            SidebarHoverIconButton(
-                                icon: "doc.on.doc",
-                                tooltip: L10n.tr("复制高亮文字", "Copy Highlighted Text"),
-                                isDark: isDark,
-                                action: onCopyText
-                            )
-                            SidebarHoverIconButton(
-                                icon: "xmark",
-                                tooltip: L10n.tr("移除高亮", "Remove Highlight"),
-                                isDark: isDark,
-                                action: onDelete
-                            )
+                            trailingAccessory
                         }
-                        .transition(.opacity)
+                    } else {
+                        Text(note)
+                            .font(.system(size: 11.5))
+                            .foregroundColor(AppPalette.labelSecondary(isDark))
+                            .lineLimit(4)
+                            .lineSpacing(1.5)
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 4)
+                            .background(
+                                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                    .fill(isDark ? Color.white.opacity(0.05) : Color.black.opacity(0.035))
+                            )
+                            .onTapGesture(perform: onBeginEditNote)
                     }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 6.5)
+        .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .fill(
@@ -1290,14 +1310,30 @@ struct HighlightRowView: View {
         .animation(AppAnimation.micro, value: isHovered)
         .animation(AppAnimation.micro, value: isCurrent)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text("\(item.text), \(L10n.pageTitle(pageLabel))"))
+        .accessibilityLabel(Text("\(item.isStandaloneNote ? (item.note ?? L10n.tr("添加笔记", "Add Note")) : item.text), \(L10n.pageTitle(pageLabel))"))
         .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : [.isButton])
         .accessibilityAction(.default, onSelect)
-        .onTapGesture(perform: onSelect)
+        .onTapGesture {
+            if !isEditingNote {
+                onSelect()
+            }
+        }
         .onHover { isHovered = $0 }
         .contextMenu {
             Button(L10n.jumpToPage(pageLabel), action: onSelect)
-            Button(L10n.tr("复制高亮文字", "Copy Highlighted Text"), action: onCopyText)
+            Button(
+                item.note != nil ? L10n.tr("编辑笔记", "Edit Note") : L10n.tr("添加笔记", "Add Note"),
+                action: onBeginEditNote
+            )
+            if item.note != nil && !item.isStandaloneNote {
+                Button(L10n.tr("删除笔记", "Delete Note"), action: onDeleteNote)
+            }
+            if !item.text.isEmpty || !(item.note ?? "").isEmpty {
+                Button(
+                    item.isStandaloneNote ? L10n.tr("复制", "Copy") : L10n.tr("复制高亮文字", "Copy Highlighted Text"),
+                    action: onCopyText
+                )
+            }
             Menu(L10n.tr("高亮颜色", "Highlight Color")) {
                 ForEach(HighlightColor.allCases) { color in
                     Button {
@@ -1312,7 +1348,43 @@ struct HighlightRowView: View {
                 }
             }
             Divider()
-            Button(L10n.tr("移除高亮", "Remove Highlight"), role: .destructive, action: onDelete)
+            Button(
+                item.isStandaloneNote ? L10n.tr("删除笔记", "Delete Note") : L10n.tr("移除高亮", "Remove Highlight"),
+                role: .destructive,
+                action: onDelete
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var trailingAccessory: some View {
+        if !isEditingNote {
+            ZStack(alignment: .trailing) {
+                if isHovered {
+                    HStack(spacing: 2) {
+                        SidebarHoverIconButton(
+                            icon: item.note != nil ? "pencil" : "text.bubble",
+                            tooltip: item.note != nil ? L10n.tr("编辑笔记", "Edit Note") : L10n.tr("添加笔记", "Add Note"),
+                            isDark: isDark,
+                            action: onBeginEditNote
+                        )
+                        SidebarHoverIconButton(
+                            icon: "xmark",
+                            tooltip: item.isStandaloneNote ? L10n.tr("删除笔记", "Delete Note") : L10n.tr("移除高亮", "Remove Highlight"),
+                            isDark: isDark,
+                            action: onDelete
+                        )
+                    }
+                    .transition(.opacity)
+                } else {
+                    Text(pageLabel)
+                        .font(.system(size: 11, weight: isCurrent ? .semibold : .regular))
+                        .monospacedDigit()
+                        .foregroundColor(isCurrent ? AppPalette.labelSecondary(isDark) : AppPalette.labelTertiary(isDark))
+                        .transition(.opacity)
+                }
+            }
+            .frame(minWidth: 28, alignment: .trailing)
         }
     }
 }

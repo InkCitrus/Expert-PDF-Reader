@@ -51,9 +51,30 @@ enum NativePDFSelection {
                 let left = sameRow ? min(start.x, end.x) : (page === first.page && rowIndex == lo ? first.point.x : -CGFloat.infinity)
                 let right = sameRow ? max(start.x, end.x) : (page === last.page && rowIndex == hi ? last.point.x : CGFloat.infinity)
                 let glyphs = row.glyphs.filter { $0.bounds.midX >= left && $0.bounds.midX <= right }
-                guard !glyphs.isEmpty else { continue }
-                let rect = glyphs.dropFirst().reduce(glyphs[0].bounds) { $0.union($1.bounds) }
-                highlights.append(Highlight(page: page, rect: rect))
+                let sortedGlyphs = glyphs.sorted { $0.bounds.minX < $1.bounds.minX }
+                guard !sortedGlyphs.isEmpty else { continue }
+                let splitGap = max(row.bounds.height * 2.5, 24.0)
+                var segments: [CGRect] = []
+                var currentSeg = sortedGlyphs[0].bounds
+                for glyph in sortedGlyphs.dropFirst() {
+                    if glyph.bounds.minX - currentSeg.maxX > splitGap {
+                        segments.append(currentSeg)
+                        currentSeg = glyph.bounds
+                    } else {
+                        currentSeg = currentSeg.union(glyph.bounds)
+                    }
+                }
+                segments.append(currentSeg)
+                if first.page === last.page && !sameRow && left == -CGFloat.infinity && segments.count > 1 {
+                    let selectionMinX = min(first.point.x, last.point.x)
+                    let bodySegments = segments.filter { $0.maxX >= selectionMinX - 24.0 || $0.width >= 36.0 }
+                    if !bodySegments.isEmpty {
+                        segments = bodySegments
+                    }
+                }
+                for segRect in segments {
+                    highlights.append(Highlight(page: page, rect: segRect))
+                }
                 var rowRanges = IndexSet()
                 for glyph in glyphs {
                     var firstNonWS: Int?
@@ -196,7 +217,11 @@ final class NativePDFSelectionTracker {
         if overlay.superview == nil {
             overlay.frame = pdfView.bounds
             overlay.autoresizingMask = [.width, .height]
-            pdfView.addSubview(overlay, positioned: .above, relativeTo: nil)
+            if let bar = pdfView.subviews.first(where: { String(describing: type(of: $0)) == "SelectionFloatingBar" }) {
+                pdfView.addSubview(overlay, positioned: .below, relativeTo: bar)
+            } else {
+                pdfView.addSubview(overlay, positioned: .above, relativeTo: nil)
+            }
         }
         return overlay
     }
@@ -257,8 +282,14 @@ final class NativePDFSelectionTracker {
         }
         if directlyTracking { repair(force: true, finalize: event.type == .leftMouseUp) }
         if event.type == .leftMouseUp {
+            let wasPlainClick = current.page === current.endPage
+                && hypot(current.endPoint.x - current.point.x, current.endPoint.y - current.point.y) < 2.0
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.gesture?.id == current.id else { return }
+                if wasPlainClick && (self.pdfView?.currentSelection?.string?.isEmpty ?? true) {
+                    self.clear()
+                    return
+                }
                 if !self.directlyTracking { self.repair() }
                 self.gesture = nil
                 self.directlyTracking = false
@@ -295,6 +326,13 @@ final class NativePDFSelectionTracker {
 
     var isRepairingOrCustomHighlight: Bool { isRepairing || !overlay.highlights.isEmpty }
     func repaintHighlights() { overlay.needsDisplay = true }
+
+    func clear() {
+        gesture = nil
+        directlyTracking = false
+        overlay.highlights = []
+        overlay.needsDisplay = true
+    }
 
     func currentHighlightDraft(in document: PDFDocument) -> [(pageIndex: Int, text: String, rects: [CGRect])]? {
         guard let selection = pdfView?.currentSelection,

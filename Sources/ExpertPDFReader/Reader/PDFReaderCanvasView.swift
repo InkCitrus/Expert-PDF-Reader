@@ -60,8 +60,10 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
     /// Invoked from canvas context menu to add or remove a precise in-page bookmark at the clicked point
     public let onToggleBookmarkAtPoint: ((Int, CGPoint) -> Void)?
     public let nearbyBookmarkID: ((Int, CGPoint) -> UUID?)?
-    public let onAddHighlights: (([(pageIndex: Int, text: String, rects: [CGRect])], HighlightColor?) -> Void)?
+    public let onAddHighlights: (([(pageIndex: Int, text: String, rects: [CGRect])], HighlightColor?) -> [HighlightItem])?
     public let onUpdateHighlightColor: ((UUID, HighlightColor) -> Void)?
+    public let onUpdateHighlightNote: ((UUID, String?) -> Void)?
+    public let onAddPageNote: ((Int, CGPoint) -> HighlightItem?)?
     public let onRemoveHighlight: ((UUID) -> Void)?
 
     public init(
@@ -101,8 +103,10 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         onInternalLinkJump: ((DocumentTabState.ReadingSpot, Int) -> Void)? = nil,
         onToggleBookmarkAtPoint: ((Int, CGPoint) -> Void)? = nil,
         nearbyBookmarkID: ((Int, CGPoint) -> UUID?)? = nil,
-        onAddHighlights: (([(pageIndex: Int, text: String, rects: [CGRect])], HighlightColor?) -> Void)? = nil,
+        onAddHighlights: (([(pageIndex: Int, text: String, rects: [CGRect])], HighlightColor?) -> [HighlightItem])? = nil,
         onUpdateHighlightColor: ((UUID, HighlightColor) -> Void)? = nil,
+        onUpdateHighlightNote: ((UUID, String?) -> Void)? = nil,
+        onAddPageNote: ((Int, CGPoint) -> HighlightItem?)? = nil,
         onRemoveHighlight: ((UUID) -> Void)? = nil
     ) {
         self.pdfDocument = pdfDocument
@@ -143,6 +147,8 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         self.nearbyBookmarkID = nearbyBookmarkID
         self.onAddHighlights = onAddHighlights
         self.onUpdateHighlightColor = onUpdateHighlightColor
+        self.onUpdateHighlightNote = onUpdateHighlightNote
+        self.onAddPageNote = onAddPageNote
         self.onRemoveHighlight = onRemoveHighlight
     }
 
@@ -337,6 +343,8 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
             themed.nearbyBookmarkID = nearbyBookmarkID
             themed.onAddHighlights = onAddHighlights
             themed.onUpdateHighlightColor = onUpdateHighlightColor
+            themed.onUpdateHighlightNote = onUpdateHighlightNote
+            themed.onAddPageNote = onAddPageNote
             themed.onRemoveHighlight = onRemoveHighlight
             themed.defaultHighlightColor = defaultHighlightColor
             themed.isInteractive = isInteractive
@@ -981,10 +989,30 @@ final class PDFHighlightOverlay: NSView {
         needsDisplay = true
     }
 
+    static func noteBadgeRectInPDFView(for item: HighlightItem, in pdfView: PDFView) -> CGRect? {
+        guard let doc = pdfView.document, let page = doc.page(at: item.pageIndex) else { return nil }
+        if item.isStandaloneNote {
+            let box = page.bounds(for: pdfView.displayBox)
+            let anchor = item.anchorPoint ?? CGPoint(x: box.maxX - 36, y: box.maxY - 48)
+            let vp = pdfView.convert(anchor, from: page)
+            return CGRect(x: vp.x - 10, y: vp.y - 10, width: 20, height: 20)
+        }
+        guard item.note != nil,
+              let topRect = item.rects.max(by: { lhs, rhs in
+                  if abs(lhs.y - rhs.y) > 2 { return lhs.y < rhs.y }
+                  return lhs.x < rhs.x
+              })?.cgRect else {
+            return nil
+        }
+        let vp = pdfView.convert(CGPoint(x: topRect.maxX, y: topRect.midY), from: page)
+        return CGRect(x: vp.x + 3, y: vp.y - 7.5, width: 15, height: 15)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard !highlights.isEmpty, let pdfView, let doc = pdfView.document else { return }
         let visiblePages = Set(pdfView.visiblePages.map(ObjectIdentifier.init))
+        let isDarkUI = (pdfView as? ThemedPDFView)?.isDarkUI ?? false
         for item in highlights {
             guard let page = doc.page(at: item.pageIndex),
                   visiblePages.contains(ObjectIdentifier(page)) else { continue }
@@ -994,7 +1022,44 @@ final class PDFHighlightOverlay: NSView {
                 guard rect.intersects(dirtyRect), rect.width > 0.5, rect.height > 0.5 else { continue }
                 NSBezierPath(roundedRect: rect, xRadius: 2.5, yRadius: 2.5).fill()
             }
+            if let badgeInPDFView = Self.noteBadgeRectInPDFView(for: item, in: pdfView) {
+                let badgeRect = convert(badgeInPDFView, from: pdfView)
+                guard badgeRect.intersects(dirtyRect) else { continue }
+                let radius: CGFloat = item.isStandaloneNote ? 5.5 : 4.5
+                let bgColor = item.color.uiSwatchNSColor(isDark: isDarkUI).withAlphaComponent(item.isStandaloneNote ? 0.92 : 0.88)
+                let path = NSBezierPath(roundedRect: badgeRect, xRadius: radius, yRadius: radius)
+                bgColor.setFill()
+                path.fill()
+                NSColor.black.withAlphaComponent(isDarkUI ? 0.35 : 0.16).setStroke()
+                path.lineWidth = 0.75
+                path.stroke()
+                if let icon = NSImage(systemSymbolName: "note.text", accessibilityDescription: nil)?
+                    .withSymbolConfiguration(.init(pointSize: item.isStandaloneNote ? 11 : 8.5, weight: .semibold)) {
+                    let tinted = icon.tinted(with: NSColor(calibratedWhite: 0.12, alpha: 0.88))
+                    let iconSize = tinted.size
+                    let iconRect = NSRect(
+                        x: badgeRect.midX - iconSize.width / 2,
+                        y: badgeRect.midY - iconSize.height / 2,
+                        width: iconSize.width,
+                        height: iconSize.height
+                    )
+                    tinted.draw(in: iconRect)
+                }
+            }
         }
+    }
+}
+
+private extension NSImage {
+    func tinted(with color: NSColor) -> NSImage {
+        let img = NSImage(size: size, flipped: false) { rect in
+            self.draw(in: rect)
+            color.set()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
+        img.isTemplate = false
+        return img
     }
 }
 
@@ -1145,20 +1210,53 @@ final class SelectionFloatingBar: NSView {
         ])
         stackView.addArrangedSubview(divider)
 
-        let copyBtn = NSButton(
-            image: NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: L10n.tr("复制", "Copy")) ?? NSImage(),
-            target: self,
-            action: #selector(didTapCopy(_:))
-        )
-        copyBtn.isBordered = false
-        copyBtn.contentTintColor = isDarkUI ? .labelColor : .secondaryLabelColor
-        copyBtn.toolTip = L10n.tr("复制", "Copy")
-        copyBtn.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            copyBtn.widthAnchor.constraint(equalToConstant: 22),
-            copyBtn.heightAnchor.constraint(equalToConstant: 22),
-        ])
-        stackView.addArrangedSubview(copyBtn)
+        let copyText = (currentMode.flatMap {
+            if case .existing(let item) = $0 { return item.isStandaloneNote ? (item.note ?? "") : item.text }
+            return "selection"
+        } ?? "")
+        if !copyText.isEmpty {
+            let copyBtn = NSButton(
+                image: NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: L10n.tr("复制", "Copy")) ?? NSImage(),
+                target: self,
+                action: #selector(didTapCopy(_:))
+            )
+            copyBtn.isBordered = false
+            copyBtn.contentTintColor = isDarkUI ? .labelColor : .secondaryLabelColor
+            copyBtn.toolTip = L10n.tr("复制", "Copy")
+            copyBtn.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                copyBtn.widthAnchor.constraint(equalToConstant: 22),
+                copyBtn.heightAnchor.constraint(equalToConstant: 22),
+            ])
+            stackView.addArrangedSubview(copyBtn)
+        }
+
+        if pdfView?.onUpdateHighlightNote != nil {
+            let hasExistingNote: Bool = {
+                if case .existing(let item) = mode { return item.note != nil }
+                return false
+            }()
+            let noteTooltip = hasExistingNote ? L10n.tr("编辑笔记", "Edit Note") : L10n.tr("添加笔记", "Add Note")
+            let noteBtn = NSButton(
+                image: NSImage(
+                    systemSymbolName: hasExistingNote ? "text.bubble.fill" : "text.bubble",
+                    accessibilityDescription: noteTooltip
+                ) ?? NSImage(),
+                target: self,
+                action: #selector(didTapNote(_:))
+            )
+            noteBtn.isBordered = false
+            noteBtn.contentTintColor = hasExistingNote
+                ? (pdfView?.currentAccentColor.nsColor(isDark: isDarkUI) ?? .controlAccentColor)
+                : (isDarkUI ? .labelColor : .secondaryLabelColor)
+            noteBtn.toolTip = noteTooltip
+            noteBtn.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                noteBtn.widthAnchor.constraint(equalToConstant: 22),
+                noteBtn.heightAnchor.constraint(equalToConstant: 22),
+            ])
+            stackView.addArrangedSubview(noteBtn)
+        }
 
         if case .existing = mode {
             let deleteBtn = NSButton(
@@ -1222,19 +1320,173 @@ final class SelectionFloatingBar: NSView {
             pdfView.copy(nil)
             pdfView.clearSelection()
             pdfView.ocrSelectionOverlay.clear()
+            pdfView.nativeSelectionTracker.clear()
         case .existing(let item):
+            let text = item.isStandaloneNote ? (item.note ?? "") : item.text
             NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(item.text, forType: .string)
+            NSPasteboard.general.setString(text, forType: .string)
         case nil:
             break
         }
         dismiss()
     }
 
+    @objc private func didTapNote(_ sender: Any?) {
+        guard let pdfView else { return }
+        switch currentMode {
+        case .selection:
+            dismiss()
+            pdfView.performHighlightSelectionAndEditNote()
+        case .existing(let item):
+            dismiss()
+            pdfView.presentNotePopover(for: item)
+        case nil:
+            break
+        }
+    }
+
     @objc private func didTapDelete(_ sender: Any?) {
         guard let pdfView, case .existing(let item) = currentMode else { return }
         pdfView.onRemoveHighlight?(item.id)
         dismiss()
+    }
+}
+
+private final class NotePopoverDraft: ObservableObject {
+    @Published var text: String
+    let initialText: String
+    var handledExplicitly = false
+
+    init(initialText: String) {
+        self.text = initialText
+        self.initialText = initialText
+    }
+}
+
+private final class NotePopoverCoordinator: NSObject, NSPopoverDelegate {
+    weak var popover: NSPopover?
+    let draft: NotePopoverDraft
+    let itemID: UUID
+    let isStandaloneNote: Bool
+    let onSave: (String?) -> Void
+    let onCancelEmptyStandalone: () -> Void
+
+    init(
+        popover: NSPopover,
+        draft: NotePopoverDraft,
+        itemID: UUID,
+        isStandaloneNote: Bool,
+        onSave: @escaping (String?) -> Void,
+        onCancelEmptyStandalone: @escaping () -> Void
+    ) {
+        self.popover = popover
+        self.draft = draft
+        self.itemID = itemID
+        self.isStandaloneNote = isStandaloneNote
+        self.onSave = onSave
+        self.onCancelEmptyStandalone = onCancelEmptyStandalone
+    }
+
+    func commitAndClose() {
+        draft.handledExplicitly = true
+        onSave(draft.text)
+        popover?.close()
+    }
+
+    func deleteAndClose() {
+        draft.handledExplicitly = true
+        onSave(nil)
+        popover?.close()
+    }
+
+    func cancelAndClose() {
+        draft.handledExplicitly = true
+        let initialTrimmed = draft.initialText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isStandaloneNote && initialTrimmed.isEmpty {
+            onCancelEmptyStandalone()
+        }
+        popover?.close()
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        guard !draft.handledExplicitly else { return }
+        let trimmed = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let initialTrimmed = draft.initialText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed != initialTrimmed {
+            onSave(trimmed.isEmpty ? nil : trimmed)
+        } else if isStandaloneNote && initialTrimmed.isEmpty {
+            onCancelEmptyStandalone()
+        }
+    }
+}
+
+private struct CanvasNotePopoverView: View {
+    let color: HighlightColor
+    let isDark: Bool
+    let hasExistingNote: Bool
+    @ObservedObject var draft: NotePopoverDraft
+    @FocusState private var isFocused: Bool
+    let onCommit: () -> Void
+    let onDelete: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(color.color(isDark: isDark))
+                    .frame(width: 8, height: 8)
+                Text(hasExistingNote ? L10n.tr("编辑笔记", "Edit Note") : L10n.tr("添加笔记", "Add Note"))
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundColor(AppPalette.labelSecondary(isDark))
+                Spacer()
+                if hasExistingNote {
+                    Button(action: onDelete) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.red.opacity(0.85))
+                    }
+                    .buttonStyle(.plain)
+                    .help(L10n.tr("删除笔记", "Delete Note"))
+                }
+                Button(L10n.tr("完成", "Done"), action: onCommit)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.mini)
+                    .keyboardShortcut(.return, modifiers: .command)
+            }
+
+            ZStack(alignment: .topLeading) {
+                if draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(L10n.tr("写下笔记…", "Write a note…"))
+                        .font(.system(size: 12.5))
+                        .foregroundColor(AppPalette.labelQuaternary(isDark))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 4)
+                        .allowsHitTesting(false)
+                }
+                TextEditor(text: $draft.text)
+                    .font(.system(size: 12.5))
+                    .scrollContentBackground(.hidden)
+                    .focused($isFocused)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isDark ? Color.white.opacity(0.05) : Color.black.opacity(0.04))
+            )
+
+            Button("", action: onCancel)
+                .keyboardShortcut(.cancelAction)
+                .frame(width: 0, height: 0)
+                .opacity(0)
+        }
+        .padding(10)
+        .frame(width: 260, height: 130)
+        .onAppear {
+            DispatchQueue.main.async {
+                isFocused = true
+            }
+        }
     }
 }
 
@@ -1335,7 +1587,7 @@ final class ThemedPDFView: PDFView {
     lazy var searchHighlightOverlay = OCRSearchHighlightOverlay(pdfView: self)
     lazy var bookmarkAnchorOverlay = BookmarkAnchorOverlay(pdfView: self)
     lazy var floatingSelectionBar = SelectionFloatingBar(pdfView: self)
-    private lazy var nativeSelectionTracker = NativePDFSelectionTracker(pdfView: self)
+    lazy var nativeSelectionTracker = NativePDFSelectionTracker(pdfView: self)
 
     func installOCRSelection() {
         if ocrSelectionOverlay.superview == nil { addSubview(ocrSelectionOverlay, positioned: .above, relativeTo: nil) }
@@ -1413,9 +1665,13 @@ final class ThemedPDFView: PDFView {
     var onPaneActivation: (() -> Void)?
     var onToggleBookmarkAtPoint: ((Int, CGPoint) -> Void)?
     var nearbyBookmarkID: ((Int, CGPoint) -> UUID?)?
-    var onAddHighlights: (([(pageIndex: Int, text: String, rects: [CGRect])], HighlightColor?) -> Void)?
+    var onAddHighlights: (([(pageIndex: Int, text: String, rects: [CGRect])], HighlightColor?) -> [HighlightItem])?
     var onUpdateHighlightColor: ((UUID, HighlightColor) -> Void)?
+    var onUpdateHighlightNote: ((UUID, String?) -> Void)?
+    var onAddPageNote: ((Int, CGPoint) -> HighlightItem?)?
     var onRemoveHighlight: ((UUID) -> Void)?
+    private weak var activeNotePopover: NSPopover?
+    private var activeNoteCoordinator: NotePopoverCoordinator?
     var lastMouseDownPoint: CGPoint?
     var onInternalLinkJump: ((DocumentTabState.ReadingSpot, Int) -> Void)?
     private var isTrackingInternalLink = false
@@ -1550,9 +1806,65 @@ final class ThemedPDFView: PDFView {
     func performHighlightSelection(color: HighlightColor?) {
         let drafts = extractCurrentSelectionDrafts()
         guard !drafts.isEmpty else { return }
-        onAddHighlights?(drafts, color)
+        _ = onAddHighlights?(drafts, color)
         clearSelection()
         ocrSelectionOverlay.clear()
+        nativeSelectionTracker.clear()
+    }
+
+    func performHighlightSelectionAndEditNote() {
+        let drafts = extractCurrentSelectionDrafts()
+        guard !drafts.isEmpty,
+              let created = onAddHighlights?(drafts, nil).last else { return }
+        clearSelection()
+        ocrSelectionOverlay.clear()
+        nativeSelectionTracker.clear()
+        presentNotePopover(for: created)
+    }
+
+    func presentNotePopover(for item: HighlightItem) {
+        guard onUpdateHighlightNote != nil, window != nil else { return }
+        let anchorRect = PDFHighlightOverlay.noteBadgeRectInPDFView(for: item, in: self)
+            ?? viewRect(for: item)
+            ?? CGRect(x: bounds.midX - 10, y: bounds.midY - 10, width: 20, height: 20)
+        activeNotePopover?.close()
+
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+
+        let draft = NotePopoverDraft(initialText: item.note ?? "")
+        let coordinator = NotePopoverCoordinator(
+            popover: popover,
+            draft: draft,
+            itemID: item.id,
+            isStandaloneNote: item.isStandaloneNote,
+            onSave: { [weak self] noteText in
+                self?.onUpdateHighlightNote?(item.id, noteText)
+            },
+            onCancelEmptyStandalone: { [weak self] in
+                self?.onRemoveHighlight?(item.id)
+            }
+        )
+        let rootView = CanvasNotePopoverView(
+            color: item.color,
+            isDark: isDarkUI,
+            hasExistingNote: item.note != nil,
+            draft: draft,
+            onCommit: { [weak coordinator] in coordinator?.commitAndClose() },
+            onDelete: { [weak coordinator] in coordinator?.deleteAndClose() },
+            onCancel: { [weak coordinator] in coordinator?.cancelAndClose() }
+        )
+        let hosting = NSHostingController(rootView: rootView)
+        hosting.preferredContentSize = NSSize(width: 260, height: 130)
+        popover.contentViewController = hosting
+        popover.delegate = coordinator
+        activeNotePopover = popover
+        activeNoteCoordinator = coordinator
+
+        let clampedRect = anchorRect.intersection(bounds)
+        let targetRect = clampedRect.isNull || clampedRect.isEmpty ? anchorRect : clampedRect
+        popover.show(relativeTo: targetRect, of: self, preferredEdge: .maxY)
     }
 
     func highlightCurrentSelectionIfPresent() {
@@ -1592,8 +1904,14 @@ final class ThemedPDFView: PDFView {
     }
 
     func hitHighlight(atViewPoint viewPoint: CGPoint) -> HighlightItem? {
-        guard let doc = document,
-              let page = page(for: viewPoint, nearest: false) else { return nil }
+        guard let doc = document else { return nil }
+        for item in pdfHighlightOverlay.highlights {
+            if let badge = PDFHighlightOverlay.noteBadgeRectInPDFView(for: item, in: self),
+               badge.insetBy(dx: -4, dy: -4).contains(viewPoint) {
+                return item
+            }
+        }
+        guard let page = page(for: viewPoint, nearest: false) else { return nil }
         let pageIdx = doc.index(for: page)
         let pagePoint = convert(viewPoint, to: page)
         return pdfHighlightOverlay.highlights.first { item in
@@ -1602,6 +1920,9 @@ final class ThemedPDFView: PDFView {
     }
 
     func viewRect(for highlight: HighlightItem) -> CGRect? {
+        if highlight.isStandaloneNote {
+            return PDFHighlightOverlay.noteBadgeRectInPDFView(for: highlight, in: self)
+        }
         guard let doc = document, let page = doc.page(at: highlight.pageIndex) else { return nil }
         var combined: CGRect?
         for r in highlight.rects {
@@ -1635,7 +1956,12 @@ final class ThemedPDFView: PDFView {
                   hypot(upPoint.x - down.x, upPoint.y - down.y) <= 4,
                   let hit = hitHighlight(atViewPoint: upPoint),
                   let rect = viewRect(for: hit) {
-            floatingSelectionBar.present(mode: .existing(hit), isDarkUI: isDarkUI, anchorRectInPDFView: rect)
+            if hit.isStandaloneNote {
+                floatingSelectionBar.dismiss()
+                presentNotePopover(for: hit)
+            } else {
+                floatingSelectionBar.present(mode: .existing(hit), isDarkUI: isDarkUI, anchorRectInPDFView: rect)
+            }
         } else {
             floatingSelectionBar.dismiss()
         }
@@ -1662,18 +1988,43 @@ final class ThemedPDFView: PDFView {
             items.append(colorMenuItem)
         }
 
-        let copyText = NSMenuItem(
-            title: L10n.tr("复制高亮文字", "Copy Highlighted Text"),
-            action: #selector(copyHighlightedText(_:)),
-            keyEquivalent: ""
-        )
-        copyText.target = self
-        copyText.representedObject = highlight.text
-        items.append(copyText)
+        if onUpdateHighlightNote != nil {
+            let editTitle = highlight.note != nil ? L10n.tr("编辑笔记", "Edit Note") : L10n.tr("添加笔记", "Add Note")
+            let noteItem = NSMenuItem(
+                title: editTitle,
+                action: #selector(editHighlightNote(_:)),
+                keyEquivalent: ""
+            )
+            noteItem.target = self
+            noteItem.representedObject = highlight
+            items.append(noteItem)
+
+            if highlight.note != nil && !highlight.isStandaloneNote {
+                let clearNote = NSMenuItem(
+                    title: L10n.tr("删除笔记", "Delete Note"),
+                    action: #selector(deleteHighlightNoteOnly(_:)),
+                    keyEquivalent: ""
+                )
+                clearNote.target = self
+                clearNote.representedObject = highlight.id
+                items.append(clearNote)
+            }
+        }
+
+        if !highlight.text.isEmpty {
+            let copyText = NSMenuItem(
+                title: L10n.tr("复制高亮文字", "Copy Highlighted Text"),
+                action: #selector(copyHighlightedText(_:)),
+                keyEquivalent: ""
+            )
+            copyText.target = self
+            copyText.representedObject = highlight.text
+            items.append(copyText)
+        }
 
         if onRemoveHighlight != nil {
             let removeItem = NSMenuItem(
-                title: L10n.tr("移除高亮", "Remove Highlight"),
+                title: highlight.isStandaloneNote ? L10n.tr("删除笔记", "Delete Note") : L10n.tr("移除高亮", "Remove Highlight"),
                 action: #selector(removeExistingHighlight(_:)),
                 keyEquivalent: ""
             )
@@ -1682,6 +2033,28 @@ final class ThemedPDFView: PDFView {
             items.append(removeItem)
         }
         return items
+    }
+
+    func addPageNoteHereMenuItem(for event: NSEvent) -> NSMenuItem? {
+        guard onAddPageNote != nil, let doc = document else { return nil }
+        let viewPoint = convert(event.locationInWindow, from: nil)
+        guard let targetPage = page(for: viewPoint, nearest: false) ?? currentPage else { return nil }
+        let pageIndex = doc.index(for: targetPage)
+        guard pageIndex >= 0 && pageIndex < doc.pageCount else { return nil }
+        let box = targetPage.bounds(for: displayBox)
+        let pagePoint = convert(viewPoint, to: targetPage)
+        let anchorPoint = CGPoint(
+            x: max(box.minX + 12, min(box.maxX - 12, pagePoint.x)),
+            y: max(box.minY + 12, min(box.maxY - 12, pagePoint.y))
+        )
+        let item = NSMenuItem(
+            title: L10n.tr("在此添加笔记", "Add Note Here"),
+            action: #selector(addPageNoteAtMenuPoint(_:)),
+            keyEquivalent: ""
+        )
+        item.target = self
+        item.representedObject = BookmarkMenuTarget(pageIndex: pageIndex, point: anchorPoint)
+        return item
     }
 
     func addBookmarkHereMenuItem(for event: NSEvent) -> NSMenuItem? {
@@ -1742,6 +2115,9 @@ final class ThemedPDFView: PDFView {
             if let bookmarkItem = addBookmarkHereMenuItem(for: event) {
                 menu.addItem(bookmarkItem)
             }
+            if let pageNoteItem = addPageNoteHereMenuItem(for: event) {
+                menu.addItem(pageNoteItem)
+            }
         }
         let retainedActions: Set<Selector> = [#selector(zoomIn(_:)), #selector(zoomOut(_:)),
                                                #selector(goToNextPage(_:)), #selector(goToPreviousPage(_:))]
@@ -1785,6 +2161,22 @@ final class ThemedPDFView: PDFView {
     @objc private func updateExistingHighlightColor(_ sender: NSMenuItem) {
         guard let payload = sender.representedObject as? HighlightColorUpdateTarget else { return }
         onUpdateHighlightColor?(payload.highlightID, payload.color)
+    }
+
+    @objc private func editHighlightNote(_ sender: NSMenuItem) {
+        guard let item = sender.representedObject as? HighlightItem else { return }
+        presentNotePopover(for: item)
+    }
+
+    @objc private func deleteHighlightNoteOnly(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID else { return }
+        onUpdateHighlightNote?(id, nil)
+    }
+
+    @objc private func addPageNoteAtMenuPoint(_ sender: NSMenuItem) {
+        guard let payload = sender.representedObject as? BookmarkMenuTarget,
+              let created = onAddPageNote?(payload.pageIndex, payload.point) else { return }
+        presentNotePopover(for: created)
     }
 
     @objc private func copyHighlightedText(_ sender: NSMenuItem) {

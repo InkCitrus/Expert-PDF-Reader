@@ -85,15 +85,121 @@ final class NativePDFPageGeometry {
             return entry
         }
 
+        let pageCropBox = cropBox
+        let verticalRotated: (locs: IndexSet, boxes: [CGRect]) = {
+            guard textLength >= 4 else { return (IndexSet(), []) }
+            struct GlyphSample {
+                let loc: Int
+                let rect: CGRect
+                let isASCII: Bool
+            }
+            var nonSpace: [GlyphSample] = []
+            nonSpace.reserveCapacity(min(textLength, 4096))
+            for loc in 0..<textLength {
+                let cInfo = info(at: loc)
+                if cInfo.isWhitespace || cInfo.isNewline { continue }
+                let rect = cInfo.bounds.standardized
+                guard !rect.isNull, !rect.isInfinite, rect.width > 0.5, rect.height > 0.5 else { continue }
+                let cu = pageText.character(at: loc)
+                nonSpace.append(GlyphSample(loc: loc, rect: rect, isASCII: cu < 0x80))
+            }
+            guard nonSpace.count >= 4 else { return (IndexSet(), []) }
+
+            var seedRuns: [[GlyphSample]] = []
+            var idx = 0
+            while idx < nonSpace.count {
+                var run = [nonSpace[idx]]
+                var direction: CGFloat = 0
+                var j = idx + 1
+                while j < nonSpace.count {
+                    let prev = run[run.count - 1]
+                    let curr = nonSpace[j]
+                    if curr.loc - prev.loc > 3 { break }
+                    let dx = abs(curr.rect.midX - prev.rect.midX)
+                    let dySigned = curr.rect.midY - prev.rect.midY
+                    let dy = abs(dySigned)
+                    let bandWidth = max(4.0, min(prev.rect.width, curr.rect.width))
+                    let yGap = max(0, max(curr.rect.minY - prev.rect.maxY, prev.rect.minY - curr.rect.maxY))
+                    guard dx <= max(4.5, bandWidth * 0.55),
+                          dy >= 1.5,
+                          dy > dx * 2.0,
+                          yGap <= max(8.0, bandWidth * 1.15) else {
+                        break
+                    }
+                    let stepDir: CGFloat = dySigned > 0 ? 1 : -1
+                    if direction == 0 {
+                        direction = stepDir
+                    } else if direction != stepDir {
+                        break
+                    }
+                    run.append(curr)
+                    j += 1
+                }
+                if run.count >= 4 {
+                    let asciiCount = run.reduce(0) { $0 + ($1.isASCII ? 1 : 0) }
+                    let xs = run.map(\.rect.midX)
+                    let ys = run.map(\.rect.midY)
+                    let widths = run.map(\.rect.width).sorted()
+                    let medianW = widths[widths.count / 2]
+                    let xSpread = (xs.max() ?? 0) - (xs.min() ?? 0)
+                    let ySpan = (ys.max() ?? 0) - (ys.min() ?? 0)
+                    let anchorX = xs.reduce(0, +) / CGFloat(xs.count)
+                    let inSideMargin = anchorX < pageCropBox.minX + pageCropBox.width * 0.28
+                        || anchorX > pageCropBox.maxX - pageCropBox.width * 0.28
+                    if (asciiCount * 4 >= run.count * 3 || inSideMargin),
+                       xSpread <= max(6.0, medianW * 0.75),
+                       ySpan >= medianW * 2.2 {
+                        seedRuns.append(run)
+                    }
+                    idx = j
+                } else {
+                    idx += 1
+                }
+            }
+
+            guard !seedRuns.isEmpty else { return (IndexSet(), []) }
+            var result = IndexSet()
+            var stripBoxes: [CGRect] = []
+            for run in seedRuns {
+                var stripUnion = run[0].rect
+                for g in run {
+                    result.insert(g.loc)
+                    stripUnion = stripUnion.union(g.rect)
+                }
+                let xs = run.map(\.rect.midX)
+                let widths = run.map(\.rect.width).sorted()
+                let medianW = widths[widths.count / 2]
+                let stripX = xs.reduce(0, +) / CGFloat(xs.count)
+                let minLoc = (run.first?.loc ?? 0) - 24
+                let maxLoc = (run.last?.loc ?? 0) + 24
+                let minY = (run.map(\.rect.minY).min() ?? 0) - medianW * 8.0
+                let maxY = (run.map(\.rect.maxY).max() ?? 0) + medianW * 8.0
+                for g in nonSpace where g.loc >= minLoc && g.loc <= maxLoc {
+                    if abs(g.rect.midX - stripX) <= max(5.0, medianW * 0.75),
+                       g.rect.width <= medianW * 1.85,
+                       g.rect.maxY >= minY,
+                       g.rect.minY <= maxY {
+                        result.insert(g.loc)
+                        stripUnion = stripUnion.union(g.rect)
+                    }
+                }
+                stripBoxes.append(stripUnion.insetBy(dx: -2, dy: -2))
+            }
+            return (result, stripBoxes)
+        }()
+        let verticalRotatedLocs = verticalRotated.locs
+        let verticalRotatedBoxes = verticalRotated.boxes
+
         var candidates: [Candidate] = []
         var rawStructuralPieces: [CGRect] = []
         var unmappedPieces: [CGRect] = []
         var tallRejectedPieces: [CGRect] = []
-        var coveredLocs = IndexSet()
+        var coveredLocs = verticalRotatedLocs
         if textLength > 0 {
             for index in 0..<page.numberOfCharacters {
                 let box = page.characterBounds(at: index).standardized
                 guard !box.isNull, !box.isInfinite, box.height > 0, box.intersects(cropBox) else { continue }
+                if verticalRotatedBoxes.contains(where: { $0.contains(CGPoint(x: box.midX, y: box.midY)) }) { continue }
                 if box.width <= 0.4 {
                     if box.height >= 2.0 && box.height < cropBox.height * 0.55 {
                         rawStructuralPieces.append(CGRect(x: box.minX, y: box.minY,
@@ -122,6 +228,7 @@ final class NativePDFPageGeometry {
                     let lo = max(0, range.location), hi = min(textLength, NSMaxRange(range))
                     guard lo < hi else { continue }
                     for loc in lo..<hi {
+                        guard !verticalRotatedLocs.contains(loc) else { continue }
                         let cInfo = info(at: loc)
                         guard !cInfo.isNewline, !cInfo.bounds.isNull, !cInfo.bounds.isInfinite,
                               cInfo.bounds.width > 0 || cInfo.bounds.height > 0,
@@ -134,7 +241,8 @@ final class NativePDFPageGeometry {
                 // Point selections snap to caret stops. Preserve adjacent punctuation or combining
                 // marks (e.g. U+0338 in ̸=) whose bounds belong to the same visible glyph.
                 for (loc, baseInfo) in validatedBases {
-                    for neighbor in max(0, loc - 1)...min(textLength - 1, loc + 1) where !keptSet.contains(neighbor) {
+                    for neighbor in max(0, loc - 1)...min(textLength - 1, loc + 1)
+                    where !keptSet.contains(neighbor) && !verticalRotatedLocs.contains(neighbor) {
                         let nInfo = info(at: neighbor)
                         guard !nInfo.isNewline, !nInfo.bounds.isNull, !nInfo.bounds.isInfinite else { continue }
                         if nInfo.isNonBase {
@@ -274,7 +382,7 @@ final class NativePDFPageGeometry {
             droppedDuplicates.insert(idx)
         }
 
-        var excluded = IndexSet()
+        var excluded = verticalRotatedLocs
         var glyphs: [Glyph] = []
         for (idx, candidate) in candidates.enumerated() {
             let box = candidate.bounds

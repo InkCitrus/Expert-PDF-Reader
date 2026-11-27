@@ -542,9 +542,9 @@ public struct ShortcutsAndTipsSheetView: View {
                 id: "sidebar_tabs",
                 category: .viewAndZoom,
                 icon: "list.bullet.indent",
-                title: "\(L10n.tr("缩略图", "Thumbnails")) / \(L10n.tr("大纲", "Outline")) / \(L10n.tr("书签与高亮", "Bookmarks & Highlights"))",
+                title: "\(L10n.tr("缩略图", "Thumbnails")) / \(L10n.tr("大纲", "Outline")) / \(L10n.tr("书签", "Bookmarks")) / \(L10n.tr("批注", "Annotations"))",
                 subtitle: nil,
-                chords: [["⌃", "⌘", "2"], ["⌃", "⌘", "3"], ["⌃", "⌘", "4"]]
+                chords: [["⌃", "⌘", "2"], ["⌃", "⌘", "3"], ["⌃", "⌘", "4"], ["⌃", "⌘", "5"]]
             ),
             ShortcutEntry(
                 id: "page_layouts",

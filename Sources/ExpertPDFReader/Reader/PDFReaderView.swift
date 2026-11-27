@@ -193,9 +193,24 @@ public struct PDFReaderView: View {
                     undoManager: tab.undoManager
                 )
                 tab.activeHighlightID = created.last?.id
+                return created
             },
             onUpdateHighlightColor: { id, color in
                 store.updateHighlightColor(id: id, color: color, in: tab.documentID, undoManager: tab.undoManager)
+            },
+            onUpdateHighlightNote: { id, note in
+                store.updateHighlightNote(id: id, note: note, in: tab.documentID, undoManager: tab.undoManager)
+            },
+            onAddPageNote: { pageIndex, point in
+                let created = store.addPageNote(
+                    pageIndex: pageIndex,
+                    pageX: point.x,
+                    pageY: point.y,
+                    in: tab.documentID,
+                    undoManager: tab.undoManager
+                )
+                tab.activeHighlightID = created.id
+                return created
             },
             onRemoveHighlight: { id in
                 store.removeHighlight(id: id, in: tab.documentID, undoManager: tab.undoManager)
@@ -287,11 +302,32 @@ public struct PDFReaderView: View {
                             if secID == tab.documentID {
                                 tab.activeHighlightID = created.last?.id
                             }
+                            return created
                         }
                     },
                     onUpdateHighlightColor: secondaryDocID.map { secID in
                         { id, color in
                             store.updateHighlightColor(id: id, color: color, in: secID, undoManager: tab.undoManager)
+                        }
+                    },
+                    onUpdateHighlightNote: secondaryDocID.map { secID in
+                        { id, note in
+                            store.updateHighlightNote(id: id, note: note, in: secID, undoManager: tab.undoManager)
+                        }
+                    },
+                    onAddPageNote: secondaryDocID.map { secID in
+                        { pageIndex, point in
+                            let created = store.addPageNote(
+                                pageIndex: pageIndex,
+                                pageX: point.x,
+                                pageY: point.y,
+                                in: secID,
+                                undoManager: tab.undoManager
+                            )
+                            if secID == tab.documentID {
+                                tab.activeHighlightID = created.id
+                            }
+                            return created
                         }
                     },
                     onRemoveHighlight: secondaryDocID.map { secID in

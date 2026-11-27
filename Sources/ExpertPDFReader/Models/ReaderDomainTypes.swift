@@ -104,10 +104,153 @@ public struct BookmarkItem: Identifiable, Codable, Equatable {
     public var pageIndex: Int
     public var title: String
     public var createdAt: Date = Date()
+    public var pageX: Double?
+    public var pageY: Double?
 
-    public init(pageIndex: Int, title: String) {
+    public var destinationPoint: CGPoint? {
+        guard let pageY else { return nil }
+        return CGPoint(x: pageX ?? 0, y: pageY)
+    }
+
+    public init(pageIndex: Int, title: String, point: CGPoint? = nil) {
         self.pageIndex = pageIndex
         self.title = title
+        if let point {
+            self.pageX = Double(point.x)
+            self.pageY = Double(point.y)
+        }
+    }
+}
+
+public enum HighlightColor: String, CaseIterable, Identifiable, Codable {
+    case yellow
+    case green
+    case blue
+    case pink
+    case purple
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .yellow: return L10n.tr("黄色", "Yellow")
+        case .green:  return L10n.tr("绿色", "Green")
+        case .blue:   return L10n.tr("蓝色", "Blue")
+        case .pink:   return L10n.tr("粉色", "Pink")
+        case .purple: return L10n.tr("紫色", "Purple")
+        }
+    }
+
+    public func color(isDark: Bool) -> Color {
+        Color(nsColor: uiSwatchNSColor(isDark: isDark))
+    }
+
+    public func uiSwatchNSColor(isDark: Bool) -> NSColor {
+        switch self {
+        case .yellow:
+            return isDark
+                ? NSColor(srgbRed: 0.96, green: 0.80, blue: 0.24, alpha: 1.0)
+                : NSColor(srgbRed: 0.90, green: 0.70, blue: 0.08, alpha: 1.0)
+        case .green:
+            return isDark
+                ? NSColor(srgbRed: 0.34, green: 0.84, blue: 0.48, alpha: 1.0)
+                : NSColor(srgbRed: 0.18, green: 0.72, blue: 0.34, alpha: 1.0)
+        case .blue:
+            return isDark
+                ? NSColor(srgbRed: 0.36, green: 0.70, blue: 0.98, alpha: 1.0)
+                : NSColor(srgbRed: 0.20, green: 0.56, blue: 0.94, alpha: 1.0)
+        case .pink:
+            return isDark
+                ? NSColor(srgbRed: 0.96, green: 0.44, blue: 0.64, alpha: 1.0)
+                : NSColor(srgbRed: 0.90, green: 0.30, blue: 0.54, alpha: 1.0)
+        case .purple:
+            return isDark
+                ? NSColor(srgbRed: 0.72, green: 0.50, blue: 0.96, alpha: 1.0)
+                : NSColor(srgbRed: 0.58, green: 0.36, blue: 0.88, alpha: 1.0)
+        }
+    }
+
+    public func canvasFillNSColor(for theme: PDFViewTheme) -> NSColor {
+        if theme == .night {
+            switch self {
+            case .yellow: return NSColor(srgbRed: 0.86, green: 0.70, blue: 0.18, alpha: 0.30)
+            case .green:  return NSColor(srgbRed: 0.22, green: 0.68, blue: 0.36, alpha: 0.28)
+            case .blue:   return NSColor(srgbRed: 0.24, green: 0.56, blue: 0.88, alpha: 0.30)
+            case .pink:   return NSColor(srgbRed: 0.86, green: 0.34, blue: 0.54, alpha: 0.28)
+            case .purple: return NSColor(srgbRed: 0.58, green: 0.38, blue: 0.86, alpha: 0.30)
+            }
+        }
+        switch self {
+        case .yellow: return NSColor(srgbRed: 1.00, green: 0.86, blue: 0.16, alpha: 0.34)
+        case .green:  return NSColor(srgbRed: 0.30, green: 0.84, blue: 0.42, alpha: 0.30)
+        case .blue:   return NSColor(srgbRed: 0.26, green: 0.68, blue: 0.98, alpha: 0.28)
+        case .pink:   return NSColor(srgbRed: 0.98, green: 0.42, blue: 0.64, alpha: 0.28)
+        case .purple: return NSColor(srgbRed: 0.68, green: 0.46, blue: 0.96, alpha: 0.28)
+        }
+    }
+
+    public func menuSwatchImage() -> NSImage {
+        let size = NSSize(width: 11, height: 11)
+        let image = NSImage(size: size, flipped: false) { rect in
+            let inset = rect.insetBy(dx: 1, dy: 1)
+            let path = NSBezierPath(ovalIn: inset)
+            self.uiSwatchNSColor(isDark: false).setFill()
+            path.fill()
+            NSColor.black.withAlphaComponent(0.18).setStroke()
+            path.lineWidth = 0.75
+            path.stroke()
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
+}
+
+public struct HighlightRect: Codable, Equatable {
+    public var x: Double
+    public var y: Double
+    public var width: Double
+    public var height: Double
+
+    public var cgRect: CGRect {
+        CGRect(x: x, y: y, width: width, height: height)
+    }
+
+    public init(_ rect: CGRect) {
+        self.x = Double(rect.origin.x)
+        self.y = Double(rect.origin.y)
+        self.width = Double(rect.size.width)
+        self.height = Double(rect.size.height)
+    }
+}
+
+public struct HighlightItem: Identifiable, Codable, Equatable {
+    public var id: UUID = UUID()
+    public var pageIndex: Int
+    public var text: String
+    public var color: HighlightColor
+    public var rects: [HighlightRect]
+    public var createdAt: Date = Date()
+    public var note: String?
+
+    public var anchorPoint: CGPoint? {
+        guard let first = rects.first?.cgRect else { return nil }
+        return CGPoint(x: first.minX, y: first.midY)
+    }
+
+    public init(
+        pageIndex: Int,
+        text: String,
+        color: HighlightColor = .yellow,
+        rects: [CGRect],
+        note: String? = nil
+    ) {
+        self.pageIndex = pageIndex
+        self.text = text
+        self.color = color
+        self.rects = rects.map(HighlightRect.init)
+        let trimmed = note?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.note = (trimmed?.isEmpty == false) ? trimmed : nil
     }
 }
 

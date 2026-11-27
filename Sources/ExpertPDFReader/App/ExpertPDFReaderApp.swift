@@ -689,6 +689,12 @@ struct ReaderMenuCommands: Commands {
             .keyboardShortcut("d", modifiers: [.command])
             .disabled(store.activeDocumentTab == nil)
 
+            Button(L10n.tr("高亮所选文字", "Highlight Selection")) {
+                store.activeDocumentTab?.highlightSelectionRequestToken &+= 1
+            }
+            .keyboardShortcut("h", modifiers: [.control, .command])
+            .disabled(store.activeDocumentTab == nil)
+
             Divider()
 
             Button(L10n.tr("全文查找...", "Find in Document...")) {

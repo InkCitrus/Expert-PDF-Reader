@@ -605,6 +605,14 @@ public struct ShortcutsAndTipsSheetView: View {
                 chords: [["⌘", "D"]]
             ),
             ShortcutEntry(
+                id: "highlight_selection",
+                category: .searchAndBookmarks,
+                icon: "highlighter",
+                title: L10n.tr("高亮所选文字", "Highlight Selection"),
+                subtitle: nil,
+                chords: [["⌃", "⌘", "H"]]
+            ),
+            ShortcutEntry(
                 id: "open_shortcuts",
                 category: .searchAndBookmarks,
                 icon: "keyboard",

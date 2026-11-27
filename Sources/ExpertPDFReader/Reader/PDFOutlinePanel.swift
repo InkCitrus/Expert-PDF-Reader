@@ -23,11 +23,22 @@ struct PDFOutlinePanel: View {
     let isDark: Bool
     @Environment(\.appAccentColor) private var accent
 
-    init(store: AppStore, tab: DocumentTabState, isDark: Bool) {
+    @Binding var filterText: String
+    @Binding var hasOutlineNodes: Bool
+
+    init(
+        store: AppStore,
+        tab: DocumentTabState,
+        isDark: Bool,
+        filterText: Binding<String> = .constant(""),
+        hasOutlineNodes: Binding<Bool> = .constant(false)
+    ) {
         self._store = ObservedObject(wrappedValue: store)
         self._tab = ObservedObject(wrappedValue: tab)
         self._location = ObservedObject(wrappedValue: tab.readingLocation)
         self.isDark = isDark
+        self._filterText = filterText
+        self._hasOutlineNodes = hasOutlineNodes
     }
 
     struct PinnedSelection: Equatable {
@@ -43,7 +54,8 @@ struct PDFOutlinePanel: View {
     @State private var isGeneratedOutline = false
     @State private var generationTask: Task<Void, Never>?
     @State private var pinnedSelection: PinnedSelection?
-    @State private var filterText: String = ""
+    @State private var filterExpandedIDs: Set<UUID> = []
+    @State private var filterCollapsedIDs: Set<UUID> = []
     @State private var userSelectedNodeID: UUID?
 
     struct OutlineRow: Identifiable, Equatable {
@@ -59,73 +71,53 @@ struct PDFOutlinePanel: View {
     var body: some View {
         Group {
             if isGenerating {
-                VStack(spacing: 0) {
-                    Rectangle()
-                        .fill(AppPalette.panelSeparator(isDark))
-                        .frame(height: 1)
-                    VStack(spacing: 10) {
-                        ProgressView().controlSize(.small)
-                        Text(L10n.tr("正在识别目录…", "Recognizing outline…"))
-                            .font(.system(size: 12))
-                            .foregroundColor(AppPalette.labelTertiary(isDark))
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text(L10n.tr("正在识别目录…", "Recognizing outline…"))
+                        .font(.system(size: 12))
+                        .foregroundColor(AppPalette.labelTertiary(isDark))
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if hasLoaded && nodes.isEmpty {
-                VStack(spacing: 0) {
-                    Rectangle()
-                        .fill(AppPalette.panelSeparator(isDark))
-                        .frame(height: 1)
-                    if !store.autoGenerateOutline && tab.pdfDocument.outlineRoot == nil {
-                        VStack(spacing: 12) {
-                            Image(systemName: "list.bullet.indent")
-                                .font(.system(size: 26, weight: .light))
-                                .foregroundColor(AppPalette.labelQuaternary(isDark))
-                            Text(L10n.tr("此文档不包含目录大纲", "This document has no outline"))
-                                .font(.system(size: 12.5, weight: .medium))
-                                .foregroundColor(AppPalette.labelSecondary(isDark))
-                            Button {
-                                hasLoaded = false
-                                loadIfNeeded(forceGenerate: true)
-                            } label: {
-                                Text(L10n.tr("识别目录", "Recognize Outline"))
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(AppPalette.labelPrimary(isDark))
-                                    .padding(.horizontal, 12)
-                                    .frame(height: 26)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                            .fill(AppPalette.toolbarControlFill(isDark))
-                                    )
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                            .strokeBorder(AppPalette.panelSeparator(isDark), lineWidth: 1)
-                                    )
-                            }
-                            .buttonStyle(TactilePressButtonStyle())
+                if !store.autoGenerateOutline && tab.pdfDocument.outlineRoot == nil {
+                    VStack(spacing: 12) {
+                        Image(systemName: "list.bullet.indent")
+                            .font(.system(size: 26, weight: .light))
+                            .foregroundColor(AppPalette.labelQuaternary(isDark))
+                        Text(L10n.tr("此文档不包含目录大纲", "This document has no outline"))
+                            .font(.system(size: 12.5, weight: .medium))
+                            .foregroundColor(AppPalette.labelSecondary(isDark))
+                        Button {
+                            hasLoaded = false
+                            loadIfNeeded(forceGenerate: true)
+                        } label: {
+                            Text(L10n.tr("识别目录", "Recognize Outline"))
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(AppPalette.labelPrimary(isDark))
+                                .padding(.horizontal, 12)
+                                .frame(height: 26)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                        .fill(AppPalette.toolbarControlFill(isDark))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                        .strokeBorder(AppPalette.panelSeparator(isDark), lineWidth: 1)
+                                )
                         }
-                        .padding(20)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else {
-                        PanelEmptyState(icon: "list.bullet.indent", title: L10n.tr("此文档不包含目录大纲", "This document has no outline"), subtitle: nil, isDark: isDark)
+                        .buttonStyle(TactilePressButtonStyle())
                     }
+                    .padding(20)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    PanelEmptyState(icon: "list.bullet.indent", title: L10n.tr("此文档不包含目录大纲", "This document has no outline"), subtitle: nil, isDark: isDark)
                 }
             } else {
                 let rows = visibleRows
                 let activeID = activeNodeID(in: rows)
-                let expandableIDs = allExpandableIDs
-                let hasExpandableNodes = !expandableIDs.isEmpty
-                let areAllExpanded = hasExpandableNodes && expandableIDs.isSubset(of: expandedIDs)
-                VStack(spacing: 0) {
-                    outlineFilterBar(
-                        hasExpandableNodes: hasExpandableNodes,
-                        areAllExpanded: areAllExpanded,
-                        expandableIDs: expandableIDs
-                    )
-                    Rectangle()
-                        .fill(AppPalette.panelSeparator(isDark))
-                        .frame(height: 1)
-
+                let hasExpandable = hasExpandableNodes
+                let isFiltering = !filterText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                Group {
                     if rows.isEmpty {
                         PanelEmptyState(
                             icon: "magnifyingglass",
@@ -138,16 +130,18 @@ struct PDFOutlinePanel: View {
                             ScrollView {
                                 LazyVStack(alignment: .leading, spacing: 0) {
                                     ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                                        let isShowingChildren = index + 1 < rows.count && rows[index + 1].level > row.level
+                                        let isRowExpanded = isFiltering ? isShowingChildren : expandedIDs.contains(row.node.id)
                                         PDFOutlineRowView(
                                             node: row.node,
                                             pageLabel: row.node.pageIndex.map { tab.displayPageNumber(at: $0) },
                                             level: row.level,
-                                            isExpanded: expandedIDs.contains(row.node.id),
+                                            isExpanded: isRowExpanded,
                                             isActive: row.node.id == activeID,
-                                            hasExpandableNodes: hasExpandableNodes,
+                                            hasExpandableNodes: hasExpandable,
                                             showsChapterTopSpacing: row.level == 0 && index > 0,
                                             isDark: isDark,
-                                            onToggle: { toggle(row.node) },
+                                            onToggle: { toggle(row.node, isFiltering: isFiltering, isShowingChildren: isShowingChildren) },
                                             onSelect: {
                                                 if let pIdx = row.node.pageIndex {
                                                     userSelectedNodeID = row.node.id
@@ -185,11 +179,21 @@ struct PDFOutlinePanel: View {
             }
         }
         .background(AppPalette.panelBackground(isDark))
-        .onAppear { loadIfNeeded() }
+        .onAppear {
+            loadIfNeeded()
+            syncOutlineAvailability()
+        }
         .onDisappear {
             generationTask?.cancel()
             generationTask = nil
             if !hasLoaded { isGenerating = false }
+        }
+        .onChange(of: hasLoaded) { _, _ in syncOutlineAvailability() }
+        .onChange(of: isGenerating) { _, _ in syncOutlineAvailability() }
+        .onChange(of: nodes.count) { _, _ in syncOutlineAvailability() }
+        .onChange(of: filterText) { _, _ in
+            filterExpandedIDs.removeAll()
+            filterCollapsedIDs.removeAll()
         }
         .onChange(of: location.pageIndex) { _, _ in
             updatePinnedSelection()
@@ -227,87 +231,12 @@ struct PDFOutlinePanel: View {
         }
     }
 
-    private var allExpandableIDs: Set<UUID> {
-        var ids = Set<UUID>()
-        func collect(_ list: [PDFOutlineNode]) {
-            for node in list where !node.children.isEmpty {
-                ids.insert(node.id)
-                collect(node.children)
-            }
-        }
-        collect(nodes)
-        return ids
+    private func syncOutlineAvailability() {
+        hasOutlineNodes = hasLoaded && !isGenerating && !nodes.isEmpty
     }
 
-    private func outlineFilterBar(
-        hasExpandableNodes: Bool,
-        areAllExpanded: Bool,
-        expandableIDs: Set<UUID>
-    ) -> some View {
-        HStack(spacing: 6) {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(AppPalette.labelTertiary(isDark))
-
-                TextField(L10n.tr("筛选目录…", "Filter outline…"), text: $filterText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-                    .foregroundColor(AppPalette.labelPrimary(isDark))
-                    .tint(accent)
-
-                if !filterText.isEmpty {
-                    Button {
-                        filterText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 11))
-                            .foregroundColor(AppPalette.labelTertiary(isDark))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 8)
-            .frame(height: 26)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(isDark ? Color.white.opacity(0.06) : Color.black.opacity(0.045))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .strokeBorder(isDark ? Color.white.opacity(0.09) : Color.black.opacity(0.07), lineWidth: 0.5)
-            )
-
-            if hasExpandableNodes && filterText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Button {
-                    withAnimation(AppAnimation.snappy) {
-                        expandedIDs = areAllExpanded ? [] : expandableIDs
-                    }
-                } label: {
-                    Image(systemName: areAllExpanded
-                          ? "arrow.down.right.and.arrow.up.left"
-                          : "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 10.5, weight: .medium))
-                        .foregroundColor(AppPalette.labelSecondary(isDark))
-                        .frame(width: 26, height: 26)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(isDark ? Color.white.opacity(0.06) : Color.black.opacity(0.045))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .strokeBorder(isDark ? Color.white.opacity(0.09) : Color.black.opacity(0.07), lineWidth: 0.5)
-                        )
-                        .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                }
-                .buttonStyle(TactilePressButtonStyle())
-                .help(areAllExpanded ? L10n.tr("折叠全部", "Collapse All") : L10n.tr("展开全部", "Expand All"))
-                .accessibilityLabel(Text(areAllExpanded ? L10n.tr("折叠全部", "Collapse All") : L10n.tr("展开全部", "Expand All")))
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.top, 6)
-        .padding(.bottom, 8)
+    private var hasExpandableNodes: Bool {
+        nodes.contains { !$0.children.isEmpty }
     }
 
     private var visibleRows: [OutlineRow] {
@@ -315,7 +244,8 @@ struct PDFOutlinePanel: View {
             nodes: nodes,
             query: filterText,
             expandedIDs: expandedIDs,
-            pageLabel: { tab.displayPageNumber(at: $0) }
+            manuallyExpandedInFilter: filterExpandedIDs,
+            manuallyCollapsedInFilter: filterCollapsedIDs
         )
     }
 
@@ -323,7 +253,8 @@ struct PDFOutlinePanel: View {
         nodes: [PDFOutlineNode],
         query: String,
         expandedIDs: Set<UUID>,
-        pageLabel: (Int) -> String
+        manuallyExpandedInFilter: Set<UUID> = [],
+        manuallyCollapsedInFilter: Set<UUID> = []
     ) -> [OutlineRow] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
@@ -340,34 +271,143 @@ struct PDFOutlinePanel: View {
             return rows
         }
 
-        func walkFiltered(_ list: [PDFOutlineNode], level: Int) -> [OutlineRow] {
+        let tokens = trimmed.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard !tokens.isEmpty else { return [] }
+
+        func appendExpandedSubset(_ children: [PDFOutlineNode], depth: Int, into rows: inout [OutlineRow]) {
+            for child in children {
+                rows.append(OutlineRow(node: child, level: depth))
+                if manuallyExpandedInFilter.contains(child.id) && !manuallyCollapsedInFilter.contains(child.id) {
+                    appendExpandedSubset(child.children, depth: depth + 1, into: &rows)
+                }
+            }
+        }
+
+        func walkFiltered(_ list: [PDFOutlineNode], level: Int, ancestorTitles: [String]) -> [OutlineRow] {
             var matched: [OutlineRow] = []
             for node in list {
-                let titleMatches = node.title.localizedCaseInsensitiveContains(trimmed)
-                let pageMatches = node.pageIndex.map(pageLabel)?.localizedCaseInsensitiveContains(trimmed) ?? false
-                let selfMatches = titleMatches || pageMatches
-                let matchingChildren = walkFiltered(node.children, level: level + 1)
+                let pathTitles = ancestorTitles + [node.title]
+                let selfMatches = tokens.allSatisfy { token in
+                    pathTitles.contains(where: { tokenMatches(token, in: $0) })
+                } && tokens.contains(where: { tokenMatches($0, in: node.title) })
+
+                let matchingChildren = walkFiltered(node.children, level: level + 1, ancestorTitles: pathTitles)
                 if !matchingChildren.isEmpty {
                     matched.append(OutlineRow(node: node, level: level))
-                    matched.append(contentsOf: matchingChildren)
+                    if !manuallyCollapsedInFilter.contains(node.id) {
+                        matched.append(contentsOf: matchingChildren)
+                    }
                 } else if selfMatches {
                     matched.append(OutlineRow(node: node, level: level))
-                    if expandedIDs.contains(node.id) {
-                        func appendExpanded(_ children: [PDFOutlineNode], depth: Int) {
-                            for child in children {
-                                matched.append(OutlineRow(node: child, level: depth))
-                                if expandedIDs.contains(child.id) {
-                                    appendExpanded(child.children, depth: depth + 1)
-                                }
-                            }
-                        }
-                        appendExpanded(node.children, depth: level + 1)
+                    if manuallyExpandedInFilter.contains(node.id) && !manuallyCollapsedInFilter.contains(node.id) {
+                        appendExpandedSubset(node.children, depth: level + 1, into: &matched)
                     }
                 }
             }
             return matched
         }
-        return walkFiltered(nodes, level: 0)
+        return walkFiltered(nodes, level: 0, ancestorTitles: [])
+    }
+
+    static func tokenMatches(_ token: String, in title: String) -> Bool {
+        let foldOptions: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive, .widthInsensitive]
+        let foldedToken = token.folding(options: foldOptions, locale: .current)
+        let foldedTitle = title.folding(options: foldOptions, locale: .current)
+        guard !foldedToken.isEmpty else { return false }
+
+        // Non-ASCII / CJK tokens match as standard folded substrings.
+        if foldedToken.unicodeScalars.contains(where: { $0.value > 0x024F }) {
+            return foldedTitle.contains(foldedToken)
+        }
+
+        let core = foldedToken.trimmingCharacters(in: CharacterSet(charactersIn: ".:"))
+        guard !core.isEmpty else {
+            return foldedTitle.contains(foldedToken)
+        }
+
+        // Numeric section references (e.g. "4", "4.1") respect numeric and dot boundaries so
+        // "4" matches "4 Intro" or "4.1 Setup" without catching "14", "24", or "1.4".
+        if core.unicodeScalars.allSatisfy({ CharacterSet.decimalDigits.contains($0) || $0 == "." }) {
+            var searchStart = foldedTitle.startIndex
+            while let range = foldedTitle.range(of: foldedToken, range: searchStart..<foldedTitle.endIndex) {
+                let leftOK: Bool
+                if range.lowerBound == foldedTitle.startIndex {
+                    leftOK = true
+                } else {
+                    let prevChar = foldedTitle[foldedTitle.index(before: range.lowerBound)]
+                    leftOK = !prevChar.unicodeScalars.contains(where: { CharacterSet.alphanumerics.contains($0) || $0 == "." })
+                }
+                let rightOK: Bool
+                if foldedToken.last?.isNumber == true, range.upperBound < foldedTitle.endIndex {
+                    rightOK = !foldedTitle[range.upperBound].isNumber
+                } else {
+                    rightOK = true
+                }
+                if leftOK && rightOK {
+                    return true
+                }
+                searchStart = range.upperBound
+            }
+            return false
+        }
+
+        let romans: Set<String> = ["i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x", "xi", "xii"]
+        let trailingPunct: Character? = (foldedToken.last == "." || foldedToken.last == ":") ? foldedToken.last : nil
+        let segments = alphanumericWordRanges(in: foldedTitle)
+
+        // Roman numeral tokens match Roman section numbers strictly by equality ("II" != "III"/"VII")
+        // while still allowing word-prefix matches like "vi" -> "Virtual" when no punctuation suffix is given.
+        if romans.contains(core) {
+            for seg in segments {
+                let word = String(foldedTitle[seg])
+                let hasExpectedPunct = trailingPunct.map { punct in
+                    seg.upperBound < foldedTitle.endIndex && foldedTitle[seg.upperBound] == punct
+                } ?? true
+                if romans.contains(word) {
+                    if word == core && hasExpectedPunct {
+                        return true
+                    }
+                } else if trailingPunct == nil && word.hasPrefix(core) {
+                    return true
+                }
+            }
+            return false
+        }
+
+        // Single ASCII letter tokens match word prefixes (or exact letter+punct like "A.").
+        if core.count == 1 {
+            for seg in segments {
+                let word = String(foldedTitle[seg])
+                if let punct = trailingPunct {
+                    if word == core && seg.upperBound < foldedTitle.endIndex && foldedTitle[seg.upperBound] == punct {
+                        return true
+                    }
+                } else if word.hasPrefix(core) {
+                    return true
+                }
+            }
+            return false
+        }
+
+        return foldedTitle.contains(foldedToken)
+    }
+
+    private static func alphanumericWordRanges(in text: String) -> [Range<String.Index>] {
+        var ranges: [Range<String.Index>] = []
+        var currentStart: String.Index?
+        for idx in text.indices {
+            let isWordChar = text[idx].unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) }
+            if isWordChar {
+                if currentStart == nil { currentStart = idx }
+            } else if let start = currentStart {
+                ranges.append(start..<idx)
+                currentStart = nil
+            }
+        }
+        if let start = currentStart {
+            ranges.append(start..<text.endIndex)
+        }
+        return ranges
     }
 
     private func revealCurrentSectionAncestorsIfNeeded(for page: Int) {
@@ -440,9 +480,17 @@ struct PDFOutlinePanel: View {
         })?.id
     }
 
-    private func toggle(_ node: PDFOutlineNode) {
+    private func toggle(_ node: PDFOutlineNode, isFiltering: Bool = false, isShowingChildren: Bool = false) {
         withAnimation(AppAnimation.snappy) {
-            if expandedIDs.contains(node.id) {
+            if isFiltering {
+                if isShowingChildren {
+                    filterCollapsedIDs.insert(node.id)
+                    filterExpandedIDs.remove(node.id)
+                } else {
+                    filterCollapsedIDs.remove(node.id)
+                    filterExpandedIDs.insert(node.id)
+                }
+            } else if expandedIDs.contains(node.id) {
                 expandedIDs.remove(node.id)
             } else {
                 expandedIDs.insert(node.id)
@@ -654,7 +702,7 @@ struct PDFOutlineRowView: View {
     }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
             if hasExpandableNodes {
                 Group {
                     if node.children.isEmpty {
@@ -666,13 +714,13 @@ struct PDFOutlineRowView: View {
                                 .foregroundColor(isActive ? AppPalette.labelSecondary(isDark) : AppPalette.labelTertiary(isDark))
                                 .rotationEffect(.degrees(isExpanded ? 90 : 0))
                                 .animation(AppAnimation.snappy, value: isExpanded)
-                                .frame(width: 16, height: 16)
+                                .frame(width: 13, height: 14)
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                     }
                 }
-                .frame(width: 16, height: 16)
+                .frame(width: 13, height: 14)
                 .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 3.5 }
             }
 
@@ -692,8 +740,8 @@ struct PDFOutlineRowView: View {
                     .accessibilityHidden(true)
             }
         }
-        .padding(.leading, (hasExpandableNodes ? 7 : 10) + CGFloat(level) * 13)
-        .padding(.trailing, 9)
+        .padding(.leading, (hasExpandableNodes ? 6 : 8) + CGFloat(level) * 13)
+        .padding(.trailing, 8)
         .padding(.vertical, level == 0 ? 6 : 5)
         .background(
             RoundedRectangle(cornerRadius: 7, style: .continuous)

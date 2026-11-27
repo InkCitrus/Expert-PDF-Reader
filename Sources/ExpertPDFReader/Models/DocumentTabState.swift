@@ -468,6 +468,16 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     @Published public var clearMarginsLayoutToken: Int = 0
     /// Bumped by Go › Go to Page… (⌥⌘G) to open the page counter's Go to Page popover
     @Published public var goToPageRequestToken: Int = 0
+    /// Bumped when jumping to or creating a precise in-page bookmark so the canvas flashes a subtle anchor cue.
+    @Published public var bookmarkPulseToken: Int = 0
+    public var bookmarkPulseTarget: (pageIndex: Int, point: CGPoint)?
+    /// Tracks the most recently clicked/created bookmark so multiple bookmarks on one page highlight accurately.
+    @Published public var activeBookmarkID: UUID?
+    /// Triggered when `+` is clicked on an already-bookmarked spot to open its inline rename field.
+    /// Bumped by Go › Highlight Selection (⌃⌘H) to highlight whatever text is selected on the active canvas.
+    @Published public var highlightSelectionRequestToken: Int = 0
+    /// Tracks the most recently clicked/created highlight for sidebar emphasis.
+    @Published public var activeHighlightID: UUID?
     /// Where in the current page the primary pane is scrolled to; kept apart from the tab's `@Published`
     /// state so scrolling only refreshes the outline, not the whole reader
     public let readingLocation = ReadingLocation()
@@ -774,6 +784,162 @@ public final class DocumentTabState: ObservableObject, Identifiable {
 
     public func dismissJumpBackPrompt() {
         jumpBackDestination = nil
+    }
+
+    public func currentBookmarkPoint(for pageIndex: Int) -> CGPoint? {
+        guard let page = pdfDocument.page(at: pageIndex) else { return nil }
+        let box = page.bounds(for: .cropBox)
+        let upsideDown = page.rotation % 360 == 180
+        let spotOnPage = readingSpot?.pageIndex == pageIndex ? readingSpot?.point : nil
+        if let spotOnPage, !upsideDown, spotOnPage.y >= box.maxY - 24 {
+            return nil
+        }
+        if readingLocation.pageIndex == pageIndex {
+            if !upsideDown && readingLocation.readingLineY >= box.maxY - 24 && spotOnPage == nil {
+                return nil
+            }
+            let x = max(box.minX, min(box.maxX, spotOnPage?.x ?? box.midX))
+            let y = max(box.minY, min(box.maxY, readingLocation.readingLineY))
+            return CGPoint(x: x, y: y)
+        }
+        if let spotOnPage {
+            return CGPoint(
+                x: max(box.minX, min(box.maxX, spotOnPage.x)),
+                y: max(box.minY, min(box.maxY, spotOnPage.y))
+            )
+        }
+        return nil
+    }
+
+    public func bookmarkVerticalPercentage(for bookmark: BookmarkItem) -> Int? {
+        guard let y = bookmark.pageY, let page = pdfDocument.page(at: bookmark.pageIndex) else { return nil }
+        let box = page.bounds(for: .cropBox)
+        guard box.height > 1 else { return nil }
+        var fraction = (box.maxY - CGFloat(y)) / box.height
+        if page.rotation % 360 == 180 {
+            fraction = 1 - fraction
+        }
+        let clamped = max(0, min(1, fraction))
+        return Int((clamped * 100).rounded())
+    }
+
+    public func bookmarkRegionLabel(for bookmark: BookmarkItem) -> String? {
+        guard let pct = bookmarkVerticalPercentage(for: bookmark) else { return nil }
+        if pct < 33 { return L10n.tr("页面上方", "Top") }
+        if pct <= 67 { return L10n.tr("页面中部", "Middle") }
+        return L10n.tr("页面下方", "Bottom")
+    }
+
+    public func smartBookmarkTitle(at pageIndex: Int, point: CGPoint?) -> String {
+        let fallback = L10n.pageTitle(displayPageNumber(at: pageIndex))
+        guard (0..<pageCount).contains(pageIndex) else { return fallback }
+        let targetY = point?.y ?? .infinity
+
+        // 1. Prefer an outline section on this exact page at or above the bookmarked spot.
+        var bestSamePageTitle: (title: String, y: CGFloat)?
+        if let root = pdfDocument.outlineRoot {
+            func walkOutline(_ node: PDFOutline) {
+                for i in 0..<node.numberOfChildren {
+                    guard let child = node.child(at: i) else { continue }
+                    let dest = child.destination ?? (child.action as? PDFActionGoTo)?.destination
+                    if let page = dest?.page, pdfDocument.index(for: page) == pageIndex,
+                       let rawLabel = child.label?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       rawLabel.count >= 2 {
+                        let rawY = dest?.point.y ?? .infinity
+                        let entryY = rawY > 900_000 ? CGFloat.infinity : rawY
+                        if entryY >= targetY - 24 {
+                            if let existing = bestSamePageTitle {
+                                if entryY < existing.y {
+                                    bestSamePageTitle = (rawLabel, entryY)
+                                }
+                            } else {
+                                bestSamePageTitle = (rawLabel, entryY)
+                            }
+                        }
+                    }
+                    walkOutline(child)
+                }
+            }
+            walkOutline(root)
+        } else if let entries = cachedGeneratedOutline?.entries {
+            for entry in entries where entry.pageIndex == pageIndex {
+                let entryY = entry.destinationPoint?.y ?? .infinity
+                if entryY >= targetY - 24 {
+                    if let existing = bestSamePageTitle {
+                        if entryY < existing.y {
+                            bestSamePageTitle = (entry.title, entryY)
+                        }
+                    } else {
+                        bestSamePageTitle = (entry.title, entryY)
+                    }
+                }
+            }
+        }
+        if let heading = bestSamePageTitle?.title,
+           let cleaned = Self.suggestedBookmarkTitle(from: heading) {
+            return cleaned
+        }
+
+        // 2. Fall back to a short non-numeric line near the top/spot on native text pages.
+        if let page = pdfDocument.page(at: pageIndex),
+           !page.hasFullPageScanImage,
+           page.numberOfCharacters > 0 {
+            if let point,
+               let lineText = page.selectionForLine(at: point)?.string,
+               let cleaned = Self.suggestedBookmarkTitle(from: lineText),
+               PageNumberLabel.positiveNumber(cleaned) == nil {
+                return cleaned
+            }
+            if let pageText = page.string {
+                for rawLine in pageText.prefix(240).components(separatedBy: .newlines) {
+                    let candidate = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard candidate.count >= 4 && candidate.count <= 48,
+                          PageNumberLabel.positiveNumber(candidate) == nil,
+                          let cleaned = Self.suggestedBookmarkTitle(from: candidate) else { continue }
+                    return cleaned
+                }
+            }
+        }
+        return fallback
+    }
+
+    public func navigateToHighlight(_ item: HighlightItem) {
+        activeHighlightID = item.id
+        if let point = item.anchorPoint {
+            bookmarkPulseTarget = (pageIndex: item.pageIndex, point: point)
+            bookmarkPulseToken &+= 1
+            navigateToPage(item.pageIndex, point: point)
+        } else {
+            bookmarkPulseTarget = nil
+            navigateToPage(item.pageIndex, point: nil)
+        }
+    }
+
+    public func navigateToBookmark(_ bookmark: BookmarkItem) {
+        activeBookmarkID = bookmark.id
+        if let point = bookmark.destinationPoint {
+            bookmarkPulseTarget = (pageIndex: bookmark.pageIndex, point: point)
+            bookmarkPulseToken &+= 1
+            navigateToPage(bookmark.pageIndex, point: point)
+        } else {
+            bookmarkPulseTarget = nil
+            navigateToPage(bookmark.pageIndex, point: nil)
+        }
+    }
+
+    public func flashBookmarkIndicator(pageIndex: Int, point: CGPoint) {
+        bookmarkPulseTarget = (pageIndex: pageIndex, point: point)
+        bookmarkPulseToken &+= 1
+    }
+
+    public static func suggestedBookmarkTitle(from rawText: String?) -> String? {
+        guard let rawText else { return nil }
+        let normalized = PDFTextCleanup.normalize(rawText)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalized.count >= 2 else { return nil }
+        if normalized.count <= 36 { return normalized }
+        return String(normalized.prefix(36)).trimmingCharacters(in: .whitespacesAndNewlines) + "…"
     }
 
     func navigateSecondaryPane(to index: Int) {

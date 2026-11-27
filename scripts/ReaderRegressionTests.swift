@@ -2612,27 +2612,84 @@ struct ReaderRegressionTests {
 
             // 6. Outline filtering helper, internal link jump-back history, DocumentMetadataSnapshot, and page rotation persistence
             let childSection = PDFOutlineNode(title: "1.2 Methodology", pageIndex: 4, point: nil, children: [])
-            let parentChapter = PDFOutlineNode(title: "1 Introduction", pageIndex: 1, point: nil, children: [childSection])
-            let appendixChapter = PDFOutlineNode(title: "Appendix A", pageIndex: 12, point: nil, children: [])
-            let sampleNodes = [parentChapter, appendixChapter]
+            let childResults = PDFOutlineNode(title: "1.4 Results & Virtualization", pageIndex: 13, point: nil, children: [])
+            let parentChapter = PDFOutlineNode(title: "1 Introduction", pageIndex: 0, point: nil, children: [childSection, childResults])
+            let relatedChapter = PDFOutlineNode(title: "II. Related Work", pageIndex: 3, point: nil, children: [])
+            let deviceChild = PDFOutlineNode(title: "A. Hardware Building Blocks", pageIndex: 3, point: nil, children: [])
+            let deviceChapter = PDFOutlineNode(title: "III. Terahertz Device Technologies", pageIndex: 3, point: nil, children: [deviceChild])
+            let discussionChild = PDFOutlineNode(title: "4.1 Experimental Setup", pageIndex: 23, point: nil, children: [])
+            let discussionChapter = PDFOutlineNode(title: "4. Discussion", pageIndex: 22, point: nil, children: [discussionChild])
+            let appendixChapter = PDFOutlineNode(title: "VII. Appendix A", pageIndex: 13, point: nil, children: [])
+            let sampleNodes = [parentChapter, relatedChapter, deviceChapter, discussionChapter, appendixChapter]
+
             let filteredByChild = PDFOutlinePanel.filteredRows(
                 nodes: sampleNodes,
                 query: "method",
-                expandedIDs: [],
-                pageLabel: { "\($0 + 1)" }
+                expandedIDs: []
             )
             check(filteredByChild.map(\.node.id) == [parentChapter.id, childSection.id]
                   && filteredByChild.map(\.level) == [0, 1],
                   "outline filter reveals collapsed parent chapters containing matching subsections")
-            let filteredByPage = PDFOutlinePanel.filteredRows(
+
+            let filteredByNumeric4 = PDFOutlinePanel.filteredRows(
                 nodes: sampleNodes,
-                query: "13",
-                expandedIDs: [],
-                pageLabel: { "\($0 + 1)" }
+                query: "4",
+                expandedIDs: []
             )
-            check(filteredByPage.map(\.node.id) == [appendixChapter.id],
-                  "outline filter matches display page numbers")
-            check(PDFOutlinePanel.filteredRows(nodes: sampleNodes, query: "nonexistent", expandedIDs: [], pageLabel: { "\($0 + 1)" }).isEmpty,
+            check(filteredByNumeric4.map(\.node.id) == [discussionChapter.id, discussionChild.id],
+                  "outline filter matches section number 4 without false-matching page 4/14/24 or 1.4")
+
+            let filteredByRomanII = PDFOutlinePanel.filteredRows(
+                nodes: sampleNodes,
+                query: "II",
+                expandedIDs: []
+            )
+            check(filteredByRomanII.map(\.node.id) == [relatedChapter.id],
+                  "outline filter matches Roman numeral II strictly without matching III or VII")
+
+            let filteredByPrefixVi = PDFOutlinePanel.filteredRows(
+                nodes: sampleNodes,
+                query: "vi",
+                expandedIDs: []
+            )
+            check(filteredByPrefixVi.map(\.node.id) == [parentChapter.id, childResults.id],
+                  "outline filter still allows normal word-prefix matches like vi -> Virtualization")
+
+            let filteredMultiToken = PDFOutlinePanel.filteredRows(
+                nodes: sampleNodes,
+                query: "1 method",
+                expandedIDs: []
+            )
+            check(filteredMultiToken.map(\.node.id) == [parentChapter.id, childSection.id],
+                  "outline filter combines ancestor and subsection tokens cleanly")
+
+            let matchedParentClosed = PDFOutlinePanel.filteredRows(
+                nodes: sampleNodes,
+                query: "terahertz",
+                expandedIDs: [deviceChapter.id]
+            )
+            check(matchedParentClosed.map(\.node.id) == [deviceChapter.id],
+                  "outline filter does not dump non-matching children of a matched parent by default")
+
+            let matchedParentExpanded = PDFOutlinePanel.filteredRows(
+                nodes: sampleNodes,
+                query: "terahertz",
+                expandedIDs: [],
+                manuallyExpandedInFilter: [deviceChapter.id]
+            )
+            check(matchedParentExpanded.map(\.node.id) == [deviceChapter.id, deviceChild.id],
+                  "outline filter allows manually expanding children of a matched parent")
+
+            let matchedChildCollapsed = PDFOutlinePanel.filteredRows(
+                nodes: sampleNodes,
+                query: "method",
+                expandedIDs: [],
+                manuallyCollapsedInFilter: [parentChapter.id]
+            )
+            check(matchedChildCollapsed.map(\.node.id) == [parentChapter.id],
+                  "outline filter allows manually collapsing an auto-expanded ancestor")
+
+            check(PDFOutlinePanel.filteredRows(nodes: sampleNodes, query: "nonexistent", expandedIDs: []).isEmpty,
                   "outline filter returns empty array when no sections match")
 
             let navURL = try fixture("NavHistory", mixedNumbers: true)
@@ -2805,6 +2862,225 @@ struct ReaderRegressionTests {
                 }
             } else {
                 check(false, "reopening rotated PDF restores saved page rotations")
+            }
+
+            // 7. Precise in-page bookmarks, bookmark renaming, deduplication, and text highlights
+            let bmURL = try fixture("BookmarksAndHighlights")
+            let bmStore = freshStore()
+            let bmTab = bmStore.openDocument(at: bmURL, interactive: false)!
+            let bmDocID = bmTab.documentID
+            bmTab.undoManager.groupsByEvent = false
+
+            let upperPoint = CGPoint(x: 72, y: 640)
+            let lowerPoint = CGPoint(x: 72, y: 180)
+            bmTab.undoManager.beginUndoGrouping()
+            let lowerBM = bmStore.addBookmark(pageIndex: 1, title: "Lower Equation", point: lowerPoint, in: bmDocID, undoManager: bmTab.undoManager)
+            bmTab.undoManager.endUndoGrouping()
+            bmTab.undoManager.beginUndoGrouping()
+            let upperBM = bmStore.addBookmark(pageIndex: 1, title: "Upper Theorem", point: upperPoint, in: bmDocID, undoManager: bmTab.undoManager)
+            bmTab.undoManager.endUndoGrouping()
+            bmTab.undoManager.beginUndoGrouping()
+            let wholePageBM = bmStore.addBookmark(pageIndex: 1, title: "Whole Page", point: nil, in: bmDocID, undoManager: bmTab.undoManager)
+            bmTab.undoManager.endUndoGrouping()
+
+            let pageOneBMs = bmStore.bookmarks(for: bmDocID).filter { $0.pageIndex == 1 }
+            check(pageOneBMs.map(\.id) == [wholePageBM.id, upperBM.id, lowerBM.id],
+                  "bookmarks sort whole-page first then top-to-bottom within a page")
+            check(bmTab.bookmarkRegionLabel(for: upperBM) == "Top"
+                  && bmTab.bookmarkRegionLabel(for: lowerBM) == "Bottom",
+                  "bookmarkRegionLabel classifies vertical page regions cleanly")
+
+            bmTab.undoManager.beginUndoGrouping()
+            bmStore.renameBookmark(id: upperBM.id, newTitle: "Renamed Theorem", in: bmDocID, undoManager: bmTab.undoManager)
+            bmTab.undoManager.endUndoGrouping()
+            check(bmStore.bookmarks(for: bmDocID).first(where: { $0.id == upperBM.id })?.title == "Renamed Theorem"
+                  && bmTab.undoManager.undoActionName == "Rename Bookmark",
+                  "renameBookmark updates title and records Undo action name")
+            bmTab.undoManager.undo()
+            check(bmStore.bookmarks(for: bmDocID).first(where: { $0.id == upperBM.id })?.title == "Upper Theorem",
+                  "undoing renameBookmark restores original title")
+            bmTab.undoManager.redo()
+            check(bmStore.bookmarks(for: bmDocID).first(where: { $0.id == upperBM.id })?.title == "Renamed Theorem",
+                  "redoing renameBookmark reapplies new title")
+
+            bmTab.navigateToBookmark(lowerBM)
+            check(bmTab.currentPageIndex == 1
+                  && bmTab.activeBookmarkID == lowerBM.id
+                  && bmTab.bookmarkPulseTarget?.point == lowerPoint,
+                  "navigateToBookmark jumps to page, selects bookmark, and pulses destination point")
+
+            let dupSpot1 = bmStore.addBookmark(pageIndex: 1, title: "Dup Spot", point: CGPoint(x: 72, y: 180), in: bmDocID)
+            let dupSpot2 = bmStore.addBookmark(pageIndex: 1, title: "Should Deduplicate", point: CGPoint(x: 72, y: 196), in: bmDocID)
+            check(dupSpot1.id == lowerBM.id && dupSpot2.id == lowerBM.id,
+                  "addBookmark deduplicates repeated adds near the same in-page spot")
+            let dupWhole = bmStore.addBookmark(pageIndex: 1, title: "Duplicate Whole", point: nil, in: bmDocID)
+            check(dupWhole.id == wholePageBM.id,
+                  "addBookmark deduplicates repeated whole-page bookmarks on the same page")
+
+            bmTab.undoManager.beginUndoGrouping()
+            bmStore.toggleBookmark(pageIndex: 1, in: bmDocID, undoManager: bmTab.undoManager)
+            bmTab.undoManager.endUndoGrouping()
+            check(bmStore.bookmarks(for: bmDocID).filter { $0.pageIndex == 1 }.isEmpty,
+                  "toggleBookmark clears all bookmarks on the page in one click")
+
+            // Text Highlights: creation, sorting, deduplication, navigation, color Undo/Redo, deletion, persistence & rename migration
+            let hlSourceURL = try fixture("HighlightSource")
+            let hlStore = freshStore()
+            let hlTab = hlStore.openDocument(at: hlSourceURL, interactive: false)!
+            let hlDocID = hlTab.documentID
+            hlTab.undoManager.groupsByEvent = false
+
+            hlTab.undoManager.beginUndoGrouping()
+            let addedHLs = hlStore.addHighlights(
+                drafts: [
+                    (pageIndex: 1, text: "Lower   highlighted sentence", rects: [CGRect(x: 72, y: 200, width: 180, height: 14)]),
+                    (pageIndex: 1, text: "Upper\nimportant clause", rects: [CGRect(x: 72, y: 620, width: 200, height: 14)])
+                ],
+                color: .green,
+                in: hlDocID,
+                undoManager: hlTab.undoManager
+            )
+            hlTab.undoManager.endUndoGrouping()
+            let pageOneHLs = hlStore.highlights(for: hlDocID).filter { $0.pageIndex == 1 }
+            check(addedHLs.count == 2
+                  && pageOneHLs.map(\.text) == ["Upper important clause", "Lower highlighted sentence"],
+                  "addHighlights normalizes whitespace and sorts top-to-bottom on a page")
+
+            let upperHLID = pageOneHLs[0].id
+            hlTab.navigateToHighlight(pageOneHLs[0])
+            check(hlTab.currentPageIndex == 1 && hlTab.activeHighlightID == upperHLID,
+                  "navigateToHighlight activates and jumps to highlight")
+
+            hlTab.undoManager.beginUndoGrouping()
+            hlStore.updateHighlightColor(id: upperHLID, color: .pink, in: hlDocID, undoManager: hlTab.undoManager)
+            hlTab.undoManager.endUndoGrouping()
+            check(hlStore.highlights(for: hlDocID).first(where: { $0.id == upperHLID })?.color == .pink
+                  && hlTab.undoManager.undoActionName == "Change Highlight Color",
+                  "updateHighlightColor updates color and records Undo action name")
+
+            hlTab.undoManager.undo()
+            check(hlStore.highlights(for: hlDocID).first(where: { $0.id == upperHLID })?.color == .green,
+                  "undoing updateHighlightColor restores previous color")
+            hlTab.undoManager.redo()
+            check(hlStore.highlights(for: hlDocID).first(where: { $0.id == upperHLID })?.color == .pink,
+                  "redoing updateHighlightColor reapplies new color")
+
+            hlTab.undoManager.beginUndoGrouping()
+            hlStore.removeHighlight(id: upperHLID, in: hlDocID, undoManager: hlTab.undoManager)
+            hlTab.undoManager.endUndoGrouping()
+            check(hlStore.highlights(for: hlDocID).count == 1,
+                  "removeHighlight deletes target highlight")
+            hlTab.undoManager.undo()
+            check(hlStore.highlights(for: hlDocID).count == 2,
+                  "undoing removeHighlight restores deleted highlight")
+
+            let reloadedHLStore = AppStore()
+            check(reloadedHLStore.highlights(for: hlDocID).count == 2
+                  && reloadedHLStore.defaultHighlightColor == .pink,
+                  "highlights and defaultHighlightColor persist across AppStore reloads")
+
+            let hlRenamedURL = root.appendingPathComponent("HighlightAfterRename.pdf")
+            try FileManager.default.moveItem(at: hlSourceURL, to: hlRenamedURL)
+            hlStore.pruneMissingDocuments()
+            let migratedID = DocumentID(url: hlRenamedURL)
+            check(hlStore.highlights(for: migratedID).count == 2
+                  && hlStore.highlights(for: hlDocID).isEmpty,
+                  "highlights follow Finder file renames via pruneMissingDocuments")
+
+            // Notes CRUD, Undo/Redo, and Persistence on Highlights
+            let targetHLID = hlStore.highlights(for: migratedID)[0].id
+            let multilineNote = "1. Key method takeaway\n2. Preserves line breaks"
+            hlTab.undoManager.beginUndoGrouping()
+            hlStore.updateHighlightNote(id: targetHLID, note: multilineNote, in: migratedID, undoManager: hlTab.undoManager)
+            hlTab.undoManager.endUndoGrouping()
+            check(hlStore.highlights(for: migratedID).first(where: { $0.id == targetHLID })?.note == multilineNote
+                  && hlTab.undoManager.undoActionName == "Add Note",
+                  "updateHighlightNote attaches multi-line note to highlight and records Undo action")
+
+            hlTab.undoManager.undo()
+            check(hlStore.highlights(for: migratedID).first(where: { $0.id == targetHLID })?.note == nil,
+                  "undoing updateHighlightNote removes attached note")
+            hlTab.undoManager.redo()
+            check(hlStore.highlights(for: migratedID).first(where: { $0.id == targetHLID })?.note == multilineNote,
+                  "redoing updateHighlightNote restores multi-line note")
+
+            let reloadedNotesStore = AppStore()
+            check(reloadedNotesStore.highlights(for: migratedID).first(where: { $0.id == targetHLID })?.note == multilineNote,
+                  "multi-line highlight notes persist across AppStore reloads")
+
+            // Clearing note on highlight preserves highlight
+            hlTab.undoManager.beginUndoGrouping()
+            hlStore.updateHighlightNote(id: targetHLID, note: "   ", in: migratedID, undoManager: hlTab.undoManager)
+            hlTab.undoManager.endUndoGrouping()
+            check(hlStore.highlights(for: migratedID).contains(where: { $0.id == targetHLID && $0.note == nil }),
+                  "clearing note on highlight preserves the highlight itself")
+
+            check(ReaderSidebarTab.allCases == [.thumbnails, .outline, .bookmarks],
+                  "ReaderSidebarTab keeps consolidated 3-tab structure")
+
+            // arXiv rotated left-margin stamp exclusion
+            let arxivPDFData: Data = {
+                var box = CGRect(x: 0, y: 0, width: 612, height: 792)
+                let data = NSMutableData()
+                guard let consumer = CGDataConsumer(data: data as CFMutableData),
+                      let ctx = CGContext(consumer: consumer, mediaBox: &box, nil) else {
+                    return Data()
+                }
+                ctx.beginPDFPage(nil)
+                let stampAttr = NSAttributedString(
+                    string: "arXiv:2506.15841v2 [cs.CL] 17 Jul 2025",
+                    attributes: [.font: NSFont.systemFont(ofSize: 16)]
+                )
+                ctx.saveGState()
+                ctx.translateBy(x: 42, y: 180)
+                ctx.rotate(by: .pi / 2)
+                let stampLine = CTLineCreateWithAttributedString(stampAttr)
+                ctx.textPosition = .zero
+                CTLineDraw(stampLine, ctx)
+                ctx.restoreGState()
+
+                for (idx, bodyText) in [
+                    "Modern language agents operate across long horizons.",
+                    "Vertical margin stamps must never stretch highlights."
+                ].enumerated() {
+                    let bodyAttr = NSAttributedString(
+                        string: bodyText,
+                        attributes: [.font: NSFont.systemFont(ofSize: 12)]
+                    )
+                    let bodyLine = CTLineCreateWithAttributedString(bodyAttr)
+                    ctx.textPosition = CGPoint(x: 150, y: 500 - CGFloat(idx) * 20)
+                    CTLineDraw(bodyLine, ctx)
+                }
+                ctx.endPDFPage()
+                ctx.closePDF()
+                return data as Data
+            }()
+            if let arxivDoc = PDFDocument(data: arxivPDFData), let arxivPage = arxivDoc.page(at: 0) {
+                let geom = NativePDFPageGeometry.geometry(for: arxivPage)
+                let leakedMarginGlyphs = geom.rows.flatMap { $0.glyphs }.filter { $0.bounds.maxX < 90 }
+                check(leakedMarginGlyphs.isEmpty && !geom.excludedIndices.isEmpty && geom.needsDirectSelection,
+                      "NativePDFPageGeometry excludes rotated vertical left-margin stamp glyphs from rows (leaked=\(leakedMarginGlyphs.count))")
+                let startPt = CGPoint(x: 155, y: 504)
+                let endPt = CGPoint(x: 430, y: 484)
+                let rawSel = arxivPage.selection(from: startPt, to: endPt) ?? PDFSelection(document: arxivDoc)
+                if let repaired = NativePDFSelection.corrected(
+                    rawSel,
+                    in: arxivDoc,
+                    from: arxivPage,
+                    at: startPt,
+                    to: arxivPage,
+                    at: endPt,
+                    force: true
+                ) {
+                    let spansLeftMargin = repaired.highlights.contains { $0.rect.minX < 90 }
+                    let leakedStampText = (repaired.selection.string ?? "").contains("arXiv")
+                    check(!spansLeftMargin && !leakedStampText && !repaired.highlights.isEmpty,
+                          "NativePDFSelection.corrected keeps horizontal body highlights and text out of left vertical stamp margin")
+                } else {
+                    check(false, "NativePDFSelection.corrected failed on synthetic arXiv page")
+                }
+            } else {
+                check(false, "Could not create synthetic arXiv PDF page")
             }
         }
         if !failures.isEmpty {

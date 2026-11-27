@@ -313,6 +313,20 @@ final class OCRTextSelectionOverlay: NSView, NSMenuItemValidation {
         item.action != #selector(copy(_:)) || selectsText || pdfView?.currentSelection != nil
     }
 
+    func extractHighlightDrafts() -> [(pageIndex: Int, text: String, rects: [CGRect])] {
+        guard selectsText, selectedPage != nil, let doc = pdfView?.document else { return [] }
+        return selectedPages.compactMap { page in
+            guard let layout = self.text(for: page),
+                  let (start, end) = selectedRange(in: layout, on: page) else { return nil }
+            let idx = doc.index(for: page)
+            guard (0..<doc.pageCount).contains(idx) else { return nil }
+            let text = layout.selectedText(from: start, through: end).trimmingCharacters(in: .whitespacesAndNewlines)
+            let rects = layout.selectedBounds(from: start, through: end)
+            guard !text.isEmpty, !rects.isEmpty else { return nil }
+            return (pageIndex: idx, text: text, rects: rects)
+        }
+    }
+
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 53 { clear() }
         else { super.keyDown(with: event) }
@@ -324,6 +338,12 @@ final class OCRTextSelectionOverlay: NSView, NSMenuItemValidation {
         copy.target = self
         menu.addItem(copy)
         if let pdfView = pdfView as? ThemedPDFView {
+            let hlItems = pdfView.highlightSelectionMenuItems()
+            if !hlItems.isEmpty {
+                menu.addItem(.separator())
+                hlItems.forEach { menu.addItem($0) }
+            }
+            menu.addItem(.separator())
             menu.addItem(pdfView.copyPageImageMenuItem(for: event))
         }
         return menu

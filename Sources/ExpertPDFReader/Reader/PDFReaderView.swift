@@ -197,6 +197,15 @@ public struct PDFReaderView: View {
             onUpdateHighlightColor: { id, color in
                 store.updateHighlightColor(id: id, color: color, in: tab.documentID, undoManager: tab.undoManager)
             },
+            onUpdateHighlightNote: { id, note in
+                store.updateHighlightNote(id: id, note: note, in: tab.documentID, undoManager: tab.undoManager)
+            },
+            onSelectHighlight: { id in
+                tab.activeHighlightID = id
+            },
+            displayPageLabel: { pageIndex in
+                tab.displayPageNumber(at: pageIndex)
+            },
             onRemoveHighlight: { id in
                 store.removeHighlight(id: id, in: tab.documentID, undoManager: tab.undoManager)
             }
@@ -292,6 +301,23 @@ public struct PDFReaderView: View {
                     onUpdateHighlightColor: secondaryDocID.map { secID in
                         { id, color in
                             store.updateHighlightColor(id: id, color: color, in: secID, undoManager: tab.undoManager)
+                        }
+                    },
+                    onUpdateHighlightNote: secondaryDocID.map { secID in
+                        { id, note in
+                            store.updateHighlightNote(id: id, note: note, in: secID, undoManager: tab.undoManager)
+                        }
+                    },
+                    onSelectHighlight: secondaryDocID.map { secID in
+                        { id in
+                            if secID == tab.documentID {
+                                tab.activeHighlightID = id
+                            }
+                        }
+                    },
+                    displayPageLabel: secondaryDocID.map { secID in
+                        { pageIndex in
+                            secID == tab.documentID ? tab.displayPageNumber(at: pageIndex) : "\(pageIndex + 1)"
                         }
                     },
                     onRemoveHighlight: secondaryDocID.map { secID in

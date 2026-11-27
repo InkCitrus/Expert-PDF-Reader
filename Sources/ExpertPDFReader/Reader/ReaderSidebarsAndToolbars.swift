@@ -1105,9 +1105,10 @@ private struct BookmarkInlineRenameField: NSViewRepresentable {
 
 // MARK: - HighlightRowView + Animated Highlight & Note Detail Popover
 
-private final class NoteDraftBox: ObservableObject {
+final class NoteDraftBox: ObservableObject {
     @Published var text: String
     var didCommitExplicitly = false
+    var didDelete = false
 
     init(initialText: String) {
         self.text = initialText
@@ -1296,19 +1297,19 @@ private struct PopoverNoteEditor: NSViewRepresentable {
     }
 }
 
-private struct HighlightDetailPopoverView: View {
+struct HighlightDetailPopoverView: View {
     let item: HighlightItem
     let pageLabel: String
     let isDark: Bool
+    @ObservedObject var draft: NoteDraftBox
     @Binding var isPresented: Bool
     let onCopyText: () -> Void
     let onChangeColor: (HighlightColor) -> Void
     let onSaveNote: (String?) -> Void
     let onDelete: () -> Void
 
-    @StateObject private var draft: NoteDraftBox
+    @State private var selectedColor: HighlightColor
     @State private var noteEditorHeight: CGFloat = 84
-    @State private var didDelete = false
     @State private var didCopy = false
     @Environment(\.appAccentColor) private var accent
 
@@ -1316,6 +1317,7 @@ private struct HighlightDetailPopoverView: View {
         item: HighlightItem,
         pageLabel: String,
         isDark: Bool,
+        draft: NoteDraftBox,
         isPresented: Binding<Bool>,
         onCopyText: @escaping () -> Void,
         onChangeColor: @escaping (HighlightColor) -> Void,
@@ -1325,16 +1327,17 @@ private struct HighlightDetailPopoverView: View {
         self.item = item
         self.pageLabel = pageLabel
         self.isDark = isDark
+        self.draft = draft
         self._isPresented = isPresented
         self.onCopyText = onCopyText
         self.onChangeColor = onChangeColor
         self.onSaveNote = onSaveNote
         self.onDelete = onDelete
-        self._draft = StateObject(wrappedValue: NoteDraftBox(initialText: item.note ?? ""))
+        self._selectedColor = State(initialValue: item.color)
     }
 
     private func commitAndDismiss() {
-        guard !didDelete, !draft.didCommitExplicitly else {
+        guard !draft.didDelete, !draft.didCommitExplicitly else {
             isPresented = false
             return
         }
@@ -1349,6 +1352,7 @@ private struct HighlightDetailPopoverView: View {
                 HStack(spacing: 6) {
                     ForEach(HighlightColor.allCases) { color in
                         Button {
+                            selectedColor = color
                             onChangeColor(color)
                         } label: {
                             Circle()
@@ -1357,7 +1361,7 @@ private struct HighlightDetailPopoverView: View {
                                 .overlay(
                                     Circle()
                                         .strokeBorder(
-                                            item.color == color ? AppPalette.labelPrimary(isDark) : Color.clear,
+                                            selectedColor == color ? AppPalette.labelPrimary(isDark) : Color.clear,
                                             lineWidth: 1.5
                                         )
                                         .frame(width: 16, height: 16)
@@ -1394,7 +1398,7 @@ private struct HighlightDetailPopoverView: View {
                 .help(L10n.tr("复制高亮文字", "Copy Highlighted Text"))
 
                 Button {
-                    didDelete = true
+                    draft.didDelete = true
                     isPresented = false
                     onDelete()
                 } label: {
@@ -1410,7 +1414,7 @@ private struct HighlightDetailPopoverView: View {
 
             HStack(alignment: .top, spacing: 8) {
                 RoundedRectangle(cornerRadius: 1.25, style: .continuous)
-                    .fill(item.color.color(isDark: isDark).opacity(0.75))
+                    .fill(selectedColor.color(isDark: isDark).opacity(0.75))
                     .frame(width: 2.5)
 
                 let quoteText = Text(item.text)
@@ -1449,11 +1453,63 @@ private struct HighlightDetailPopoverView: View {
         }
         .padding(14)
         .frame(width: 340)
+        .onChange(of: item.color) { _, newColor in
+            selectedColor = newColor
+        }
         .onDisappear {
-            if !didDelete && !draft.didCommitExplicitly {
+            if !draft.didDelete && !draft.didCommitExplicitly {
+                draft.didCommitExplicitly = true
                 onSaveNote(draft.text)
             }
         }
+    }
+}
+
+private struct SidebarHighlightPopoverContainer: View {
+    let item: HighlightItem
+    let pageLabel: String
+    let isDark: Bool
+    @Binding var isPresented: Bool
+    let onCopyText: () -> Void
+    let onChangeColor: (HighlightColor) -> Void
+    let onSaveNote: (String?) -> Void
+    let onDelete: () -> Void
+
+    @StateObject private var draft: NoteDraftBox
+
+    init(
+        item: HighlightItem,
+        pageLabel: String,
+        isDark: Bool,
+        isPresented: Binding<Bool>,
+        onCopyText: @escaping () -> Void,
+        onChangeColor: @escaping (HighlightColor) -> Void,
+        onSaveNote: @escaping (String?) -> Void,
+        onDelete: @escaping () -> Void
+    ) {
+        self.item = item
+        self.pageLabel = pageLabel
+        self.isDark = isDark
+        self._isPresented = isPresented
+        self.onCopyText = onCopyText
+        self.onChangeColor = onChangeColor
+        self.onSaveNote = onSaveNote
+        self.onDelete = onDelete
+        self._draft = StateObject(wrappedValue: NoteDraftBox(initialText: item.note ?? ""))
+    }
+
+    var body: some View {
+        HighlightDetailPopoverView(
+            item: item,
+            pageLabel: pageLabel,
+            isDark: isDark,
+            draft: draft,
+            isPresented: $isPresented,
+            onCopyText: onCopyText,
+            onChangeColor: onChangeColor,
+            onSaveNote: onSaveNote,
+            onDelete: onDelete
+        )
     }
 }
 
@@ -1571,7 +1627,7 @@ struct HighlightRowView: View {
         .onTapGesture(perform: onSelectAndPresent)
         .onHover { isHovered = $0 }
         .popover(isPresented: $isPopoverPresented, attachmentAnchor: .rect(.bounds), arrowEdge: .trailing) {
-            HighlightDetailPopoverView(
+            SidebarHighlightPopoverContainer(
                 item: item,
                 pageLabel: pageLabel,
                 isDark: isDark,

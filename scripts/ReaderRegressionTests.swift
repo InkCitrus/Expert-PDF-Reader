@@ -2989,23 +2989,24 @@ struct ReaderRegressionTests {
 
             // Notes CRUD, Undo/Redo, and Persistence on Highlights
             let targetHLID = hlStore.highlights(for: migratedID)[0].id
+            let multilineNote = "1. Key method takeaway\n2. Preserves line breaks"
             hlTab.undoManager.beginUndoGrouping()
-            hlStore.updateHighlightNote(id: targetHLID, note: "Key method takeaway", in: migratedID, undoManager: hlTab.undoManager)
+            hlStore.updateHighlightNote(id: targetHLID, note: multilineNote, in: migratedID, undoManager: hlTab.undoManager)
             hlTab.undoManager.endUndoGrouping()
-            check(hlStore.highlights(for: migratedID).first(where: { $0.id == targetHLID })?.note == "Key method takeaway"
+            check(hlStore.highlights(for: migratedID).first(where: { $0.id == targetHLID })?.note == multilineNote
                   && hlTab.undoManager.undoActionName == "Add Note",
-                  "updateHighlightNote attaches note to highlight and records Undo action")
+                  "updateHighlightNote attaches multi-line note to highlight and records Undo action")
 
             hlTab.undoManager.undo()
             check(hlStore.highlights(for: migratedID).first(where: { $0.id == targetHLID })?.note == nil,
                   "undoing updateHighlightNote removes attached note")
             hlTab.undoManager.redo()
-            check(hlStore.highlights(for: migratedID).first(where: { $0.id == targetHLID })?.note == "Key method takeaway",
-                  "redoing updateHighlightNote restores attached note")
+            check(hlStore.highlights(for: migratedID).first(where: { $0.id == targetHLID })?.note == multilineNote,
+                  "redoing updateHighlightNote restores multi-line note")
 
             let reloadedNotesStore = AppStore()
-            check(reloadedNotesStore.highlights(for: migratedID).first(where: { $0.id == targetHLID })?.note == "Key method takeaway",
-                  "attached highlight notes persist across AppStore reloads")
+            check(reloadedNotesStore.highlights(for: migratedID).first(where: { $0.id == targetHLID })?.note == multilineNote,
+                  "multi-line highlight notes persist across AppStore reloads")
 
             // Clearing note on highlight preserves highlight
             hlTab.undoManager.beginUndoGrouping()

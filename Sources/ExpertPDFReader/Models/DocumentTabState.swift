@@ -474,7 +474,6 @@ public final class DocumentTabState: ObservableObject, Identifiable {
     /// Tracks the most recently clicked/created bookmark so multiple bookmarks on one page highlight accurately.
     @Published public var activeBookmarkID: UUID?
     /// Triggered when `+` is clicked on an already-bookmarked spot to open its inline rename field.
-    @Published public var pendingRenameBookmarkID: UUID?
     /// Bumped by Go › Highlight Selection (⌃⌘H) to highlight whatever text is selected on the active canvas.
     @Published public var highlightSelectionRequestToken: Int = 0
     /// Tracks the most recently clicked/created highlight for sidebar emphasis.

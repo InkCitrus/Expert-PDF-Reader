@@ -188,30 +188,7 @@ public struct ReaderLeftSidebarView: View {
                 }
             }
         case .bookmarks:
-            PanelHeaderIconButton(
-                icon: "plus",
-                tooltip: L10n.tr("为当前页添加书签 (⌘D)", "Add Bookmark for Current Page (⌘D)"),
-                isDark: isDark
-            ) {
-                let point = tab.currentBookmarkPoint(for: tab.currentPageIndex)
-                if let existing = store.nearbyBookmark(pageIndex: tab.currentPageIndex, point: point, tolerance: 48, in: tab.documentID) {
-                    tab.activeBookmarkID = existing.id
-                    tab.pendingRenameBookmarkID = existing.id
-                } else {
-                    let title = tab.smartBookmarkTitle(at: tab.currentPageIndex, point: point)
-                    let created = store.addBookmark(
-                        pageIndex: tab.currentPageIndex,
-                        title: title,
-                        point: point,
-                        in: tab.documentID,
-                        undoManager: tab.undoManager
-                    )
-                    tab.activeBookmarkID = created.id
-                    if let point {
-                        tab.flashBookmarkIndicator(pageIndex: tab.currentPageIndex, point: point)
-                    }
-                }
-            }
+            EmptyView()
         }
     }
 }
@@ -668,7 +645,7 @@ struct PDFBookmarksPanel: View {
     }
 
     @State private var editingBookmarkID: UUID?
-    @State private var editingHighlightNoteID: UUID?
+    @State private var popoverHighlightID: UUID?
 
     private func resolvedActiveBookmarkID(in items: [BookmarkItem]) -> UUID? {
         let samePage = items.filter { $0.pageIndex == tab.currentPageIndex }
@@ -730,12 +707,6 @@ struct PDFBookmarksPanel: View {
                 }
             }
         }
-        .onChange(of: tab.pendingRenameBookmarkID) { _, id in
-            guard let id else { return }
-            editingHighlightNoteID = nil
-            editingBookmarkID = id
-            tab.pendingRenameBookmarkID = nil
-        }
     }
 
     private func bookmarkRow(_ bm: BookmarkItem, isCurrent: Bool, showsRegionSubtitle: Bool) -> some View {
@@ -749,7 +720,7 @@ struct PDFBookmarksPanel: View {
             isDark: isDark,
             onSelect: { tab.navigateToBookmark(bm) },
             onBeginRename: {
-                editingHighlightNoteID = nil
+                popoverHighlightID = nil
                 editingBookmarkID = bm.id
             },
             onFinishRename: { newTitle in
@@ -771,13 +742,36 @@ struct PDFBookmarksPanel: View {
     }
 
     private func highlightRow(_ item: HighlightItem) -> some View {
-        HighlightRowView(
+        let isPresented = Binding<Bool>(
+            get: { popoverHighlightID == item.id },
+            set: { presented in
+                if presented {
+                    editingBookmarkID = nil
+                    popoverHighlightID = item.id
+                } else if popoverHighlightID == item.id {
+                    popoverHighlightID = nil
+                }
+            }
+        )
+        return HighlightRowView(
             item: item,
             pageLabel: tab.displayPageNumber(at: item.pageIndex),
             isCurrent: item.id == tab.activeHighlightID && item.pageIndex == tab.currentPageIndex,
-            isEditingNote: editingHighlightNoteID == item.id,
+            isPopoverPresented: isPresented,
             isDark: isDark,
             onSelect: { tab.navigateToHighlight(item) },
+            onSelectAndPresent: {
+                editingBookmarkID = nil
+                tab.navigateToHighlight(item)
+                if popoverHighlightID != nil && popoverHighlightID != item.id {
+                    popoverHighlightID = nil
+                    DispatchQueue.main.async {
+                        popoverHighlightID = item.id
+                    }
+                } else {
+                    popoverHighlightID = item.id
+                }
+            },
             onCopyText: {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(item.text, forType: .string)
@@ -790,23 +784,15 @@ struct PDFBookmarksPanel: View {
                     undoManager: tab.undoManager
                 )
             },
-            onBeginEditNote: {
-                editingBookmarkID = nil
-                editingHighlightNoteID = item.id
-            },
-            onFinishEditNote: { newNote in
-                editingHighlightNoteID = nil
-                if let newNote {
-                    store.updateHighlightNote(
-                        id: item.id,
-                        note: newNote,
-                        in: tab.documentID,
-                        undoManager: tab.undoManager
-                    )
-                }
+            onSaveNote: { newNote in
+                store.updateHighlightNote(
+                    id: item.id,
+                    note: newNote,
+                    in: tab.documentID,
+                    undoManager: tab.undoManager
+                )
             },
             onDeleteNote: {
-                if editingHighlightNoteID == item.id { editingHighlightNoteID = nil }
                 store.updateHighlightNote(
                     id: item.id,
                     note: nil,
@@ -815,7 +801,7 @@ struct PDFBookmarksPanel: View {
                 )
             },
             onDelete: {
-                if editingHighlightNoteID == item.id { editingHighlightNoteID = nil }
+                if popoverHighlightID == item.id { popoverHighlightID = nil }
                 store.removeHighlight(
                     id: item.id,
                     in: tab.documentID,
@@ -886,6 +872,12 @@ struct BookmarkRowView: View {
 
             if !isEditing {
                 ZStack(alignment: .trailing) {
+                    Text(pageLabel)
+                        .font(.system(size: 11, weight: isCurrent ? .semibold : .regular))
+                        .monospacedDigit()
+                        .foregroundColor(isCurrent ? AppPalette.labelSecondary(isDark) : AppPalette.labelTertiary(isDark))
+                        .opacity(isHovered ? 0 : 1)
+
                     if isHovered {
                         HStack(spacing: 2) {
                             SidebarHoverIconButton(
@@ -902,18 +894,12 @@ struct BookmarkRowView: View {
                             )
                         }
                         .transition(.opacity)
-                    } else {
-                        Text(pageLabel)
-                            .font(.system(size: 11, weight: isCurrent ? .semibold : .regular))
-                            .monospacedDigit()
-                            .foregroundColor(isCurrent ? AppPalette.labelSecondary(isDark) : AppPalette.labelTertiary(isDark))
-                            .transition(.opacity)
                     }
                 }
-                .frame(minWidth: 28, alignment: .trailing)
+                .frame(minWidth: 20, alignment: .trailing)
             }
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -929,7 +915,7 @@ struct BookmarkRowView: View {
                     .strokeBorder(AppPalette.sidebarRowSelectedBorder(isDark), lineWidth: 0.5)
             }
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 6)
         .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
         .animation(AppAnimation.micro, value: isHovered)
         .animation(AppAnimation.micro, value: isCurrent)
@@ -1117,19 +1103,371 @@ private struct BookmarkInlineRenameField: NSViewRepresentable {
     }
 }
 
-// MARK: - HighlightRowView (Minimalist Dot-Accented Highlight + Inline Note)
+// MARK: - HighlightRowView + Animated Highlight & Note Detail Popover
+
+private final class NoteDraftBox: ObservableObject {
+    @Published var text: String
+    var didCommitExplicitly = false
+
+    init(initialText: String) {
+        self.text = initialText
+    }
+}
+
+private struct PopoverNoteEditor: NSViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+    let textColor: Color
+    let placeholderColor: Color
+    let accentColor: Color
+    @Binding var measuredHeight: CGFloat
+    let onDone: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, measuredHeight: $measuredHeight, onDone: onDone)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+
+        let textView = FocusNoteTextView(frame: NSRect(x: 0, y: 0, width: 312, height: 84))
+        textView.string = text
+        textView.font = .systemFont(ofSize: 12)
+        textView.textColor = NSColor(textColor)
+        textView.insertionPointColor = NSColor(accentColor)
+        textView.drawsBackground = false
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.allowsUndo = true
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.textContainerInset = NSSize(width: 0, height: 4)
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.widthTracksTextView = true
+        textView.placeholderText = placeholder
+        textView.placeholderTextColor = NSColor(placeholderColor)
+        textView.delegate = context.coordinator
+        textView.onHeightChange = { [weak coordinator = context.coordinator, weak scrollView] height in
+            scrollView?.hasVerticalScroller = height > 160
+            coordinator?.updateMeasuredHeight(min(max(height, 84), 160))
+        }
+        textView.onCommandCommit = { [weak coordinator = context.coordinator] in
+            coordinator?.commitAndClose()
+        }
+
+        scrollView.documentView = textView
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        context.coordinator.text = $text
+        context.coordinator.measuredHeight = $measuredHeight
+        context.coordinator.onDone = onDone
+        if let textView = scrollView.documentView as? FocusNoteTextView {
+            if textView.string != text {
+                textView.string = text
+            }
+            textView.textColor = NSColor(textColor)
+            textView.insertionPointColor = NSColor(accentColor)
+            textView.placeholderTextColor = NSColor(placeholderColor)
+            textView.recalculateHeight()
+        }
+    }
+
+    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+        if let textView = scrollView.documentView as? FocusNoteTextView {
+            textView.delegate = nil
+            if let window = textView.window, window.firstResponder === textView {
+                window.makeFirstResponder(nil)
+            }
+        }
+    }
+
+    final class FocusNoteTextView: NSTextView {
+        var placeholderText = ""
+        var placeholderTextColor = NSColor.tertiaryLabelColor
+        var onHeightChange: ((CGFloat) -> Void)?
+        var onCommandCommit: (() -> Void)?
+        private var lastMeasuredHeight: CGFloat = 0
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window else { return }
+            DispatchQueue.main.async { [weak self, weak window] in
+                guard let self, let window, self.window === window else { return }
+                window.makeFirstResponder(self)
+                let len = (self.string as NSString).length
+                self.setSelectedRange(NSRange(location: len, length: 0))
+                self.recalculateHeight()
+            }
+        }
+
+        override func layout() {
+            super.layout()
+            recalculateHeight()
+        }
+
+        func recalculateHeight() {
+            guard bounds.width > 10, let layoutManager, let textContainer else { return }
+            layoutManager.ensureLayout(for: textContainer)
+            let used = layoutManager.usedRect(for: textContainer)
+            let desired = ceil(max(used.height, 18) + textContainerInset.height * 2 + 2)
+            if abs(desired - lastMeasuredHeight) > 0.5 {
+                lastMeasuredHeight = desired
+                onHeightChange?(desired)
+            }
+        }
+
+        override func keyDown(with event: NSEvent) {
+            if (event.keyCode == 36 || event.keyCode == 76)
+                && event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
+                onCommandCommit?()
+                return
+            }
+            super.keyDown(with: event)
+        }
+
+        override func draw(_ dirtyRect: NSRect) {
+            super.draw(dirtyRect)
+            if string.isEmpty && !placeholderText.isEmpty {
+                let padding = textContainer?.lineFragmentPadding ?? 0
+                let origin = NSPoint(x: textContainerInset.width + padding, y: textContainerInset.height)
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: font ?? NSFont.systemFont(ofSize: 12),
+                    .foregroundColor: placeholderTextColor
+                ]
+                (placeholderText as NSString).draw(at: origin, withAttributes: attrs)
+            }
+        }
+    }
+
+    @MainActor final class Coordinator: NSObject, NSTextViewDelegate {
+        var text: Binding<String>
+        var measuredHeight: Binding<CGFloat>
+        var onDone: () -> Void
+
+        init(text: Binding<String>, measuredHeight: Binding<CGFloat>, onDone: @escaping () -> Void) {
+            self.text = text
+            self.measuredHeight = measuredHeight
+            self.onDone = onDone
+        }
+
+        func updateMeasuredHeight(_ height: CGFloat) {
+            guard abs(measuredHeight.wrappedValue - height) > 0.5 else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.measuredHeight.wrappedValue = height
+            }
+        }
+
+        func textDidChange(_ notification: Notification) {
+            if let textView = notification.object as? FocusNoteTextView {
+                text.wrappedValue = textView.string
+                textView.needsDisplay = true
+                textView.recalculateHeight()
+            }
+        }
+
+        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            guard !textView.hasMarkedText() else { return false }
+            if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+                commitAndClose()
+                return true
+            }
+            if commandSelector == #selector(NSResponder.insertNewline(_:)),
+               NSApp.currentEvent?.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) == true {
+                commitAndClose()
+                return true
+            }
+            return false
+        }
+
+        func commitAndClose() {
+            onDone()
+        }
+    }
+}
+
+private struct HighlightDetailPopoverView: View {
+    let item: HighlightItem
+    let pageLabel: String
+    let isDark: Bool
+    @Binding var isPresented: Bool
+    let onCopyText: () -> Void
+    let onChangeColor: (HighlightColor) -> Void
+    let onSaveNote: (String?) -> Void
+    let onDelete: () -> Void
+
+    @StateObject private var draft: NoteDraftBox
+    @State private var noteEditorHeight: CGFloat = 84
+    @State private var didDelete = false
+    @State private var didCopy = false
+    @Environment(\.appAccentColor) private var accent
+
+    init(
+        item: HighlightItem,
+        pageLabel: String,
+        isDark: Bool,
+        isPresented: Binding<Bool>,
+        onCopyText: @escaping () -> Void,
+        onChangeColor: @escaping (HighlightColor) -> Void,
+        onSaveNote: @escaping (String?) -> Void,
+        onDelete: @escaping () -> Void
+    ) {
+        self.item = item
+        self.pageLabel = pageLabel
+        self.isDark = isDark
+        self._isPresented = isPresented
+        self.onCopyText = onCopyText
+        self.onChangeColor = onChangeColor
+        self.onSaveNote = onSaveNote
+        self.onDelete = onDelete
+        self._draft = StateObject(wrappedValue: NoteDraftBox(initialText: item.note ?? ""))
+    }
+
+    private func commitAndDismiss() {
+        guard !didDelete, !draft.didCommitExplicitly else {
+            isPresented = false
+            return
+        }
+        draft.didCommitExplicitly = true
+        onSaveNote(draft.text)
+        isPresented = false
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            HStack(spacing: 6) {
+                HStack(spacing: 6) {
+                    ForEach(HighlightColor.allCases) { color in
+                        Button {
+                            onChangeColor(color)
+                        } label: {
+                            Circle()
+                                .fill(color.color(isDark: isDark))
+                                .frame(width: 12, height: 12)
+                                .overlay(
+                                    Circle()
+                                        .strokeBorder(
+                                            item.color == color ? AppPalette.labelPrimary(isDark) : Color.clear,
+                                            lineWidth: 1.5
+                                        )
+                                        .frame(width: 16, height: 16)
+                                )
+                                .frame(width: 16, height: 16)
+                                .contentShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .help(color.title)
+                    }
+                }
+
+                Spacer(minLength: 8)
+
+                Text(L10n.pageTitle(pageLabel))
+                    .font(.system(size: 11))
+                    .monospacedDigit()
+                    .foregroundColor(AppPalette.labelTertiary(isDark))
+
+                Button {
+                    onCopyText()
+                    didCopy = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) {
+                        didCopy = false
+                    }
+                } label: {
+                    Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(didCopy ? accent : AppPalette.labelSecondary(isDark))
+                        .frame(width: 20, height: 20)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(L10n.tr("复制高亮文字", "Copy Highlighted Text"))
+
+                Button {
+                    didDelete = true
+                    isPresented = false
+                    onDelete()
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.red.opacity(0.85))
+                        .frame(width: 20, height: 20)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(L10n.tr("移除高亮", "Remove Highlight"))
+            }
+
+            HStack(alignment: .top, spacing: 8) {
+                RoundedRectangle(cornerRadius: 1.25, style: .continuous)
+                    .fill(item.color.color(isDark: isDark).opacity(0.75))
+                    .frame(width: 2.5)
+
+                let quoteText = Text(item.text)
+                    .font(.system(size: 12.5))
+                    .foregroundColor(AppPalette.labelPrimary(isDark))
+                    .lineSpacing(3)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+
+                ViewThatFits(in: .vertical) {
+                    quoteText
+                    ScrollView {
+                        quoteText
+                    }
+                    .frame(height: 180)
+                }
+                .frame(maxHeight: 180, alignment: .top)
+            }
+
+            Rectangle()
+                .fill(AppPalette.panelSeparator(isDark))
+                .frame(height: 1)
+
+            PopoverNoteEditor(
+                text: $draft.text,
+                placeholder: L10n.tr("写下笔记…", "Write a note…"),
+                textColor: AppPalette.labelPrimary(isDark),
+                placeholderColor: AppPalette.labelQuaternary(isDark),
+                accentColor: accent,
+                measuredHeight: $noteEditorHeight,
+                onDone: commitAndDismiss
+            )
+            .frame(height: noteEditorHeight)
+        }
+        .padding(14)
+        .frame(width: 340)
+        .onDisappear {
+            if !didDelete && !draft.didCommitExplicitly {
+                onSaveNote(draft.text)
+            }
+        }
+    }
+}
 
 struct HighlightRowView: View {
     let item: HighlightItem
     let pageLabel: String
     let isCurrent: Bool
-    let isEditingNote: Bool
+    @Binding var isPopoverPresented: Bool
     let isDark: Bool
     let onSelect: () -> Void
+    let onSelectAndPresent: () -> Void
     let onCopyText: () -> Void
     let onChangeColor: (HighlightColor) -> Void
-    let onBeginEditNote: () -> Void
-    let onFinishEditNote: (String?) -> Void
+    let onSaveNote: (String?) -> Void
     let onDeleteNote: () -> Void
     let onDelete: () -> Void
 
@@ -1137,6 +1475,7 @@ struct HighlightRowView: View {
     @Environment(\.appAccentColor) private var accent
 
     var body: some View {
+        let isEmphasized = isCurrent || isPopoverPresented
         HStack(alignment: .top, spacing: 8) {
             Circle()
                 .fill(item.color.color(isDark: isDark))
@@ -1145,111 +1484,109 @@ struct HighlightRowView: View {
                 .frame(width: 12)
 
             VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .top, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(item.text)
-                        .font(.system(size: 12, weight: isCurrent ? .medium : .regular))
-                        .foregroundColor(isCurrent ? AppPalette.labelPrimary(isDark) : AppPalette.labelSecondary(isDark))
+                        .font(.system(size: 12, weight: isEmphasized ? .medium : .regular))
+                        .foregroundColor(isEmphasized ? AppPalette.labelPrimary(isDark) : AppPalette.labelSecondary(isDark))
                         .lineLimit(2)
                         .lineSpacing(1.5)
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                    if !isEditingNote {
-                        ZStack(alignment: .trailing) {
-                            if isHovered {
-                                HStack(spacing: 2) {
-                                    SidebarHoverIconButton(
-                                        icon: item.note != nil ? "pencil" : "text.bubble",
-                                        tooltip: item.note != nil ? L10n.tr("编辑笔记", "Edit Note") : L10n.tr("添加笔记", "Add Note"),
-                                        isDark: isDark,
-                                        action: onBeginEditNote
-                                    )
-                                    SidebarHoverIconButton(
-                                        icon: "xmark",
-                                        tooltip: L10n.tr("移除高亮", "Remove Highlight"),
-                                        isDark: isDark,
-                                        action: onDelete
-                                    )
-                                }
-                                .transition(.opacity)
-                            } else {
-                                Text(pageLabel)
-                                    .font(.system(size: 11, weight: isCurrent ? .semibold : .regular))
-                                    .monospacedDigit()
-                                    .foregroundColor(isCurrent ? AppPalette.labelSecondary(isDark) : AppPalette.labelTertiary(isDark))
-                                    .transition(.opacity)
-                            }
-                        }
-                        .frame(minWidth: 28, alignment: .trailing)
-                    }
+                    Text(pageLabel)
+                        .font(.system(size: 11, weight: isEmphasized ? .semibold : .regular))
+                        .monospacedDigit()
+                        .foregroundColor(isEmphasized ? AppPalette.labelSecondary(isDark) : AppPalette.labelTertiary(isDark))
+                        .opacity(isHovered ? 0 : 1)
+                        .frame(minWidth: 20, alignment: .trailing)
                 }
 
-                if isEditingNote {
-                    BookmarkInlineRenameField(
-                        initialText: item.note ?? "",
-                        placeholder: L10n.tr("写下笔记…", "Write a note…"),
-                        textColor: AppPalette.labelPrimary(isDark),
-                        accentColor: accent,
-                        onFinish: onFinishEditNote
-                    )
-                    .frame(height: 20)
-                    .padding(.horizontal, 6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 5, style: .continuous)
-                            .fill(AppPalette.toolbarControlFill(isDark))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 5, style: .continuous)
-                            .strokeBorder(accent.opacity(0.75), lineWidth: 0.75)
-                    )
-                } else if let note = item.note, !note.isEmpty {
-                    Text(note)
-                        .font(.system(size: 11.5))
-                        .foregroundColor(AppPalette.labelTertiary(isDark))
-                        .lineLimit(2)
-                        .lineSpacing(1.5)
-                        .multilineTextAlignment(.leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .onTapGesture(perform: onBeginEditNote)
+                if let note = item.note, !note.isEmpty {
+                    HStack(spacing: 6) {
+                        RoundedRectangle(cornerRadius: 1, style: .continuous)
+                            .fill(item.color.color(isDark: isDark).opacity(0.65))
+                            .frame(width: 2, height: 12)
+
+                        Text(note.replacingOccurrences(of: "\n", with: " "))
+                            .font(.system(size: 11))
+                            .foregroundColor(AppPalette.labelTertiary(isDark))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .fill(
-                    isCurrent
+                    isEmphasized
                         ? AppPalette.sidebarRowSelected(isDark)
                         : (isHovered ? AppPalette.sidebarRowHover(isDark) : Color.clear)
                 )
         )
         .overlay {
-            if isCurrent {
+            if isEmphasized {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .strokeBorder(AppPalette.sidebarRowSelectedBorder(isDark), lineWidth: 0.5)
             }
         }
-        .padding(.horizontal, 8)
-        .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-        .animation(AppAnimation.micro, value: isHovered)
-        .animation(AppAnimation.micro, value: isCurrent)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text("\(item.text), \(L10n.pageTitle(pageLabel))"))
-        .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : [.isButton])
-        .accessibilityAction(.default, onSelect)
-        .onTapGesture {
-            if !isEditingNote {
-                onSelect()
+        .overlay(alignment: .topTrailing) {
+            if isHovered {
+                HStack(spacing: 2) {
+                    SidebarHoverIconButton(
+                        icon: item.note != nil ? "pencil" : "text.bubble",
+                        tooltip: item.note != nil ? L10n.tr("编辑笔记", "Edit Note") : L10n.tr("添加笔记", "Add Note"),
+                        isDark: isDark,
+                        action: onSelectAndPresent
+                    )
+                    SidebarHoverIconButton(
+                        icon: "xmark",
+                        tooltip: L10n.tr("移除高亮", "Remove Highlight"),
+                        isDark: isDark,
+                        action: onDelete
+                    )
+                }
+                .padding(.horizontal, 2)
+                .background(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(isEmphasized ? AppPalette.sidebarRowSelected(isDark) : AppPalette.sidebarRowHover(isDark))
+                )
+                .padding(.top, 4)
+                .padding(.trailing, 5)
+                .transition(.opacity)
             }
         }
+        .padding(.horizontal, 6)
+        .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .animation(AppAnimation.micro, value: isHovered)
+        .animation(AppAnimation.micro, value: isEmphasized)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text("\(item.text), \(L10n.pageTitle(pageLabel))"))
+        .accessibilityAddTraits(isEmphasized ? [.isButton, .isSelected] : [.isButton])
+        .accessibilityAction(.default, onSelectAndPresent)
+        .onTapGesture(perform: onSelectAndPresent)
         .onHover { isHovered = $0 }
+        .popover(isPresented: $isPopoverPresented, attachmentAnchor: .rect(.bounds), arrowEdge: .trailing) {
+            HighlightDetailPopoverView(
+                item: item,
+                pageLabel: pageLabel,
+                isDark: isDark,
+                isPresented: $isPopoverPresented,
+                onCopyText: onCopyText,
+                onChangeColor: onChangeColor,
+                onSaveNote: onSaveNote,
+                onDelete: onDelete
+            )
+        }
         .contextMenu {
             Button(L10n.jumpToPage(pageLabel), action: onSelect)
             Button(
                 item.note != nil ? L10n.tr("编辑笔记", "Edit Note") : L10n.tr("添加笔记", "Add Note"),
-                action: onBeginEditNote
+                action: onSelectAndPresent
             )
             if item.note != nil {
                 Button(L10n.tr("删除笔记", "Delete Note"), action: onDeleteNote)

@@ -193,7 +193,6 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
         pdfView.installOCRSelection()
         pdfView.installPersistentHighlights()
         pdfView.installSearchHighlights()
-        pdfView.installBookmarkAnchor()
         pdfView.installFloatingSelectionBar()
         return pdfView
     }
@@ -390,7 +389,6 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                 } else {
                     if didBookmarkPulse, let target = bookmarkPulseTarget, target.pageIndex == currentPageIndex {
                         Coordinator.scroll(pdfView, toBookmarkPoint: target.point, on: targetPage)
-                        themedView?.bookmarkAnchorOverlay.flash(pageIndex: target.pageIndex, point: target.point, accent: accentColor)
                     } else if let point = pageJumpPoint {
                         // Outline entry: scroll to the exact destination, even within the current page
                         pdfView.go(to: PDFDestination(page: targetPage, at: point))
@@ -401,12 +399,9 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
                     DispatchQueue.main.async {
                         guard Coordinator.isLive(pdfView), coordinator.lastPageJumpToken == token else { return }
                         coordinator.reportReadingLocation(of: pdfView)
-                        themedView?.bookmarkAnchorOverlay.needsDisplay = true
                     }
                 }
             }
-        } else if didBookmarkPulse, let target = bookmarkPulseTarget {
-            themedView?.bookmarkAnchorOverlay.flash(pageIndex: target.pageIndex, point: target.point, accent: accentColor)
         } else if let current = pdfView.currentPage, Coordinator.isLive(pdfView) {
             let actualIdx = pdfDocument.index(for: current)
             if actualIdx != currentPageIndex && actualIdx >= 0 && actualIdx < pdfDocument.pageCount {
@@ -832,130 +827,6 @@ public struct PDFReaderCanvasView: NSViewRepresentable {
     }
 }
 
-/// Flashes a soft horizontal band at the jumped or newly dropped bookmark coordinate in page space.
-final class BookmarkAnchorOverlay: NSView {
-    weak var pdfView: PDFView?
-    private var target: (pageIndex: Int, point: CGPoint)?
-    private var accentColor: AppAccentColor = .blue
-    private var opacity: CGFloat = 0
-    nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
-    nonisolated(unsafe) private var holdWorkItem: DispatchWorkItem?
-    nonisolated(unsafe) private var fadeTimer: Timer?
-
-    init(pdfView: PDFView) {
-        self.pdfView = pdfView
-        super.init(frame: pdfView.bounds)
-        autoresizingMask = [.width, .height]
-        wantsLayer = false
-        if let scrollView = pdfView.subviews.compactMap({ $0 as? NSScrollView }).first {
-            scrollView.contentView.postsBoundsChangedNotifications = true
-            observers.append(NotificationCenter.default.addObserver(
-                forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main
-            ) { [weak self] _ in self?.needsDisplay = true })
-        }
-        for name in [Notification.Name.PDFViewScaleChanged, Notification.Name.PDFViewPageChanged] {
-            observers.append(NotificationCenter.default.addObserver(forName: name, object: pdfView, queue: .main) {
-                [weak self] _ in self?.needsDisplay = true
-            })
-        }
-    }
-
-    required init?(coder: NSCoder) { nil }
-
-    deinit {
-        holdWorkItem?.cancel()
-        fadeTimer?.invalidate()
-        observers.forEach(NotificationCenter.default.removeObserver)
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-    override var isOpaque: Bool { false }
-
-    func flash(pageIndex: Int, point: CGPoint, accent: AppAccentColor) {
-        holdWorkItem?.cancel()
-        holdWorkItem = nil
-        fadeTimer?.invalidate()
-        fadeTimer = nil
-        target = (pageIndex: pageIndex, point: point)
-        accentColor = accent
-        opacity = 1.0
-        needsDisplay = true
-
-        if AppAnimation.reduceMotion {
-            let clearItem = DispatchWorkItem { [weak self] in
-                self?.clearIndicator()
-            }
-            holdWorkItem = clearItem
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.85, execute: clearItem)
-            return
-        }
-
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.beginFadeOut()
-        }
-        holdWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55, execute: workItem)
-    }
-
-    private func beginFadeOut() {
-        fadeTimer?.invalidate()
-        let start = Date()
-        let duration: TimeInterval = 0.55
-        fadeTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                let progress = Date().timeIntervalSince(start) / duration
-                if progress >= 1.0 {
-                    self.clearIndicator()
-                } else {
-                    self.opacity = CGFloat(1.0 - progress)
-                    self.needsDisplay = true
-                }
-            }
-        }
-    }
-
-    private func clearIndicator() {
-        holdWorkItem?.cancel()
-        holdWorkItem = nil
-        fadeTimer?.invalidate()
-        fadeTimer = nil
-        opacity = 0
-        target = nil
-        needsDisplay = true
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        guard opacity > 0.005,
-              let target,
-              let pdfView,
-              let doc = pdfView.document,
-              let page = doc.page(at: target.pageIndex),
-              pdfView.visiblePages.contains(where: { $0 === page }) else { return }
-        let pageRect = pdfView.convert(page.bounds(for: pdfView.displayBox), from: page)
-        guard pageRect.width > 12, pageRect.height > 24 else { return }
-        let viewPoint = pdfView.convert(target.point, from: page)
-        let halfBand: CGFloat = 11
-        let clampedY = min(max(viewPoint.y, pageRect.minY + halfBand), pageRect.maxY - halfBand)
-        let bandRect = NSRect(
-            x: pageRect.minX + 6,
-            y: clampedY - halfBand,
-            width: max(0, pageRect.width - 12),
-            height: halfBand * 2
-        )
-        guard bandRect.intersects(dirtyRect) else { return }
-
-        let baseColor = accentColor.nsColor(isDark: (pdfView as? ThemedPDFView)?.isDarkUI == true)
-        let path = NSBezierPath(roundedRect: bandRect, xRadius: 5, yRadius: 5)
-        baseColor.withAlphaComponent(0.12 * opacity).setFill()
-        path.fill()
-        baseColor.withAlphaComponent(0.26 * opacity).setStroke()
-        path.lineWidth = 0.5
-        path.stroke()
-    }
-}
-
 /// Renders user-saved persistent sentence highlights across native and OCR pages without altering the PDF file.
 final class PDFHighlightOverlay: NSView {
     weak var pdfView: PDFView?
@@ -1363,7 +1234,6 @@ final class ThemedPDFView: PDFView {
     lazy var ocrSelectionOverlay = OCRTextSelectionOverlay(pdfView: self)
     lazy var pdfHighlightOverlay = PDFHighlightOverlay(pdfView: self)
     lazy var searchHighlightOverlay = OCRSearchHighlightOverlay(pdfView: self)
-    lazy var bookmarkAnchorOverlay = BookmarkAnchorOverlay(pdfView: self)
     lazy var floatingSelectionBar = SelectionFloatingBar(pdfView: self)
     lazy var nativeSelectionTracker = NativePDFSelectionTracker(pdfView: self)
 
@@ -1383,15 +1253,9 @@ final class ThemedPDFView: PDFView {
         }
     }
 
-    func installBookmarkAnchor() {
-        if bookmarkAnchorOverlay.superview == nil {
-            addSubview(bookmarkAnchorOverlay, positioned: .above, relativeTo: searchHighlightOverlay)
-        }
-    }
-
     func installFloatingSelectionBar() {
         if floatingSelectionBar.superview == nil {
-            addSubview(floatingSelectionBar, positioned: .above, relativeTo: bookmarkAnchorOverlay)
+            addSubview(floatingSelectionBar, positioned: .above, relativeTo: searchHighlightOverlay)
         }
     }
 

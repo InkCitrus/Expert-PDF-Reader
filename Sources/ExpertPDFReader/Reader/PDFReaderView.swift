@@ -179,7 +179,6 @@ public struct PDFReaderView: View {
                         undoManager: tab.undoManager
                     )
                     tab.activeBookmarkID = created.id
-                    tab.flashBookmarkIndicator(pageIndex: pageIndex, point: point)
                 }
             },
             nearbyBookmarkID: { pageIndex, point in

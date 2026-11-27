@@ -232,19 +232,10 @@ public struct HighlightItem: Identifiable, Codable, Equatable {
     public var rects: [HighlightRect]
     public var createdAt: Date = Date()
     public var note: String?
-    public var pageX: Double?
-    public var pageY: Double?
-
-    public var isStandaloneNote: Bool { rects.isEmpty }
 
     public var anchorPoint: CGPoint? {
-        if let first = rects.first?.cgRect {
-            return CGPoint(x: first.minX, y: first.midY)
-        }
-        if let pageX, let pageY {
-            return CGPoint(x: pageX, y: pageY)
-        }
-        return nil
+        guard let first = rects.first?.cgRect else { return nil }
+        return CGPoint(x: first.minX, y: first.midY)
     }
 
     public init(
@@ -252,9 +243,7 @@ public struct HighlightItem: Identifiable, Codable, Equatable {
         text: String,
         color: HighlightColor = .yellow,
         rects: [CGRect],
-        note: String? = nil,
-        pageX: Double? = nil,
-        pageY: Double? = nil
+        note: String? = nil
     ) {
         self.pageIndex = pageIndex
         self.text = text
@@ -262,8 +251,6 @@ public struct HighlightItem: Identifiable, Codable, Equatable {
         self.rects = rects.map(HighlightRect.init)
         let trimmed = note?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.note = (trimmed?.isEmpty == false) ? trimmed : nil
-        self.pageX = pageX
-        self.pageY = pageY
     }
 }
 
@@ -397,25 +384,22 @@ public enum ReaderSidebarTab: String, CaseIterable, Identifiable, Codable {
     case thumbnails = "thumbnails"
     case outline = "outline"
     case bookmarks = "bookmarks"
-    case annotations = "annotations"
 
     public var id: String { rawValue }
 
     public var title: String {
         switch self {
-        case .thumbnails:  return L10n.tr("缩略图", "Thumbnails")
-        case .outline:     return L10n.tr("大纲", "Outline")
-        case .bookmarks:   return L10n.tr("书签", "Bookmarks")
-        case .annotations: return L10n.tr("批注", "Annotations")
+        case .thumbnails: return L10n.tr("缩略图", "Thumbnails")
+        case .outline:    return L10n.tr("大纲", "Outline")
+        case .bookmarks:  return L10n.tr("书签", "Bookmarks")
         }
     }
 
     public var iconName: String {
         switch self {
-        case .thumbnails:  return "square.grid.2x2"
-        case .outline:     return "list.bullet.indent"
-        case .bookmarks:   return "bookmark"
-        case .annotations: return "highlighter"
+        case .thumbnails: return "square.grid.2x2"
+        case .outline:    return "list.bullet.indent"
+        case .bookmarks:  return "bookmark"
         }
     }
 }

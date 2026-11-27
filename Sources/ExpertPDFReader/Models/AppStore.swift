@@ -1589,11 +1589,11 @@ public final class AppStore: ObservableObject {
     private static func sortHighlights(_ list: inout [HighlightItem]) {
         list.sort { lhs, rhs in
             if lhs.pageIndex != rhs.pageIndex { return lhs.pageIndex < rhs.pageIndex }
-            let ly = lhs.rects.first?.y ?? lhs.pageY ?? 0
-            let ry = rhs.rects.first?.y ?? rhs.pageY ?? 0
+            let ly = lhs.rects.first?.y ?? 0
+            let ry = rhs.rects.first?.y ?? 0
             if abs(ly - ry) > 1 { return ly > ry }
-            let lx = lhs.rects.first?.x ?? lhs.pageX ?? 0
-            let rx = rhs.rects.first?.x ?? rhs.pageX ?? 0
+            let lx = lhs.rects.first?.x ?? 0
+            let rx = rhs.rects.first?.x ?? 0
             if abs(lx - rx) > 1 { return lx < rx }
             return lhs.createdAt < rhs.createdAt
         }
@@ -1654,46 +1654,11 @@ public final class AppStore: ObservableObject {
         return createdOrUpdated
     }
 
-    @discardableResult
-    public func addPageNote(
-        pageIndex: Int,
-        pageX: Double? = nil,
-        pageY: Double? = nil,
-        note: String = "",
-        color: HighlightColor? = nil,
-        in documentID: DocumentID,
-        undoManager: UndoManager? = nil
-    ) -> HighlightItem {
-        let chosenColor = color ?? defaultHighlightColor
-        if color != nil && defaultHighlightColor != chosenColor {
-            defaultHighlightColor = chosenColor
-        }
-        var list = highlightsByDocument[documentID.normalizedPath] ?? []
-        let item = HighlightItem(
-            pageIndex: pageIndex,
-            text: "",
-            color: chosenColor,
-            rects: [],
-            note: note,
-            pageX: pageX,
-            pageY: pageY
-        )
-        list.append(item)
-        Self.sortHighlights(&list)
-        applyHighlights(list, for: documentID, actionName: L10n.tr("添加页面笔记", "Add Page Note"), undoManager: undoManager)
-        return item
-    }
-
     public func updateHighlightNote(id: UUID, note: String?, in documentID: DocumentID, undoManager: UndoManager? = nil) {
         guard var list = highlightsByDocument[documentID.normalizedPath],
               let idx = list.firstIndex(where: { $0.id == id }) else { return }
         let trimmed = note?.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalized: String? = (trimmed?.isEmpty == false) ? trimmed : nil
-        if list[idx].isStandaloneNote && normalized == nil {
-            list.remove(at: idx)
-            applyHighlights(list, for: documentID, actionName: L10n.tr("删除笔记", "Delete Note"), undoManager: undoManager)
-            return
-        }
         guard list[idx].note != normalized else { return }
         let actionName: String
         if normalized == nil {

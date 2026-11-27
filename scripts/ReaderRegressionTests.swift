@@ -2987,7 +2987,7 @@ struct ReaderRegressionTests {
                   && hlStore.highlights(for: hlDocID).isEmpty,
                   "highlights follow Finder file renames via pruneMissingDocuments")
 
-            // Notes CRUD, Undo/Redo, and Persistence
+            // Notes CRUD, Undo/Redo, and Persistence on Highlights
             let targetHLID = hlStore.highlights(for: migratedID)[0].id
             hlTab.undoManager.beginUndoGrouping()
             hlStore.updateHighlightNote(id: targetHLID, note: "Key method takeaway", in: migratedID, undoManager: hlTab.undoManager)
@@ -3003,33 +3003,19 @@ struct ReaderRegressionTests {
             check(hlStore.highlights(for: migratedID).first(where: { $0.id == targetHLID })?.note == "Key method takeaway",
                   "redoing updateHighlightNote restores attached note")
 
-            hlTab.undoManager.beginUndoGrouping()
-            let pageNote = hlStore.addPageNote(pageIndex: 0, pageX: 120, pageY: 540, note: "Standalone summary note", in: migratedID, undoManager: hlTab.undoManager)
-            hlTab.undoManager.endUndoGrouping()
-            check(pageNote.isStandaloneNote
-                  && pageNote.anchorPoint == CGPoint(x: 120, y: 540)
-                  && hlStore.highlights(for: migratedID).contains(where: { $0.id == pageNote.id && $0.isStandaloneNote }),
-                  "addPageNote creates standalone page note with coordinates")
-
             let reloadedNotesStore = AppStore()
-            check(reloadedNotesStore.highlights(for: migratedID).first(where: { $0.id == targetHLID })?.note == "Key method takeaway"
-                  && reloadedNotesStore.highlights(for: migratedID).first(where: { $0.id == pageNote.id })?.note == "Standalone summary note",
-                  "attached highlight notes and standalone page notes persist across AppStore reloads")
+            check(reloadedNotesStore.highlights(for: migratedID).first(where: { $0.id == targetHLID })?.note == "Key method takeaway",
+                  "attached highlight notes persist across AppStore reloads")
 
-            // Clearing note on highlight preserves highlight; clearing note on standalone removes it
+            // Clearing note on highlight preserves highlight
             hlTab.undoManager.beginUndoGrouping()
             hlStore.updateHighlightNote(id: targetHLID, note: "   ", in: migratedID, undoManager: hlTab.undoManager)
             hlTab.undoManager.endUndoGrouping()
             check(hlStore.highlights(for: migratedID).contains(where: { $0.id == targetHLID && $0.note == nil }),
                   "clearing note on highlight preserves the highlight itself")
-            hlTab.undoManager.beginUndoGrouping()
-            hlStore.updateHighlightNote(id: pageNote.id, note: nil, in: migratedID, undoManager: hlTab.undoManager)
-            hlTab.undoManager.endUndoGrouping()
-            check(!hlStore.highlights(for: migratedID).contains(where: { $0.id == pageNote.id }),
-                  "clearing note on standalone note removes the empty standalone note")
 
-            check(ReaderSidebarTab.allCases == [.thumbnails, .outline, .bookmarks, .annotations],
-                  "ReaderSidebarTab exposes clean 4-tab structure (Thumbnails, Outline, Bookmarks, Annotations)")
+            check(ReaderSidebarTab.allCases == [.thumbnails, .outline, .bookmarks],
+                  "ReaderSidebarTab keeps consolidated 3-tab structure")
 
             // arXiv rotated left-margin stamp exclusion
             let arxivPDFData: Data = {

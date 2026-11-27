@@ -473,20 +473,6 @@ struct ReaderMenuCommands: Commands {
             .keyboardShortcut("4", modifiers: [.control, .command])
             .disabled(store.activeDocumentTab == nil)
 
-            Toggle(L10n.tr("批注", "Annotations"), isOn: Binding(
-                get: {
-                    guard let tab = store.activeDocumentTab else { return false }
-                    return tab.isLeftSidebarVisible && tab.activeSidebarTab == .annotations
-                },
-                set: { _ in
-                    withAnimation(AppAnimation.panel) {
-                        store.showSidebarTab(.annotations)
-                    }
-                }
-            ))
-            .keyboardShortcut("5", modifiers: [.control, .command])
-            .disabled(store.activeDocumentTab == nil)
-
             Divider()
 
             // Page Layout Modes
